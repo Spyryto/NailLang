@@ -1,15 +1,15 @@
-# Come eseguire NailSeed — v0.18
+# Come eseguire NailSeed — v0.19
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.18/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.19/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
 ## Compilare e usare JS e PHP dalla CLI
 
 Prérequisiti: Haxe 4.3.x, Node.js, PHP 8. I target JS e PHP sono **compilazioni dell'interprete Haxe** (non traduzioni del file `.nail` in JS/PHP). Nella cartella della versione:
 
 ```sh
-cd v0.18
+cd v0.19
 haxe js.hxml
 haxe php.hxml
 node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/cookbook-start.nail","utf8")));'

@@ -18,37 +18,46 @@ class TypeChecker {
   var global:StringMap<TypeScheme>;
   var records:StringMap<Bool>;
   var sums:StringMap<Int>;
+  var sumCases:StringMap<Array<{name:String, arity:Int}>>;
+  var constructorOwners:StringMap<String>;
   var nextId:Int;
 
   public function new() {
-    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>(), new StringMap<Int>());
+    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>(), new StringMap<Int>(),
+      new StringMap<Array<{name:String, arity:Int}>>(), new StringMap<String>());
     solver.installPrimitives();
     global = solver.globals;
     records = solver.records;
     sums = solver.sums;
+    sumCases = solver.sumCases;
+    constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
   }
 
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String):Array<String> {
     var forms = new Parser(source).parse();
-    var solver = new Inference(nextId, global, records, sums);
+    var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
     records = solver.records;
     sums = solver.sums;
+    sumCases = solver.sumCases;
+    constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
     return inferred;
   }
 
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
-    var solver = new Inference(nextId, global, records, sums);
+    var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
     var inferred = solver.run(SyntaxBridge.forms(tree));
     global = solver.globals;
     records = solver.records;
     sums = solver.sums;
+    sumCases = solver.sumCases;
+    constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
     return inferred;
   }
@@ -64,13 +73,17 @@ class TypeChecker {
     for (name in records.keys()) instance.records.set(name, true);
     instance.sums = new StringMap<Int>();
     for (name in sums.keys()) instance.sums.set(name, sums.get(name));
+    instance.sumCases = new StringMap<Array<{name:String, arity:Int}>>();
+    for (name in sumCases.keys()) instance.sumCases.set(name, sumCases.get(name).copy());
+    instance.constructorOwners = new StringMap<String>();
+    for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
     return instance;
   }
 
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
-    return new Inference(nextId, global, records, sums).signature(name);
+    return new Inference(nextId, global, records, sums, sumCases, constructorOwners).signature(name);
   }
 
   public function names():Array<String> {
@@ -98,11 +111,15 @@ private class Inference {
   public var globals(default, null):StringMap<TypeScheme>;
   public var records(default, null):StringMap<Bool>;
   public var sums(default, null):StringMap<Int>;
+  public var sumCases(default, null):StringMap<Array<{name:String, arity:Int}>>;
+  public var constructorOwners(default, null):StringMap<String>;
   public var nextId(default, null):Int;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
-  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>, knownSums:StringMap<Int>) {
+  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>,
+      knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
+      knownOwners:StringMap<String>) {
     nextId = start;
     globals = new StringMap<TypeScheme>();
     for (name in initial.keys()) globals.set(name, initial.get(name));
@@ -110,6 +127,10 @@ private class Inference {
     for (name in knownRecords.keys()) records.set(name, true);
     sums = new StringMap<Int>();
     for (name in knownSums.keys()) sums.set(name, knownSums.get(name));
+    sumCases = new StringMap<Array<{name:String, arity:Int}>>();
+    for (name in knownCases.keys()) sumCases.set(name, knownCases.get(name).copy());
+    constructorOwners = new StringMap<String>();
+    for (name in knownOwners.keys()) constructorOwners.set(name, knownOwners.get(name));
   }
 
   function fresh():NType return TVariable(nextId++);
@@ -359,9 +380,10 @@ private class Inference {
     return output;
   }
 
-  /** Resolve a lowered . projection using the nominal receiver's type.
-      If no receiver type is known, a globally unique field can determine it;
-      otherwise ambiguity is reported instead of guessing. */
+  /** Dot syntax desugars to #recordGet receiver "field". The field
+      projection type follows the receiver's *nominal* record type. When an
+      unconstrained parameter is used, a unique field name can determine it;
+      shared field names are reported as ambiguous rather than guessed. */
   function projectField(receiver:NType, field:String):NType {
     var recordName:Null<String> = null;
     switch (prune(receiver)) {
@@ -381,9 +403,9 @@ private class Inference {
     var name:String = recordName;
     var accessor = globals.get(name + '.' + field);
     if (accessor == null) throw 'Type error: record ' + name + ' has no field ' + field;
-    var result = fresh();
-    unify(instantiate(accessor), fun(TRecord(name), result));
-    return result;
+    var fieldType = fresh();
+    unify(instantiate(accessor), fun(TRecord(name), fieldType));
+    return fieldType;
   }
 
   /** Hindley-Milner with explicit expression frames; let generalization stays at
@@ -481,7 +503,8 @@ private class Inference {
       TRecord(name);
   };
 
-  /** Atomic field type syntax. Generic recursive type applications follow later. */
+  /** Only atomic field types in this iteration. Parameters are lowercase names;
+      nominal recursive sums without parameters are supported. */
   function sumFieldType(name:String, self:String, parameterTypes:StringMap<NType>):NType {
     var generic = parameterTypes.get(name);
     if (generic != null) return generic;
@@ -496,12 +519,82 @@ private class Inference {
     };
   }
 
+  /** v0.19: recognize the exact private lowering shape emitted by both
+      parsers. This analysis doesn't extend the five-form expression AST.
+      It validates constructor ownership, bindings and full coverage before
+      ordinary Hindley-Milner inference runs. */
+  function validateMatches(expr:Expr):Void {
+    var pending:Array<Expr> = [expr];
+    while (pending.length > 0) {
+      var current = pending.pop();
+      switch (current) {
+        case Apply(Lambda('#nail_sum_subject_0', body), _):
+          var covered = new StringMap<Bool>();
+          var owner:Null<String> = null;
+          var branch:Expr = body;
+          var count = 0;
+          var finished = false;
+          while (!finished) {
+            switch (branch) {
+              case If(condition, yes, no):
+                var ctor:String = switch (condition) {
+                  case Apply(Var(predicate), Var('#nail_sum_subject_0'))
+                    if (StringTools.endsWith(predicate, '?')):
+                    predicate.substr(0, predicate.length - 1);
+                  case _: throw 'Type error: malformed algebraic match branch';
+                };
+                var foundOwner = constructorOwners.get(ctor);
+                if (foundOwner == null) throw 'Type error: unknown algebraic constructor ' + ctor;
+                if (owner == null) owner = foundOwner;
+                else if (owner != foundOwner) throw 'Type error: mixed constructors from ' + owner + ' and ' + foundOwner;
+                if (covered.exists(ctor)) throw 'Type error: duplicate constructor branch ' + ctor;
+                covered.set(ctor, true);
+                var specs = sumCases.get(foundOwner);
+                var expected = -1;
+                for (spec in specs) if (spec.name == ctor) expected = spec.arity;
+                if (expected < 0) throw 'Type error: unknown algebraic constructor ' + ctor;
+                var observed = 0;
+                var inner:Expr = yes;
+                var bindings = true;
+                while (bindings) {
+                  switch (inner) {
+                    case Apply(Lambda(_, rest), Apply(Var(getter), Var('#nail_sum_subject_0')))
+                      if (getter == ctor + '.' + observed):
+                      observed++;
+                      inner = rest;
+                    case _: bindings = false;
+                  }
+                }
+                if (observed != expected) throw 'Type error: constructor ' + ctor +
+                  ' expects ' + expected + ' match bindings but got ' + observed;
+                branch = no;
+                count++;
+              case Apply(Var('#sumFail'), Var('#nail_sum_subject_0')):
+                if (owner == null || count == 0) throw 'Type error: empty algebraic match';
+                var missing:Array<String> = [];
+                for (spec in sumCases.get(owner)) if (!covered.exists(spec.name)) missing.push(spec.name);
+                if (missing.length > 0) throw 'Type error: non-exhaustive match for ' + owner +
+                  ': missing ' + missing.join(', ');
+                finished = true;
+              case _: throw 'Type error: malformed algebraic match fallback';
+            }
+          }
+        case _:
+      }
+      switch (current) {
+        case Apply(fn, arg): pending.push(arg); pending.push(fn);
+        case Lambda(_, body): pending.push(body);
+        case If(condition, yes, no): pending.push(no); pending.push(yes); pending.push(condition);
+        case _:
+      }
+    }
+  }
+
   public function run(forms:Array<Form>):Array<String> {
     var inferred:Array<NType> = [];
     for (form in forms) switch (form) {
       case SumType(name, params, constructors):
-        if (globals.exists(name) || records.exists(name) || sums.exists(name))
-          throw 'Type error: already defined ' + name;
+        if (globals.exists(name) || records.exists(name) || sums.exists(name)) throw 'Type error: already defined ' + name;
         var polyArgs:Array<NType> = [];
         var parameterTypes = new StringMap<NType>();
         var quantified:Array<Int> = [];
@@ -522,8 +615,7 @@ private class Inference {
           used.set(ctor.name, true);
           var args:Array<NType> = [];
           for (fieldName in ctor.fieldTypes) {
-            if (fieldName == name && params.length > 0)
-              throw 'Type error: parameterized recursive sum fields require explicit application';
+            if (fieldName == name && params.length > 0) throw 'Type error: parameterized recursive sum fields require explicit application';
             args.push(sumFieldType(fieldName, name, parameterTypes));
           }
           var ctorType:NType = sumType;
@@ -535,9 +627,10 @@ private class Inference {
             signature:poly(fun(sumType, args[i]), quantified)});
         }
         if (constructors.length == 0) throw 'Type error: empty algebraic sum';
-        for (entry in proposed) if (globals.exists(entry.name))
-          throw 'Type error: already defined ' + entry.name;
+        for (entry in proposed) if (globals.exists(entry.name)) throw 'Type error: already defined ' + entry.name;
         sums.set(name, params.length);
+        sumCases.set(name, [for (ctor in constructors) {name:ctor.name, arity:ctor.fieldTypes.length}]);
+        for (ctor in constructors) constructorOwners.set(ctor.name, name);
         for (entry in proposed) globals.set(entry.name, entry.signature);
       case RecordType(name, fields):
         if (globals.exists(name) || records.exists(name) || sums.exists(name)) throw 'Type error: already defined ' + name;
@@ -571,10 +664,13 @@ private class Inference {
         var provisional = fresh();
         var env = scopeCopy(globals);
         env.set(name, mono(provisional));
+        validateMatches(expr);
         var t = infer(expr, env);
         unify(provisional, t);
         globals.set(name, generalize(t, globals));
-      case Evaluate(expr): inferred.push(infer(expr, globals));
+      case Evaluate(expr):
+        validateMatches(expr);
+        inferred.push(infer(expr, globals));
     }
     return [for (t in inferred) describe(t)];
   }

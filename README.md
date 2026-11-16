@@ -1,35 +1,48 @@
-# NailSeed v0.18 — Algebraic data types (Haxe-first experiment)
+# NailSeed v0.19 — ADTs in Nail + exhaustive pattern checks
 
-The next data-model step after [v0.17.2](../v0.17.2/) adds **nominal parameterized sum types**, curried constructors and constructor pattern matching:
+This version advances [v0.18](../v0.18/): the **Nail-written parser and bytecode compiler** now support algebraic sums and constructor matches. The Haxe type checker rejects missing alternatives, wrong binding arity, and mixed-type branches.
 
 ```nail
 type Option a = None | Some a ;
-def valueOrZero o = match o with | None -> 0 | Some n -> n ;
+def valueOrZero option = match option with
+  | None -> 0
+  | Some value -> value ;
 valueOrZero ( Some 9 ) ;
 
 type Result a e = Ok a | Error e ;
 ```
 
-A non-generic recursive type is also possible:
+A non-exhaustive `match` now reports a static error when checked:
 
 ```nail
-type Tree = Leaf Number | Branch Tree Tree ;
+type Option a = None | Some a ;
+match ( Some 1 ) with | Some value -> value ;
+# Type error: non-exhaustive match for Option: missing None
 ```
 
-The five core AST expressions and bytecode instruction set remain unchanged. Variants reuse the immutable nominal Record value representation with private `#tag` and positional keys. The only new primitive is the private `#sumFail`, used for unmatched cases.
+## Implementation
 
-**Scope boundary:** The Haxe reference parser/compiler, AST VM, bytecode VM and Hindley–Milner checker implement this feature on the JS and PHP targets. The **self-hosted Nail parser/compiler is not yet updated for sum declarations**, so the precompiled bootstrap in this iteration only supports the preceding language subset. This is a deliberately staged extension, *not* full self-hosted ADTs.
+- `stdlib.nail`: tokenizer/Pratt parser for `SumType`, constructor match lowering, generated constructor functions, discriminators and positional getters, and bytecode generation — **implemented in Nail**.
+- `TypeChecker.hx`: constructor registry and a host-stack-safe AST walk that recognizes the private lowering of a sum match, verifies exhaustiveness, tag ownership, and payload binding arity. It runs for both `check()` and `checkSyntax()` and persists transactionally across successful incremental checks.
+- The five core expression constructors (`Literal`, `Var`, `Lambda`, `Apply`, `If`) and the structured bytecode ISA remain unchanged. Tagged values still use the nominal immutable `Record` representation.
+- `AlgebraicSelfTestMain.hx`: syntax-equivalent parser results, byte-for-byte equivalent bytecode from Nail and Haxe, ByteVM execution, bootstrap without the Haxe parser, inferred types, incomplete matches, and regression errors on Haxe/JS/PHP.
 
-The checker infers `Some : a -> Option[a]`, `None : Option[a]`, `Ok : a -> Result[a,b]`, and validates bindings in match arms. **Exhaustiveness is not yet statically enforced**; unmatched variants throw. Constructor field types are atomic names; parameterized recursive ADTs and nested applied field types await a richer grammar. Constructors have globally unique names.
+`person . name` remains the surface record projection; `Person.name` remains the internal getter convention. The exact-number v0.16 experiment remains separate.
 
-User-facing record access remains `person . name`, internally `Person.name`. Exact rational numbers remain a separate v0.16 lab.
+## Limitations
 
-## Test all three targets
+- Constructor field types remain single tokens: e.g. `Some a` but not `Some ( Option a )`. Parameterized recursive sum types are not yet supported.
+- Constructor names are global and unique. Nested pattern syntax, record destructuring, and catch-all variants are deferred.
+- Exhaustiveness is checked by the optional **Haxe Hindley–Milner checker** (including `checkSyntax()` for Nail-produced trees). The Nail-written compiler itself does not yet type-check; callers that skip checking can still reach the existing runtime `#sumFail` safeguard.
+- The full Nail self-parser/bytecode pipeline is correctness-first, not a performance optimization.
+
+## Test
 
 ```sh
-haxe sum-test-interp.hxml
-haxe sum-test-js.hxml && node build/tests/sums.js
-haxe sum-test-php.hxml && php build/tests/php-sums/index.php
+haxe seed-image.hxml
+haxe algebraic-self-test-interp.hxml
+haxe algebraic-self-test-js.hxml && node build/tests/adt-self.js
+haxe algebraic-self-test-php.hxml && php build/tests/php-adt-self/index.php
 ```
 
-The workflow also runs all inherited regressions and the existing Nail bootstrap checks.
+The v0.19 CI also runs all inherited regression suites and rebootstrap fixed-point verification.

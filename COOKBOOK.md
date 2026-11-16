@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.18
+# Nail Cookbook — v0.19
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,7 +24,7 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Tipi somma algebrici
+## Ricetta 3 — ADT nel parser/compilatore Nail
 
 ```nail
 type Option a = None | Some a ;
@@ -32,7 +32,7 @@ def valueOrZero o = match o with | None -> 0 | Some n -> n ;
 valueOrZero ( Some 9 ) ;
 ```
 
-Costruttori curried, varianti nominali e pattern matching sul tipo somma.
+Il parser e il compilatore scritti in Nail gestiscono i costruttori; il checker controlla esaustività e arità.
 
 ## Allenamento: studiare l'implementazione
 

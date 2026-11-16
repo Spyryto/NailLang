@@ -258,12 +258,85 @@ def lowerListMatch scrutinee emptyBranch pairBranch =
         ( head ( syntaxChildren emptyBranch ) ) pair ) )
     scrutinee ;
 
+# Predicate used by both algebraic and record declarations. Define it before
+# the self parser's branches to keep top-level HM checking sequential.
+def isRecordTypeName name =
+  if isIdentifier name then textContainsAt " ABCDEFGHIJKLMNOPQRSTUVWXYZ " ( textAt name 0 ) 0
+  else false ;
+
+# A variant pattern uses a constructor followed by positional binding names.
+def parseSumBranch recur tokens =
+  let ctor = parsePeek tokens in
+  if isRecordTypeName ctor then
+    let params = parseParams " -> " ( tail tokens ) [] in
+    if parseFailed params then params
+    else let body = recur 0 ( parseRest params ) in
+      if parseFailed body then body
+      else parsePair
+        ( syntaxNode " SumBranch " [ syntaxName ctor , parseTree params , parseTree body ] )
+        ( parseRest body )
+  else parseError " Expected algebraic constructor " ;
+
+def sumBranchExists branches ctor =
+  match branches with
+  | [] -> false
+  | branch :: rest ->
+    if syntaxText ( head ( syntaxChildren branch ) ) == ctor then true
+    else sumBranchExists rest ctor ;
+
+def parseSumBranches recur tokens reversed =
+  if parsePeek tokens != " | " then
+    if isEmpty reversed then parseError " Expected variant branch "
+    else parsePair ( syntaxNode " SumBranches " ( reverse reversed ) ) tokens
+  else let branch = parseSumBranch recur ( tail tokens ) in
+    if parseFailed branch then branch
+    else let ctor = syntaxText ( head ( syntaxChildren ( parseTree branch ) ) ) in
+      if sumBranchExists reversed ctor then parseError " Duplicate variant branch "
+      else parseSumBranches recur ( parseRest branch ) ( cons ( parseTree branch ) reversed ) ;
+
+# In v0.18 constructor payload arity is limited to ten, so textAt supplies
+# the canonical field index without a Number-to-Text conversion primitive.
+def sumIndex i = textAt " 0123456789 " i ;
+def lowerSumBinds params ctor index body receiver =
+  match params with
+  | [] -> body
+  | param :: rest ->
+    let label = syntaxText param in
+    let name = if label == " _ " then textConcat " #nail_wild_sum_ " ( sumIndex index ) else label in
+    syntaxApply
+      ( syntaxLambda name ( lowerSumBinds rest ctor ( index + 1 ) body receiver ) )
+      ( syntaxApply ( syntaxVar ( textConcat ( textConcat ctor " . " ) ( sumIndex index ) ) ) receiver ) ;
+
+def lowerSumBranches branches receiver =
+  match branches with
+  | [] -> syntaxApply ( syntaxVar " #sumFail " ) receiver
+  | branch :: rest ->
+    let parts = syntaxChildren branch in
+    let ctor = syntaxText ( head parts ) in
+    let params = syntaxChildren ( head ( tail parts ) ) in
+    let body = head ( tail ( tail parts ) ) in
+    syntaxIf
+      ( syntaxApply ( syntaxVar ( textConcat ctor " ? " ) ) receiver )
+      ( lowerSumBinds params ctor 0 body receiver )
+      ( lowerSumBranches rest receiver ) ;
+
+def lowerSumMatch scrutinee branches =
+  let variable = syntaxVar " #nail_sum_subject_0 " in
+  syntaxApply
+    ( syntaxLambda " #nail_sum_subject_0 " ( lowerSumBranches branches variable ) ) scrutinee ;
+
 def parseListMatch recur tokens =
   let scrutinee = recur 0 tokens in
   if parseFailed scrutinee then scrutinee
   else if parsePeek ( parseRest scrutinee ) != " with " then parseError " Expected with "
   else let start = tail ( parseRest scrutinee ) in
     if parsePeek start != " | " then parseError " Expected | "
+    else if isRecordTypeName ( parsePeek ( tail start ) ) then
+      let branches = parseSumBranches recur start [] in
+      if parseFailed branches then branches
+      else parsePair
+        ( lowerSumMatch ( parseTree scrutinee ) ( syntaxChildren ( parseTree branches ) ) )
+        ( parseRest branches )
     else let first = parseListBranch recur ( tail start ) in
       if parseFailed first then first
       else if parsePeek ( parseRest first ) != " | " then parseError " Expected second | "
@@ -326,8 +399,7 @@ def parsePrefix recur tokens =
     else if isIdentifier word then parsePair ( syntaxVar word ) remaining
     else parseError ( textConcat " Unexpected token: " word ) ;
 
-# Distinguish a punctuation token from a quoted string containing ".".
-# parsePeek returns only text, so examining the token tag is essential.
+# Distinguish punctuation from a StringToken containing ".".
 def isDotOperator tokens =
   if isEmpty tokens then false
   else if syntaxTag ( head tokens ) == " Token " then parsePeek tokens == " . "
@@ -408,10 +480,6 @@ def parseRecordFields tokens reversed =
       else parseError " Expected field type "
     else parseError " Expected field name " ;
 
-def isRecordTypeName name =
-  if isIdentifier name then textContainsAt " ABCDEFGHIJKLMNOPQRSTUVWXYZ " ( textAt name 0 ) 0
-  else false ;
-
 def parseRecordDefinition tokens =
   let name = parsePeek tokens in
   if isRecordTypeName name then
@@ -426,8 +494,49 @@ def parseRecordDefinition tokens =
     else parseError " Expected { in record "
   else parseError " Expected record type name " ;
 
+# Closed sum declarations: type Option a = None | Some a ;
+# Each field currently occupies one type token; nested applied types follow later.
+def parseSumCtorFields tokens reversed =
+  if parsePeek tokens == " | " then parsePair ( syntaxNode " Args " ( reverse reversed ) ) tokens
+  else if parsePeek tokens == " ; " then parsePair ( syntaxNode " Args " ( reverse reversed ) ) tokens
+  else let ty = parsePeek tokens in
+    if isIdentifier ty then
+      if length reversed >= 10 then parseError " Too many constructor fields "
+      else parseSumCtorFields ( tail tokens ) ( cons ( syntaxLeaf " Type " ty ) reversed )
+    else parseError " Invalid algebraic field type " ;
+
+def parseSumCtors tokens reversed =
+  let ctor = parsePeek tokens in
+  if isRecordTypeName ctor then
+    let fields = parseSumCtorFields ( tail tokens ) [] in
+    if parseFailed fields then fields
+    else let node = syntaxNode " Constructor " [ syntaxName ctor , parseTree fields ] in
+      let rest = parseRest fields in
+      if parsePeek rest == " | " then
+        parseSumCtors ( tail rest ) ( cons node reversed )
+      else if parsePeek rest == " ; " then
+        parsePair ( syntaxNode " Constructors " ( reverse ( cons node reversed ) ) ) ( tail rest )
+      else parseError " Expected | or ; after constructor "
+  else parseError " Expected constructor name " ;
+
+def parseSumDefinition tokens =
+  let name = parsePeek tokens in
+  if isRecordTypeName name then
+    let params = parseParams " = " ( tail tokens ) [] in
+    if parseFailed params then params
+    else let ctors = parseSumCtors ( parseRest params ) [] in
+      if parseFailed ctors then ctors
+      else parsePair
+        ( syntaxNode " SumType " [ syntaxName name , parseTree params , parseTree ctors ] )
+        ( parseRest ctors )
+  else parseError " Expected algebraic type name " ;
+
+def parseTypeDefinition tokens =
+  if parsePeek ( tail tokens ) == " { " then parseRecordDefinition tokens
+  else parseSumDefinition tokens ;
+
 def parseForm tokens =
-  if parsePeek tokens == " type " then parseRecordDefinition ( tail tokens )
+  if parsePeek tokens == " type " then parseTypeDefinition ( tail tokens )
   else if parsePeek tokens == " def " then parseDefinition ( tail tokens )
   else let expression = parseAt 0 tokens in
     if parseFailed expression then expression
@@ -593,6 +702,77 @@ def compileRecordType form =
     ( map ( fun field -> recordAccessor name field ) fields ) ;
 
 
+# Algebraic variants share the Record representation. Tag and positional
+# fields are private: source programs use constructors and match patterns.
+def sumCtorName ctor = syntaxText ( head ( syntaxChildren ctor ) ) ;
+def sumCtorFields ctor = syntaxChildren ( head ( tail ( syntaxChildren ctor ) ) ) ;
+def sumArgumentNames fields i =
+  match fields with
+  | [] -> []
+  | field :: rest -> cons ( syntaxName ( textConcat " #arg " ( sumIndex i ) ) )
+    ( sumArgumentNames rest ( i + 1 ) ) ;
+def sumArgumentValues fields i =
+  match fields with
+  | [] -> []
+  | field :: rest -> cons ( syntaxVar ( textConcat " #arg " ( sumIndex i ) ) )
+    ( sumArgumentValues rest ( i + 1 ) ) ;
+def sumFieldNames fields i =
+  match fields with
+  | [] -> []
+  | field :: rest -> cons ( syntaxLiteral " Text " ( textConcat " # " ( sumIndex i ) ) )
+    ( sumFieldNames rest ( i + 1 ) ) ;
+
+def sumConstructor owner ctor =
+  let name = sumCtorName ctor in
+  let fields = sumCtorFields ctor in
+  let params = sumArgumentNames fields 0 in
+  let names = cons ( syntaxLiteral " Text " " #tag " ) ( sumFieldNames fields 0 ) in
+  let values = cons ( syntaxLiteral " Text " name ) ( sumArgumentValues fields 0 ) in
+  let make = syntaxApply
+    ( syntaxApply ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " owner ) )
+      ( syntaxList ( reverse names ) ) )
+    ( syntaxList ( reverse values ) ) in
+  parseLambdaWrap params make ;
+
+def sumReceiver = syntaxVar " #sum " ;
+def sumGet key = syntaxApply
+  ( syntaxApply ( syntaxVar " #recordGet " ) sumReceiver )
+  ( syntaxLiteral " Text " key ) ;
+def sumPredicate name =
+  syntaxLambda " #sum "
+    ( syntaxBinary " == " ( sumGet " #tag " ) ( syntaxLiteral " Text " name ) ) ;
+def sumAccessor name i =
+  syntaxLambda " #sum "
+    ( syntaxIf
+      ( syntaxApply ( syntaxVar ( textConcat name " ? " ) ) sumReceiver )
+      ( sumGet ( textConcat " # " ( sumIndex i ) ) )
+      ( syntaxApply ( syntaxVar " #sumFail " ) sumReceiver ) ) ;
+
+def sumAccessors name fields i =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    cons
+      ( bcInstruction2 " DEFINE "
+        ( syntaxName ( textConcat ( textConcat name " . " ) ( sumIndex i ) ) )
+        ( bcCode ( compileTail ( sumAccessor name i ) ) ) )
+      ( sumAccessors name rest ( i + 1 ) ) ;
+
+def sumDefinitions owner ctor =
+  let name = sumCtorName ctor in
+  append
+    [ bcInstruction2 " DEFINE " ( syntaxName name )
+        ( bcCode ( compileTail ( sumConstructor owner ctor ) ) ) ,
+      bcInstruction2 " DEFINE " ( syntaxName ( textConcat name " ? " ) )
+        ( bcCode ( compileTail ( sumPredicate name ) ) ) ]
+    ( sumAccessors name ( sumCtorFields ctor ) 0 ) ;
+
+def compileSumType form =
+  let parts = syntaxChildren form in
+  let owner = syntaxText ( head parts ) in
+  let constructors = syntaxChildren ( head ( tail ( tail parts ) ) ) in
+  fold ( fun acc ctor -> append acc ( sumDefinitions owner ctor ) ) [] constructors ;
+
 def compileForm form =
   let parts = syntaxChildren form in
   if syntaxTag form == " Define " then
@@ -609,6 +789,8 @@ def compileForms forms =
   | form :: rest ->
     if syntaxTag form == " RecordType " then
       append ( compileRecordType form ) ( compileForms rest )
+    else if syntaxTag form == " SumType " then
+      append ( compileSumType form ) ( compileForms rest )
     else cons ( compileForm form ) ( compileForms rest ) ;
 
 def compileSyntax program =
