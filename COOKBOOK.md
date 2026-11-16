@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.15
+# Nail Cookbook — v0.17
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Self-rebootstrap deterministico
+## Ricetta 3 — Record nominali immutabili
 
 ```nail
-def twice x = x * 2 ;
-twice 21 ;
+type Person { name Text age Number } ;
+def ada = Person " Ada " 32 ;
+Person_age ada ;
 ```
 
-Il compilatore Nail rigenera la propria immagine bytecode; l'invariante testato riguarda l'equivalenza dei record emessi.
+La dichiarazione genera costruttore e getter; l'accesso per proiezione non è ancora previsto.
 
 ## Allenamento: studiare l'implementazione
 

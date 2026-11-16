@@ -5,6 +5,7 @@ enum NType {
   TNumber;
   TBoolean;
   TText;
+  TRecord(name:String);
   TSyntax;
   TList(element:NType);
   TFunction(argument:NType, result:NType);

@@ -10,6 +10,7 @@ class Parser {
   var at:Int = 0;
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
+  static final recordTypePattern = ~/^[A-Z][A-Za-z_0-9]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
   static final spacePattern = ~/\s+/g;
 
@@ -52,7 +53,7 @@ class Parser {
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
-      case 'def' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
+      case 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
     };
   }
@@ -220,10 +221,35 @@ class Parser {
     return left;
   }
 
+  /** Only simple named fields and previously declared record types in v0.17. */
+  function parseRecordType():Form {
+    var typeName = take();
+    if (!isName(typeName) || !recordTypePattern.match(typeName))
+      throw 'Expected uppercase record type name';
+    expect('{');
+    var fields:Array<nail.Ast.RecordField> = [];
+    while (peek() != '}') {
+      var fieldName = take();
+      if (!isName(fieldName) || fieldName == '_') throw 'Expected record field name';
+      var fieldType = take();
+      if (!isName(fieldType)) throw 'Expected record field type';
+      for (item in fields) if (item.name == fieldName) throw 'Duplicate record field ' + fieldName;
+      fields.push({name:fieldName, typeName:fieldType});
+      if (fields.length > 128) throw 'Too many record fields';
+    }
+    expect('}');
+    expect(';');
+    if (fields.length == 0) throw 'Record requires at least one field';
+    return RecordType(typeName, fields);
+  }
+
   public function parse():Array<Form> {
     var forms:Array<Form> = [];
     while (peek() != null) {
-      if (peek() == 'def') {
+      if (peek() == 'type') {
+        take();
+        forms.push(parseRecordType());
+      } else if (peek() == 'def') {
         take();
         var name = take();
         if (!isName(name)) throw 'Expected definition name';

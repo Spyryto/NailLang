@@ -22,9 +22,10 @@ class Vm {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
     root = new Env();
-    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
+    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', '#recordGet', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
       root.bind(name, Native(name, 2, []));
     for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
+    root.bind('#recordMake', Native('#recordMake', 3, []));
     root.bind('nil', Nil);
   }
 
@@ -77,6 +78,16 @@ class Vm {
       case [SyntaxLeaf(tx, x), SyntaxLeaf(ty, y)]: tx == ty && x == y;
       case [SyntaxNode(tx, xs), SyntaxNode(ty, ys)]: tx == ty && equal(xs, ys);
       case [Nil, Nil]: true;
+      case [Record(nx, xs), Record(ny, ys)]:
+        if (nx != ny) false;
+        else {
+          var same = true;
+          for (key in xs.keys()) {
+            if (!ys.exists(key) || !equal(xs.get(key), ys.get(key))) same = false;
+          }
+          for (key in ys.keys()) if (!xs.exists(key)) same = false;
+          same;
+        }
       case [Cons(x, xs), Cons(y, ys)]: equal(x, y) && equal(xs, ys);
       case [Nil, Cons(_, _)] | [Cons(_, _), Nil]: false;
       case _: throw 'Cannot compare these values';
@@ -119,6 +130,39 @@ class Vm {
       case '>=': Boolean(number(a) >= number(b));
       case '==': Boolean(equal(a, b));
       case '!=': Boolean(!equal(a, b));
+      case '#recordMake':
+        var label = text(a);
+        var names:Array<String> = [];
+        var values:Array<Value> = [];
+        var cursor = b;
+        var collecting = true;
+        while (collecting) switch (cursor) {
+          case Nil: collecting = false;
+          case Cons(item, rest): names.push(text(item)); cursor = rest;
+          case _: throw 'Expected list of record field names';
+        }
+        cursor = args[2];
+        collecting = true;
+        while (collecting) switch (cursor) {
+          case Nil: collecting = false;
+          case Cons(item, rest): values.push(item); cursor = rest;
+          case _: throw 'Expected list of record field values';
+        }
+        if (names.length != values.length) throw 'Record field count mismatch';
+        var fields = new haxe.ds.StringMap<Value>();
+        for (i in 0...names.length) {
+          if (fields.exists(names[i])) throw 'Duplicate record field ' + names[i];
+          fields.set(names[i], values[i]);
+        }
+        Record(label, fields);
+      case '#recordGet':
+        var key = text(b);
+        switch (a) {
+          case Record(_, fields):
+            if (!fields.exists(key)) throw 'Unknown record field: ' + key;
+            fields.get(key);
+          case _: throw 'Expected record';
+        }
       case 'textLength': Number(text(a).length);
       case 'textAt':
         var source = text(a);
@@ -237,6 +281,13 @@ class Vm {
     var output:Array<Value> = [];
     for (form in forms) {
       switch (form) {
+        case RecordType(name, fields):
+          for (definition in RecordLowering.definitions(name, fields)) switch (definition) {
+            case Define(generatedName, body):
+              if (root.hasHere(generatedName)) throw 'Already defined: ' + generatedName;
+              root.bind(generatedName, evaluate(body, root));
+            case _: throw 'Invalid record lowering';
+          }
         case Define(name, body):
           if (root.hasHere(name)) throw 'Already defined: ' + name;
           var value = evaluate(body, root);
@@ -308,6 +359,11 @@ class Vm {
       case Number(n): n;
       case Boolean(b): b;
       case Text(s): s;
+      case Record(typeName, fields):
+        var data:Dynamic = {};
+        Reflect.setField(data, "$type", typeName);
+        for (name in fields.keys()) Reflect.setField(data, name, toPlain(fields.get(name)));
+        data;
       case SyntaxLeaf(kind, value): {tag:kind, value:value};
       case SyntaxNode(kind, children): {tag:kind, children:toPlain(children)};
       case Nil: ([] : Array<Dynamic>);

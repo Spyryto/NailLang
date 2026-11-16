@@ -109,7 +109,8 @@ def isIdentTail source i =
     else if isDigit ch then isIdentTail source ( i + 1 )
     else false ;
 def isReserved word =
-  if word == " def " then true
+  if word == " type " then true
+  else if word == " def " then true
   else if word == " let " then true
   else if word == " in " then true
   else if word == " if " then true
@@ -360,8 +361,54 @@ def parseDefinition tokens =
           ( tail ( parseRest body ) )
     else parseError " Expected definition name " ;
 
+# v0.17: record declarations are type-aware syntax sugar. Parser and compiler
+# live in Nail: RecordType becomes ordinary DEFINE forms, not an opcode.
+
+def recordFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
+def recordFieldExists fields name =
+  match fields with
+  | [] -> false
+  | field :: rest ->
+    if recordFieldName field == name then true
+    else recordFieldExists rest name ;
+
+def parseRecordFields tokens reversed =
+  if isEmpty tokens then parseError " Missing } in record "
+  else if parsePeek tokens == " } " then
+    if isEmpty reversed then parseError " Record requires a field "
+    else parsePair ( syntaxNode " Fields " ( reverse reversed ) ) ( tail tokens )
+  else let name = parsePeek tokens in
+    if isIdentifier name then
+      let rest = tail tokens in
+      let kind = parsePeek rest in
+      if isIdentifier kind then
+        if recordFieldExists reversed name then parseError " Duplicate record field "
+        else parseRecordFields ( tail rest )
+          ( cons ( syntaxNode " Field " [ syntaxName name , syntaxLeaf " Type " kind ] ) reversed )
+      else parseError " Expected field type "
+    else parseError " Expected field name " ;
+
+def isRecordTypeName name =
+  if isIdentifier name then textContainsAt " ABCDEFGHIJKLMNOPQRSTUVWXYZ " ( textAt name 0 ) 0
+  else false ;
+
+def parseRecordDefinition tokens =
+  let name = parsePeek tokens in
+  if isRecordTypeName name then
+    let rest = tail tokens in
+    if parsePeek rest == " { " then
+      let fields = parseRecordFields ( tail rest ) [] in
+      if parseFailed fields then fields
+      else if parsePeek ( parseRest fields ) != " ; " then parseError " Expected ; after record "
+      else parsePair
+        ( syntaxNode " RecordType " [ syntaxName name , parseTree fields ] )
+        ( tail ( parseRest fields ) )
+    else parseError " Expected { in record "
+  else parseError " Expected record type name " ;
+
 def parseForm tokens =
-  if parsePeek tokens == " def " then parseDefinition ( tail tokens )
+  if parsePeek tokens == " type " then parseRecordDefinition ( tail tokens )
+  else if parsePeek tokens == " def " then parseDefinition ( tail tokens )
   else let expression = parseAt 0 tokens in
     if parseFailed expression then expression
     else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
@@ -497,6 +544,35 @@ def compileGo tree tailMode =
 def compileExpr tree = compileGo tree false ;
 def compileTail tree = compileGo tree true ;
 
+def recordConstructor name fields =
+  let params = map ( fun field -> syntaxName ( recordFieldName field ) ) fields in
+  let names = map ( fun field -> syntaxLiteral " Text " ( recordFieldName field ) ) fields in
+  let vals = map ( fun field -> syntaxVar ( recordFieldName field ) ) fields in
+  let make = syntaxApply
+    ( syntaxApply
+      ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " name ) )
+      ( syntaxList ( reverse names ) ) )
+    ( syntaxList ( reverse vals ) ) in
+  parseLambdaWrap params make ;
+
+def recordAccessor name field =
+  let fname = recordFieldName field in
+  let getter = textConcat ( textConcat name " _ " ) fname in
+  let body = syntaxLambda " #rec "
+    ( syntaxApply
+      ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar " #rec " ) )
+      ( syntaxLiteral " Text " fname ) ) in
+  bcInstruction2 " DEFINE " ( syntaxName getter ) ( bcCode ( compileTail body ) ) ;
+
+def compileRecordType form =
+  let parts = syntaxChildren form in
+  let name = syntaxText ( head parts ) in
+  let fields = syntaxChildren ( head ( tail parts ) ) in
+  cons ( bcInstruction2 " DEFINE " ( syntaxName name )
+    ( bcCode ( compileTail ( recordConstructor name fields ) ) ) )
+    ( map ( fun field -> recordAccessor name field ) fields ) ;
+
+
 def compileForm form =
   let parts = syntaxChildren form in
   if syntaxTag form == " Define " then
@@ -510,7 +586,10 @@ def compileForm form =
 def compileForms forms =
   match forms with
   | [] -> []
-  | form :: rest -> cons ( compileForm form ) ( compileForms rest ) ;
+  | form :: rest ->
+    if syntaxTag form == " RecordType " then
+      append ( compileRecordType form ) ( compileForms rest )
+    else cons ( compileForm form ) ( compileForms rest ) ;
 
 def compileSyntax program =
   if syntaxTag program == " Program " then

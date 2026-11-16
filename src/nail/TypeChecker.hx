@@ -16,31 +16,35 @@ import nail.Value;
  */
 class TypeChecker {
   var global:StringMap<TypeScheme>;
+  var records:StringMap<Bool>;
   var nextId:Int;
 
   public function new() {
-    var solver = new Inference(0, new StringMap<TypeScheme>());
+    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>());
     solver.installPrimitives();
     global = solver.globals;
+    records = solver.records;
     nextId = solver.nextId;
   }
 
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String):Array<String> {
     var forms = new Parser(source).parse();
-    var solver = new Inference(nextId, global);
+    var solver = new Inference(nextId, global, records);
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
+    records = solver.records;
     nextId = solver.nextId;
     return inferred;
   }
 
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
-    var solver = new Inference(nextId, global);
+    var solver = new Inference(nextId, global, records);
     var inferred = solver.run(SyntaxBridge.forms(tree));
     global = solver.globals;
+    records = solver.records;
     nextId = solver.nextId;
     return inferred;
   }
@@ -52,13 +56,15 @@ class TypeChecker {
     var instance = new TypeChecker();
     instance.global = new StringMap<TypeScheme>();
     for (name in global.keys()) instance.global.set(name, global.get(name));
+    instance.records = new StringMap<Bool>();
+    for (name in records.keys()) instance.records.set(name, true);
     instance.nextId = nextId;
     return instance;
   }
 
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
-    return new Inference(nextId, global).signature(name);
+    return new Inference(nextId, global, records).signature(name);
   }
 
   public function names():Array<String> {
@@ -84,14 +90,17 @@ private class InferFrame {
 /** Per-call unifier and program checker. It only mutates its private copy of globals. */
 private class Inference {
   public var globals(default, null):StringMap<TypeScheme>;
+  public var records(default, null):StringMap<Bool>;
   public var nextId(default, null):Int;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
-  public function new(start:Int, initial:StringMap<TypeScheme>) {
+  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>) {
     nextId = start;
     globals = new StringMap<TypeScheme>();
     for (name in initial.keys()) globals.set(name, initial.get(name));
+    records = new StringMap<Bool>();
+    for (name in knownRecords.keys()) records.set(name, true);
   }
 
   function fresh():NType return TVariable(nextId++);
@@ -168,7 +177,7 @@ private class Inference {
     var stack:Array<NType> = [ty];
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
-        case TNumber | TBoolean | TText | TSyntax:
+        case TNumber | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a): stack.push(a);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
@@ -196,6 +205,7 @@ private class Inference {
         case [TVariable(i), _]: bindVariable(i, b);
         case [_, TVariable(j)]: bindVariable(j, a);
         case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
+        case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
         case [TList(x), TList(y)]: stack.push({a:x, b:y});
         case [TFunction(a1, b1), TFunction(a2, b2)]:
           stack.push({a:b1, b:b2});
@@ -394,9 +404,43 @@ private class Inference {
     return results.pop();
   }
 
+  function fieldType(name:String):NType return switch (name) {
+    case 'Number': TNumber;
+    case 'Bool': TBoolean;
+    case 'Text' | 'String': TText;
+    case _: if (!records.exists(name)) throw 'Type error: unknown record field type ' + name;
+      TRecord(name);
+  };
+
   public function run(forms:Array<Form>):Array<String> {
     var inferred:Array<NType> = [];
     for (form in forms) switch (form) {
+      case RecordType(name, fields):
+        if (globals.exists(name) || records.exists(name)) throw 'Type error: already defined ' + name;
+        if (fields.length == 0 || fields.length > 128) throw 'Type error: invalid record field count';
+        var result:NType = TRecord(name);
+        var accessors:Array<{name:String, ty:NType}> = [];
+        // Names must be checked before any mutation. Forward/self-reference is
+        // postponed until algebraic types, so the field set is finite/acyclic.
+        var used = new StringMap<Bool>();
+        for (field in fields) {
+          if (used.exists(field.name)) throw 'Type error: duplicate record field ' + field.name;
+          used.set(field.name, true);
+          var getter = name + '_' + field.name;
+          if (globals.exists(getter)) throw 'Type error: already defined ' + getter;
+          var ty = fieldType(field.typeName);
+          accessors.push({name:getter, ty:fun(result, ty)});
+        }
+        var constructor:NType = result;
+        var i = accessors.length;
+        while (i > 0) {
+          i--;
+          // getter type is Record -> Field; re-use the parsed field position.
+          constructor = fun(fieldType(fields[i].typeName), constructor);
+        }
+        globals.set(name, mono(constructor));
+        for (entry in accessors) globals.set(entry.name, mono(entry.ty));
+        records.set(name, true);
       case Define(name, expr):
         if (globals.exists(name)) throw 'Type error: already defined ' + name;
         // Recursive name is monomorphic during inference; generalized afterwards.
@@ -443,6 +487,7 @@ private class Inference {
         case TNumber: output.add('Number');
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
+        case TRecord(name): output.add(name);
         case TSyntax: output.add('Syntax');
         case TVariable(id): output.add(label(id));
         case TList(item):

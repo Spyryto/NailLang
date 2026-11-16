@@ -1,18 +1,19 @@
-# Nail Language Tour — v0.15
+# Nail Language Tour — v0.17
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Self-rebootstrap deterministico**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Record nominali immutabili**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.14/LANGUAGE-TOUR.md) → **v0.15** → [versione successiva](../v0.16/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.16/LANGUAGE-TOUR.md) → **v0.17** → [versione successiva](../v0.17.1/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Il compilatore Nail rigenera la propria immagine bytecode; l'invariante testato riguarda l'equivalenza dei record emessi.
+La dichiarazione genera costruttore e getter; l'accesso per proiezione non è ancora previsto.
 
 ```nail
-def twice x = x * 2 ;
-twice 21 ;
+type Person { name Text age Number } ;
+def ada = Person " Ada " 32 ;
+Person_age ada ;
 ```
 
 ## Primo programma
@@ -64,12 +65,22 @@ firstOrZero [ 7 , 8 ] ;
 
 Il `match` sulle liste richiede entrambi i casi. `let name = expression in expression` introduce un binding locale non ricorsivo.
 
+## Record nominali (v0.17+)
+
+```nail
+type Person { name Text age Number } ;
+def mario = Person " Mario " 34 ;
+Person_name mario ;
+```
+
+La struttura ha un'identità nominale; la proiezione `person . field` è disponibile da v0.17.1, mentre v0.17 usa getter espliciti.
+
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.15 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.15) e cerca il test associato alla feature.
+4. Apri la [versione v0.17 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.17) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

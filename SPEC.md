@@ -1,60 +1,33 @@
-# NailSeed v0.15 — Bootstrap image reproducibility
+# Record declarations — v0.17 language draft
 
-## Scope
+## Grammar
 
-No new syntax, opcodes or primitives; the entire v0.14 runtime is retained.
+All punctuation tokens must be separated by whitespace, as elsewhere in Nail.
 
-The `stdlib.nail` source includes the tokenizer, parser and compiler written
-in Nail. The stage-zero Haxe compiler creates a bytecode image. A source-free
-`BootRuntime` can execute the compiler in that image to produce a new bytecode
-image from the exact same source text. Running the compiler from the newly
-produced image must repeat the result.
-
-## Contract
-
-Let `H(S)` denote the reference Haxe compilation of standard-library source S,
-`N(I,S)` denote the Nail compiler's image generated while booted from image I,
-and `tape(I)` the sequence of postfix records in the image.
-
-The v0.15 fixed-point checks require:
-
-```
-tape(H(S)) = tape(N(H(S), S)) = tape(N(N(H(S), S), S))
+```text
+record-decl = "type" UpperIdentifier "{" (Identifier TypeName)+ "}" ";"
+TypeName    = "Number" | "Bool" | "Text" | "String" | PriorRecordName
 ```
 
-No normalization that silently removes bytecode differences is used. Only
-JSON object member ordering is excluded from equality checks. `tape` is a
-JSON array of `['L', tag, text]` and `['N', tag, childCount]` records. It is
-hashed using SHA-256 for human-readable cross-target verification.
+At least one field is required (up to 128); duplicate field names and duplicate type/constructor/accessor names are errors. Type names must start uppercase. The order of fields defines constructor argument order; fields are not mutable or public by index. Recursive/forward type declarations are postponed until algebraic types.
 
-If the first mismatch occurs, the new command reports the first differing
-record-tape character offset and local text excerpts.
+## Static semantics
 
-## Implementation
+- `Person` is a new *nominal* type distinct from every other declared type, including those with identical fields.
+- Constructors curry each argument, e.g. `Person : Text -> Number -> Person`.
+- Each named accessor is a pure function: `Person_name : Person -> Text`.
+- `String` aliases `Text` in declarations, with `Text` shown in type signatures.
+- Equality of record values requires the same nominal type, then compares corresponding fields structurally. All currently permitted field types are equality-comparable.
+- The type checker remains optional in v0.17. Badly typed code may be rejected at runtime, or produce values whose fields have unexpected types, when type-checking is skipped.
 
-- `src/nail/Rebootstrap.hx`: fixed-point verification, portable tape comparison.
-- `src/RebootstrapImageMain.hx`: source-free image regenerator on Haxe CLI.
-- `src/RebootstrapTestMain.hx`: rebuild stage 1 and stage 2 on Haxe, JS, PHP;
-  run smoke programs from a newly-generated image.
-- `rebootstrap-*.hxml`: build targets with `-D nail_seed_only`.
-- `.github/workflows/nailseed-v015.yml`: checks and publishes both reference
-  and Nail-generated images.
+## Dynamic semantics
 
-## Limitations
+`Record(typeName, StringMap<Value>)` holds the nominal tag and immutable fields (not directly mutable from Nail). The field hash table is built on construction and accessed in expected O(1); this optimizes random access compared with linked lists, at the cost of one map allocation per record. Nominal type ids and offset-based layouts may replace the hash map in a later optimization without changing the source language.
 
-A reference stage-zero image is still required: this checks **rebootstrap
-reproducibility**, not an image-free self-hosting process, proof of compiler
-correctness, or complete elimination of the Haxe toolchain.
+`RecordType` is a **top-level declaration**, not an expression node, and is lowered to a curried constructor plus one accessor per field. Two internal operations `#recordMake` and `#recordGet` are implemented by the host VM. No new bytecode instruction is needed; generated definitions use standard `DEFINE`, `CLOSURE`, `CONST`, `LOAD`, `CALL`, etc. The old five Expr constructors remain unchanged.
 
-As in v0.14, the ByteVM is not a sandbox for untrusted user programs.
+Both parsers recognize the declaration and yield `SyntaxNode("RecordType", [...])` at the first-class syntax boundary; `SyntaxBridge` validates it, the reference compiler lowers it, and the Nail-written compiler emits the same structured instruction stream. This is intentionally a *restricted form of compile-time code generation*, without a general-purpose macro expander.
 
-The boot distribution HXML targets embed the stage-one `self-image.json`,
-ensuring the shipped runtime starts from a Nail-generated image.
+## Deferred
 
-## CI cost tradeoff
-
-Haxe and JavaScript repeat both full self-compilation stages. PHP loads the
-verified `self-image.json`, compares the canonical tape/fingerprint, and runs
-real Nail programs via its compiler. Full PHP regeneration remains available
-with the extra Haxe define `full_rebootstrap`; it is intentionally not on the
-regular CI critical path due to performance.
+Parameterized ADTs, record destructuring and updates, Unicode field names, module-qualified record names, rich type names (`List Person`) and full compile-time hygienic macros. The v0.16 exact numbers experiment is **not integrated** here.

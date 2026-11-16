@@ -72,6 +72,10 @@ class SyntaxEncoder {
       encoded.push(switch (form) {
         case Define(name, body): node('Define', [leaf('Name', name), expr(body)]);
         case Evaluate(body): node('Evaluate', [expr(body)]);
+        case RecordType(name, fields):
+          var nodes:Array<Value> = [];
+          for (field in fields) nodes.push(node('Field', [leaf('Name', field.name), leaf('Type', field.typeName)]));
+          node('RecordType', [leaf('Name', name), node('Fields', nodes)]);
       });
     }
     return node('Program', encoded);

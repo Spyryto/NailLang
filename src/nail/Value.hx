@@ -9,6 +9,9 @@ enum Value {
   Text(value:String);
   Nil;
   Cons(head:Value, tail:Value);
+  /** Nominal immutable record. The map is constructed once and never exposed
+      to Nail code; fields are retrieved by hash lookup, not head/tail walks. */
+  Record(typeName:String, fields:haxe.ds.StringMap<Value>);
   /** Typed, first-class source trees; they are values, not additional Expr nodes. */
   SyntaxLeaf(kind:String, text:String);
   SyntaxNode(kind:String, children:Value);

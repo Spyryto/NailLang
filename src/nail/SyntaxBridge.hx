@@ -28,7 +28,7 @@ class SyntaxBridge {
     return switch (value) {
       case SyntaxNode(actual, items) if (actual == tag):
         var values = elements(items);
-        if (values.length != expected) throw 'Invalid Syntax ' + tag + ': expected ' + expected + ' children';
+        if (expected >= 0 && values.length != expected) throw 'Invalid Syntax ' + tag + ': expected ' + expected + ' children';
         values;
       case _: throw 'Invalid Syntax: expected ' + tag;
     };
@@ -121,6 +121,16 @@ class SyntaxBridge {
             case SyntaxNode('Evaluate', _):
               var parts = children(form, 'Evaluate', 1);
               Evaluate(expr(parts[0]));
+            case SyntaxNode('RecordType', _):
+              var parts = children(form, 'RecordType', 2);
+              var typeName = label(parts[0], 'Name');
+              var raw = children(parts[1], 'Fields', -1);
+              var fields:Array<nail.Ast.RecordField> = [];
+              for (field in raw) {
+                var pair = children(field, 'Field', 2);
+                fields.push({name:label(pair[0], 'Name'), typeName:label(pair[1], 'Type')});
+              }
+              RecordType(typeName, fields);
             case _: throw 'Invalid Syntax program form';
           });
         }

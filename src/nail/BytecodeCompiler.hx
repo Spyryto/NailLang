@@ -97,10 +97,17 @@ class BytecodeCompiler {
 
   public static function compile(forms:Array<Form>):Value {
     var result:Array<Value> = [];
-    for (form in forms) {
+    var expanded:Array<Form> = [];
+    for (form in forms) switch (form) {
+      case RecordType(name, fields):
+        for (definition in RecordLowering.definitions(name, fields)) expanded.push(definition);
+      case _: expanded.push(form);
+    }
+    for (form in expanded) {
       result.push(switch (form) {
         case Define(name, body): instruction2('DEFINE', leaf('Name', name), code(emit(body, true)));
         case Evaluate(body): instruction1('EVAL', code(emit(body, true)));
+        case RecordType(_, _): throw 'Unexpanded record type';
       });
     }
     return node('Bytecode', result);
