@@ -1,0 +1,6 @@
+-cp src
+-main TypeTestMain
+-js build/tests/types.js
+-resource stdlib.nail@stdlib
+-resource type-cases.json@type-cases
+-D js-es=6

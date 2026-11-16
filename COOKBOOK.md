@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.4
+# Nail Cookbook — v0.5
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Un’unica implementazione Haxe
+## Ricetta 3 — Inferenza Hindley–Milner
 
 ```nail
-def twice x = x * 2 ;
-map twice [ 1 , 2 , 3 ] ;
+def identity x = x ;
+identity 42 ;
+identity true ;
 ```
 
-Stessa semantica Haxe, JavaScript e PHP; il linguaggio è eseguito da un interprete compilato, non transpilato direttamente in JS/PHP.
+Il checker inferisce schemi polimorfici e vincoli Eq senza aggiungere nuove forme AST.
 
 ## Allenamento: studiare l'implementazione
 

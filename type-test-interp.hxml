@@ -1,0 +1,5 @@
+-cp src
+-main TypeTestMain
+--interp
+-resource stdlib.nail@stdlib
+-resource type-cases.json@type-cases

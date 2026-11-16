@@ -1,18 +1,19 @@
-# Nail Language Tour — v0.4
+# Nail Language Tour — v0.5
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Un’unica implementazione Haxe**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Inferenza Hindley–Milner**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.3/LANGUAGE-TOUR.md) → **v0.4** → [versione successiva](../v0.5/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.4/LANGUAGE-TOUR.md) → **v0.5** → [versione successiva](../v0.6/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Stessa semantica Haxe, JavaScript e PHP; il linguaggio è eseguito da un interprete compilato, non transpilato direttamente in JS/PHP.
+Il checker inferisce schemi polimorfici e vincoli Eq senza aggiungere nuove forme AST.
 
 ```nail
-def twice x = x * 2 ;
-map twice [ 1 , 2 , 3 ] ;
+def identity x = x ;
+identity 42 ;
+identity true ;
 ```
 
 ## Primo programma
@@ -43,12 +44,22 @@ map twice [ 1 , 2 , 3 ] ;
 
 La `stdlib.nail` è caricata negli esempi host delle release Haxe via `vm.loadStdlib()`. In JS v0.3 va caricata esplicitamente. `map` non è necessariamente una primitiva della VM: verifica il suo codice in `stdlib.nail`.
 
+## Tipi statici (v0.5+)
+
+```nail
+def identity x = x ;
+identity 1 ;
+identity true ;
+```
+
+Il checker Haxe inferisce schemi Hindley–Milner; esecuzione e controllo statico sono fasi distinte. Per controllare un sorgente usa la CLI `--types` solo nelle versioni che la espongono, oppure l'API del checker.
+
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.4 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.4) e cerca il test associato alla feature.
+4. Apri la [versione v0.5 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.5) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

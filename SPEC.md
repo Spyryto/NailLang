@@ -1,40 +1,60 @@
-# NailSeed v0.4 — Haxe-first runtime and shared semantics
+# NailSeed v0.5 — inferenza statica senza nuove forme AST
 
-This version preserves v0.3's source grammar and its 36 JSON cases, adding a fifth AST-coverage assertion to the test harness (37 total). Its major change is **architectural**, not surface syntax: one Haxe implementation cross-compiles to JavaScript and PHP and also runs in `--interp`.
+## Obiettivo
 
-## Core
+Conservare **esattamente cinque** costruttori di espressioni (`Literal`, `Var`, `Lambda`, `Apply`, `If`) e tutti i 37 test della v0.4. Aggiungere un **passaggio separato** di inferenza Hindley–Milner per controllare il sorgente e dedurre firme di funzione, senza annotazioni manuali.
 
-`Expr = Literal(Value) | Var(String) | Lambda(String, Expr) | Apply(Expr, Expr) | If(Expr, Expr, Expr)`.
+## Sistema dei tipi
 
-`Form = Define(String, Expr) | Evaluate(Expr)`. All surface features such as multi-argument definitions, infix operators, `[]` and `[ x , y ]` desugar into the five expression forms. The lexer retains the whitespace-token rule; no string literals, point-free operator sections or pipeline syntax yet.
+```
+Type = Number | Bool | [Type] | Type -> Type | Variable
+Scheme = forall variables. [Eq constraints] Type
+```
 
-## Values
+I tipi funzione sono associativi a destra. `Number` indica il numero float finito del runtime, non un intero separato. Tutte le liste hanno elementi omogenei; `[]` è polimorfa.
 
-`Value = Number(Float) | Boolean(Bool) | Nil | Cons(Value, Value) | Closure(String, Expr, Env) | Native(String, Int, Array<Value>)`.
+Esempi:
 
-Unlike v0.3's frozen JS arrays, lists are immutable linked cons cells. `cons`, `head`, `tail`, `isEmpty` operate on this representation. The `#cons` private alias prevents shadowing of list syntax by a user variable called `cons`. The global root environment is shared by closures to allow top-level recursion; locally bound function arguments use child environments.
+```
+def twice x = x * 2 ;          # Number -> Number
+def id x = x ;                # forall a. a -> a
+def compose f g x = f ( g x ) ;
+                                  # forall a b c. (a -> b) -> (c -> a) -> c -> b
+def same x y = x == y ;       # forall a:Eq. a -> a -> Bool
+```
 
-The host primitives are `+ - * /`, numeric comparisons `< <= > >=`, structural equality `== !=`, list constructors/inspectors `nil cons head tail isEmpty`. Arithmetic requires finite numbers, division by zero throws, `if` requires a Boolean, equality is defined for primitive values and lists (not functions), and a step budget limits evaluation but is **not** a security sandbox. The infinite-recursion test uses a low budget (128) so the Haxe interpreter stops before its own call-stack limit.
+I `def` sono trattati come `letrec` di alto livello: durante l'analisi del corpo il nome è disponibile, ma con un **solo tipo monomorfo provvisorio**. Terminato il corpo, quel tipo viene generalizzato nei parametri non liberi nell'ambiente esterno.
 
-## Common test contract
+La v0.5 **non** implementa polymorphic recursion né `let` locale; l'applicazione parziale segue il currying del nucleo.
 
-- `cases.json` is copied verbatim from v0.3: 24 positive, 12 negative.
-- `TestMain.hx` loads test data and `stdlib.nail` as Haxe `-resource` files, so tests use no host-specific filesystem APIs.
-- It validates the 36 cases and checks that all five AST forms are seen (37th test).
-- Run the exact same runner in `--interp`, compiled JS with Node 22, and compiled PHP with PHP 8.
+## Regole di inferenza
 
-The source-level semantics are intentionally kept independent of JS/PHP. `haxe.Json` is only used to compare portable test outputs; Nail functions are not JSON-serializable. Generated output may differ in size/format on each target.
+- `Literal`: `Number`, `Bool` o lista di un tipo fresco `a` (per `[]`).
+- `Var`: istanzia le variabili quantificate nella `Scheme` associata al nome.
+- `Lambda`: introduce un tipo fresco monomorfo per il parametro.
+- `Apply`: unifica `type(fn)` con `type(arg) -> freshResult`.
+- `If`: la condizione deve avere tipo `Bool`; i rami devono unificarsi.
+- `Def`: preassegna il nome ricorsivo a una variabile di tipo fresca, inferisce il corpo, unifica e generalizza.
 
-## Packaging
+`+`, `-`, `*`, `/` hanno tipo `Number -> Number -> Number`. I confronti `<`, `<=`, `>` e `>=` sono `Number -> Number -> Bool`. `cons`, `head`, `tail`, `isEmpty`, `nil` e la primitiva privata `#cons` hanno firme polimorfe parametriche.
 
-- `js.hxml`: `build/js/nailseed.js`, exported `NailSeed.create()`. The returned VM provides `runPlain()` for JSON-compatible output.
-- `php.hxml`: `build/php/`, run via `php build/php/index.php example.nail` (all generated PHP files required). This CLI adapter loads the bundled stdlib and prints JSON values.
-- `test-interp.hxml`, `test-js.hxml`, `test-php.hxml`: shared tests.
-- `.github/workflows/nailseed-v04.yml` (repository root): Haxe 4.3.7, Node 22, runner PHP; uploads two artifacts after tests pass.
+`==` e `!=` hanno tipo `forall a:Eq. a -> a -> Bool`, dove i tipi `Eq` sono ricorsivamente `Number`, `Bool` e `[Eq]`. Non si può confrontare una funzione, anche se Haxe o JavaScript permetterebbero un confronto per identità.
 
-## Deferred
+## Algoritmo e limiti
 
-- Static HM inference for Nail programs, local let / pattern matching / ADTs.
-- TCO and deep-recursion resilience.
-- Host I/O effects, strings and a proper Scriptable API integration test.
-- Nail self-hosting and native Nail bytecode.
+Unificatore con sostituzioni e occurs check (rifiuta `fun x -> x x`). Ogni sessione di `TypeChecker.check` lavora su una copia delle firme globali e le aggiorna soltanto al successo dell'intero programma. Un identificatore progressivo evita collisioni tra chiamate incrementali. Le `Scheme` salvate sono normalizzate: non dipendono dalle sostituzioni di sessioni precedenti.
+
+`TypeChecker.signature(name)` restituisce la firma inferita delle definizioni. `TypeChecker.preview()` permette analisi senza mutare il checker, e `TypeChecker.copy()` permette fork temporanei. Il TypeChecker è isolato dalla VM: **controllare non significa eseguire**. Le prove di regressione originali restano eseguibili su `Vm.run()` senza variazioni.
+
+### Limiti consapevoli
+
+- Nessuna inferenza degli effetti, verifica di totalità o controllo dei casi esaustivi; `head []` resta un errore runtime.
+- Niente tipi ricorsivi, polimorfismo ricorsivo o varianti algebriche utente.
+- Niente tipi `Int`, `Float` separati, record o strutture dei moduli.
+- Niente local `let`: `def` resta una forma top-level.
+- Niente ottimizzazione tail-call: la VM rimane ricorsiva e dipendente dallo stack host.
+- Le API restano sperimentali: nessun formato di serializzazione dei tipi né informazioni source-span.
+
+## Compilazione
+
+Il sorgente unico è Haxe 4.3.7. Il workflow `.github/workflows/nailseed-v05.yml` testa inferenza + runtime su `--interp`, JS/Node e PHP, poi compila i distributable. Le compilazioni JS/PHP non vengono committate nel repository: sono artefatti CI.

@@ -1,0 +1,42 @@
+{
+  "version": "0.5",
+  "positive": [
+    {"code":"1 ; true ; [] ;", "types":["Number", "Bool", "[a]"]},
+    {"code":"def twice x = x * 2 ; twice 5 ;", "types":["Number"]},
+    {"code":"def id x = x ; id 4 ; id true ;", "types":["Number", "Bool"]},
+    {"code":"fun x -> x ;", "types":["a -> a"]},
+    {"code":"def makeAdder x = fun y -> x + y ; makeAdder 3 8 ;", "types":["Number"]},
+    {"code":"def compose f g x = f ( g x ) ; compose ;", "types":["(a -> b) -> (c -> a) -> c -> b"]},
+    {"code":"def fact n = if n < 2 then 1 else n * fact ( n - 1 ) ; fact 5 ;", "types":["Number"]},
+    {"code":"def id x = x ; id [ 1 , 2 ] ; id true ;", "types":["[Number]", "Bool"]},
+    {"code":"def list1 xs = cons 1 xs ; list1 [] ;", "types":["[Number]"]},
+    {"code":"def takeFirst xs = head xs ; takeFirst [ true , false ] ;", "types":["Bool"]},
+    {"code":"1 == 1 ; [ 1 , 2 ] == [ 1 , 2 ] ;", "types":["Bool", "Bool"]},
+    {"code":"def same x y = x == y ; same true false ; same [ 1 ] [ 2 ] ;", "types":["Bool", "Bool"]},
+    {"code":"def twice x = x * 2 ; map twice [ 1 , 2 , 3 ] ;", "types":["[Number]"], "stdlib":true},
+    {"code":"filter ( fun x -> x > 2 ) [ 1 , 2 , 3 ] ;", "types":["[Number]"], "stdlib":true},
+    {"code":"fold ( fun acc x -> acc + x ) 0 [ 1 , 2 ] ;", "types":["Number"], "stdlib":true},
+    {"code":"reverse [ true , false ] ; length [ true , false ] ;", "types":["[Bool]", "Number"], "stdlib":true},
+    {"code":"def f cons = [ 1 , 2 ] ; f 99 ;", "types":["[Number]"]},
+    {"code":"if true then 1 else 2 ;", "types":["Number"]},
+    {"code":"def choose f = f 1 ; choose ( fun n -> n + 1 ) ;", "types":["Number"]},
+    {"code":"def empty = [] ; cons 1 empty ; cons true empty ;", "types":["[Number]", "[Bool]"]}
+  ],
+  "negative": [
+    {"code":"1 + true ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"if 1 then 2 else 3 ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"if true then 1 else false ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"[ 1 , true ] ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"def self x = x x ;", "errorRegex":"Type error: infinite type"},
+    {"code":"head 3 ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"def f x = x + 1 ; f false ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"def id x = x ; id == id ;", "errorRegex":"functions cannot be compared"},
+    {"code":"def same x = x == x ; same ( fun y -> y ) ;", "errorRegex":"functions cannot be compared"},
+    {"code":"[ fun x -> x ] == [ fun y -> y ] ;", "errorRegex":"functions cannot be compared"},
+    {"code":"def f x = x ; def f y = y ;", "errorRegex":"already defined"},
+    {"code":"abc ;", "errorRegex":"unknown name"},
+    {"code":"def invalid xs = if isEmpty xs then 1 else true ;", "errorRegex":"Type error: cannot unify"},
+    {"code":"map ( fun x -> x + 1 ) [ true ] ;", "errorRegex":"Type error: cannot unify", "stdlib":true},
+    {"code":"def f n = if n then 1 else f n ; f 0 ;", "errorRegex":"Type error: cannot unify"}
+  ]
+}

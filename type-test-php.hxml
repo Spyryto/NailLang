@@ -1,0 +1,5 @@
+-cp src
+-main TypeTestMain
+-php build/tests/php-types
+-resource stdlib.nail@stdlib
+-resource type-cases.json@type-cases
