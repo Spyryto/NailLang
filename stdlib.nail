@@ -713,8 +713,31 @@ def parseMacroDirective importing tokens =
     else parseError " Expected ; "
   else parseError " Expected macro name " ;
 
+
+def parseDivRow tokens =
+  let next = tail tokens in
+  if parsePeek next != " : " then parseError " Expected : in Div relation "
+  else let args = tail next in
+    let first = parsePeek args in
+    let second = parsePeek ( tail args ) in
+    let output = parsePeek ( tail ( tail args ) ) in
+    if parsePeek ( tail ( tail ( tail args ) ) ) != " ; " then
+      parseError " Expected ; after Div row "
+    else
+      let valid =
+        if first == " Int " && second == " Int " then output == " Ratio "
+        else if first == " Ratio " && second == " Ratio " then output == " Ratio "
+        else if first == " Float " && second == " Float " then output == " Float "
+        else if first == " Int " && second == " Ratio " then output == " Ratio "
+        else if first == " Ratio " && second == " Int " then output == " Ratio "
+        else false in
+        if valid then parsePair ( syntaxNode " RelationDecl " [] )
+          ( tail ( tail ( tail ( tail args ) ) ) )
+        else parseError " Unsupported Div relation row " ;
+
 def parseForm tokens =
-  if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
+  if isFormKeyword tokens " Div " then parseDivRow tokens
+  else if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
   else if isFormKeyword tokens " def " then parseNamedDefinition " " ( tail tokens )
   else if isFormKeyword tokens " macro " then parseNamedDefinition " #macro_decl_ " ( tail tokens )
   else if isFormKeyword tokens " import " then parseMacroDirective true ( tail tokens )
@@ -727,7 +750,10 @@ def parseForm tokens =
 def parseForms tokens reversed =
   if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
   else let form = parseForm tokens in
+
     if parseFailed form then parseTree form
+    else if syntaxTag ( parseTree form ) == " RelationDecl " then
+      parseForms ( parseRest form ) reversed
     else parseForms ( parseRest form ) ( cons ( parseTree form ) reversed ) ;
 
 
@@ -799,7 +825,17 @@ def lexNormal source i n current reversed =
 
 def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
 
-def parseSource source = parseForms ( tokenizeCode source ) [] ;
+
+def stripNailHeader tokens =
+  if parsePeek tokens == " nail " then
+    if parsePeek ( tail tokens ) == " 0.45 " then
+      if parsePeek ( tail ( tail tokens ) ) == " ; " then
+        tail ( tail ( tail tokens ) )
+      else tokens
+    else tokens
+  else tokens ;
+
+def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
 
 # v0.10: Compiler written in Nail. The output is structured stack bytecode
 # represented as immutable Syntax data; no opcode-generating host primitives.
@@ -821,14 +857,18 @@ def bcTailCall = bcInstruction0 " TAIL_CALL " ;
 
 # v0.20: expression IR is ordinary Nail ADT data. No Syntax payloads.
 # Numeric/boolean spellings stay textual to preserve the bytecode tape exactly.
-type CoreLiteral = CoreNumber Text | CoreExact Text | CoreBoolean Text | CoreText Text | CoreNil ;
+
+type CoreLiteral = CoreNumber Text | CoreExact Text | CoreInt Text | CoreRatio Text | CoreBoolean Text | CoreText Text | CoreNil ;
 type CoreExpr = CoreLit CoreLiteral | CoreVar Text | CoreLambda Text CoreExpr | CoreApply CoreExpr CoreExpr | CoreIf CoreExpr CoreExpr CoreExpr ;
 type CoreRead = CoreReadOk CoreExpr | CoreReadError Text ;
 
 def coreReadLiteral literal =
   let tag = syntaxTag literal in
   if tag == " Number " then CoreReadOk ( CoreLit ( CoreNumber ( syntaxText literal ) ) )
+
   else if tag == " ExactNumber " then CoreReadOk ( CoreLit ( CoreExact ( syntaxText literal ) ) )
+  else if tag == " Int " then CoreReadOk ( CoreLit ( CoreInt ( syntaxText literal ) ) )
+  else if tag == " Ratio " then CoreReadOk ( CoreLit ( CoreRatio ( syntaxText literal ) ) )
   else if tag == " Bool " then
     let value = syntaxText literal in
     if value == " true " then CoreReadOk ( CoreLit ( CoreBoolean value ) )
@@ -879,7 +919,10 @@ def coreRead tree =
 
 def coreLiteralSyntax literal = match literal with
   | CoreNumber value -> syntaxLiteral " Number " value
+
   | CoreExact value -> syntaxLiteral " ExactNumber " value
+  | CoreInt value -> syntaxLiteral " Int " value
+  | CoreRatio value -> syntaxLiteral " Ratio " value
   | CoreBoolean value -> syntaxLiteral " Bool " value
   | CoreText value -> syntaxLiteral " Text " value
   | CoreNil -> syntaxNil ;
@@ -1114,3 +1157,44 @@ def exactRewrite tree =
 
 def compileExactSource source =
   compileSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+
+
+# v0.45: source-language semantics are selected by explicit "nail 0.45 ;"
+# rather than comment directives. All ordinary integer tokens are Int and
+# decimal literals are Float; division of Int values yields a Ratio.
+# The old compiler's literal contract remains intact for its bootstrap.
+def modernOperator name =
+  if name == " #macro_global_+ " then " #macro_global_#modern+ "
+  else if name == " #macro_global_- " then " #macro_global_#modern- "
+  else if name == " #macro_global_* " then " #macro_global_#modern* "
+  else if name == " #macro_global_/ " then " #macro_global_#modern/ "
+  else if name == " #macro_global_< " then " #macro_global_#modern< "
+  else if name == " #macro_global_<= " then " #macro_global_#modern<= "
+  else if name == " #macro_global_> " then " #macro_global_#modern> "
+  else if name == " #macro_global_>= " then " #macro_global_#modern>= "
+  else if name == " + " then " #modern+ "
+  else if name == " - " then " #modern- "
+  else if name == " * " then " #modern* "
+  else if name == " / " then " #modern/ "
+  else if name == " < " then " #modern< "
+  else if name == " <= " then " #modern<= "
+  else if name == " > " then " #modern> "
+  else if name == " >= " then " #modern>= "
+  else name ;
+
+def modernRewrite tree =
+  let tag = syntaxTag tree in
+  if tag == " Number " then
+    if textContainsAt ( syntaxText tree ) " . " 0 then tree
+    else syntaxLeaf " Int " ( exactEncode ( syntaxText tree ) )
+  else if tag == " Var " then syntaxVar ( modernOperator ( syntaxText tree ) )
+  else if tag == " Name " then tree
+  else if tag == " Bool " then tree
+  else if tag == " Text " then tree
+  else if tag == " Nil " then tree
+  else if tag == " Error " then tree
+  else if tag == " MacroError " then tree
+  else syntaxNode tag ( map modernRewrite ( syntaxChildren tree ) ) ;
+
+def compileModernSource source =
+  compileSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
