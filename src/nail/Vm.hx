@@ -215,9 +215,16 @@ class Vm {
       case '-': finite(number(a) - number(b));
       case '*': finite(number(a) * number(b));
       case '/':
-        var divisor = number(b);
-        if (divisor == 0) throw 'Division by zero';
-        finite(number(a) / divisor);
+        switch ([a, b]) {
+          case [ExactNumber(_), ExactNumber(_)]:
+            exactArithmetic('/', a, b);
+          case [Number(_), Number(_)]:
+            var divisor = number(b);
+            if (divisor == 0) throw 'Division by zero';
+            finite(number(a) / divisor);
+          case _:
+            throw 'Mixed numeric domains: explicit conversion required';
+        }
       case '<': Boolean(number(a) < number(b));
       case '<=': Boolean(number(a) <= number(b));
       case '>': Boolean(number(a) > number(b));
