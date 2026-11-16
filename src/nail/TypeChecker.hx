@@ -412,6 +412,26 @@ private class Inference {
     for (name in knownCases.keys()) sumCases.set(name, knownCases.get(name).copy());
     constructorOwners = new StringMap<String>();
     for (name in knownOwners.keys()) constructorOwners.set(name, knownOwners.get(name));
+    if (modernMode) installModernPrimitives();
+  }
+
+  /** Numeric builtins for a versioned program, independent of the legacy
+      compiler's bootstrap environment. Called when the inference session
+      is created, so it does not require an existing modern global table. */
+  function installModernPrimitives():Void {
+    var string = TText, bool = TBoolean;
+    globals.set('toRatio', mono(fun(TInt, TRatio)));
+    globals.set('ratioFromText', mono(fun(string, TRatio)));
+    globals.set('intFromText', mono(fun(string, TInt)));
+    globals.set('toFloat', mono(fun(fresh(), TFloat)));
+    for (op in ['+', '-', '*', '/', '<', '<=', '>', '>='])
+      globals.set('#modern' + op, mono(fun(fresh(), fun(fresh(), fresh()))));
+    globals.set('textLength', mono(fun(string, TInt)));
+    globals.set('textAt', mono(fun(string, fun(TInt, string))));
+    var id = nextId++, x = TVariable(id);
+    globals.set('vectorLength', poly(fun(TVector(x), TInt), [id]));
+    globals.set('vectorGet', poly(fun(TVector(x), fun(TInt, x)), [id]));
+    globals.set('vectorSet', poly(fun(TVector(x), fun(TInt, fun(x, TVector(x)))), [id]));
   }
 
   function fresh():NType return TVariable(nextId++);
