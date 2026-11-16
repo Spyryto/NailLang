@@ -1,29 +1,46 @@
-name: Publish tagged NailLang distributions
+name: Publish NailLang version distributions
+
 on:
   push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
     tags:
       - 'v*'
   workflow_dispatch:
+
 permissions:
   contents: write
 
+concurrency:
+  group: naillang-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: krdlab/setup-haxe@v2
         with:
           haxe-version: '4.3.7'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Ensure the tag matches the source version
+      - name: Check the version and ref
         shell: bash
         run: |
-          test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
-      - name: Compile and validate current runtime
+          tag="v$(cat VERSION)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "$tag"
+          else
+            test "$GITHUB_REF" = refs/heads/main
+          fi
+          echo "Publishing $tag"
+      - name: Test current Haxe, JavaScript and PHP implementations
         run: |
           haxe seed-image.hxml
           haxe host-text-writes-test-interp.hxml
@@ -31,18 +48,32 @@ jobs:
           node build/tests/host-text-writes.js
           haxe host-text-writes-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-host-text-writes/index.php
+          haxe trusted-module-images-test-interp.hxml
+          haxe trusted-module-images-test-js.hxml
+          node build/tests/trusted-module-images.js
+          haxe trusted-module-images-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-trusted-module-images/index.php
+          haxe shared-result-test-interp.hxml
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml
-      - name: Package runtime distributions
+      - name: Package versioned distributions
         shell: bash
         run: |
+          tag="v$(cat VERSION)"
           mkdir -p dist
-          (cd build/js && zip -q ../../dist/naillang-$GITHUB_REF_NAME-js.zip nailseed.js)
-          (cd build && zip -qr ../dist/naillang-$GITHUB_REF_NAME-php.zip php)
-          cp build/bootstrap/stdlib-image.json dist/naillang-$GITHUB_REF_NAME-bootstrap-image.json
-      - name: Create release with permanent assets
+          (cd build/js && zip -q "../../dist/naillang-$tag-js.zip" nailseed.js)
+          (cd build && zip -qr "../dist/naillang-$tag-php.zip" php)
+          cp build/bootstrap/stdlib-image.json "dist/naillang-$tag-bootstrap-image.json"
+      - name: Publish tag and release only after tests succeed
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --title "NailLang $GITHUB_REF_NAME" --generate-notes
+          tag="v$(cat VERSION)"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving existing assets unchanged."
+            exit 0
+          fi
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" \
+            --title "NailLang $tag" --generate-notes
