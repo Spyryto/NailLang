@@ -88,7 +88,7 @@ class ModernNumbersTestMain {
       {code:'nail 0.45 ; 1 + 2.0 ;',error:'explicit conversion'},
       {code:'nail 0.45 ; 1 / 2.0 ;',error:'explicit conversion'},
       {code:'nail 0.45 ; toFloat 0.5 ;',error:'toFloat requires Int or Ratio'},
-      {code:'nail 0.45 ; def f x y = x / y ;',error:'invalid / operands'},
+      {code:'nail 0.45 ; def f x y = x / y ;',error:'no Div instance'},
       {code:'nail 0.45 ; Div : Int Int Float ;',error:'unsupported Div row'},
       {code:'nail 0.45 ; Div : Int Int Ratio ; Div : Int Int Ratio ;',
         error:'duplicate Div input types'},
