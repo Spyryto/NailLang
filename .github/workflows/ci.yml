@@ -34,6 +34,13 @@ jobs:
           node build/tests/trusted-module-images.js
           haxe trusted-module-images-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-trusted-module-images/index.php
+      - name: Verify revocable host capabilities on Haxe, JS and PHP
+        run: |
+          haxe revocable-capabilities-test-interp.hxml
+          haxe revocable-capabilities-test-js.hxml
+          node build/tests/revocable-capabilities.js
+          haxe revocable-capabilities-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-revocable-capabilities/index.php
       - name: Check inherited read capability and shared-result ABI
         run: |
           haxe host-capabilities-test-interp.hxml

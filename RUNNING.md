@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.40
+# Eseguire NailLang — v0.41
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -60,3 +60,15 @@ haxe trusted-module-images-test-php.hxml && php build/tests/php-trusted-module-i
 La CLI ordinaria esegue programmi Nail. Per collegare moduli compilati con
 capability host protette da pin, integra la API Haxe
 `ModuleLinker.linkTrustedImages`. Vedi [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
+
+## Test di revoca v0.41
+
+```sh
+haxe seed-image.hxml
+haxe revocable-capabilities-test-interp.hxml
+haxe revocable-capabilities-test-js.hxml && node build/tests/revocable-capabilities.js
+haxe revocable-capabilities-test-php.hxml && php build/tests/php-revocable-capabilities/index.php
+```
+
+Questi test coprono revoca post-link, grant indipendenti, capability
+condivise e funzioni scriventi parzialmente applicate, in Haxe/JS/PHP.

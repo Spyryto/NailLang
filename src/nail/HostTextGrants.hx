@@ -21,10 +21,14 @@ class HostTextGrants {
 
   final readers:StringMap<TextReadCapability>;
   final writers:StringMap<TextWriteCapability>;
+  final revokedReaders:StringMap<Bool>;
+  final revokedWriters:StringMap<Bool>;
 
   public function new() {
     readers = new StringMap<TextReadCapability>();
     writers = new StringMap<TextWriteCapability>();
+    revokedReaders = new StringMap<Bool>();
+    revokedWriters = new StringMap<Bool>();
   }
 
   public function grantReadText(module:String, reader:TextReadCapability):Void {
@@ -45,6 +49,22 @@ class HostTextGrants {
     writers.set(module, writer);
   }
 
+  /** Per-module revocation: previously captured imports still call the guard,
+      so revocation works after linking. Another module may retain access
+      even if the host intentionally shared the underlying capability object.
+      These operations are idempotent and one-way. */
+  public function revokeReadText(module:String):Void {
+    if (!readers.exists(module))
+      throw 'Host grants: missing text reader grant for ' + module;
+    revokedReaders.set(module,true);
+  }
+
+  public function revokeWriteText(module:String):Void {
+    if (!writers.exists(module))
+      throw 'Host grants: missing text writer grant for ' + module;
+    revokedWriters.set(module,true);
+  }
+
   /** Resolve only an explicitly requested and statically compatible import.
       The grant is scoped to the *consumer module*, including when the host
       links several consumers with different allowlists. */
@@ -61,11 +81,33 @@ class HostTextGrants {
       var writer = writers.get(consumer);
       if (writer == null)
         throw 'Host grants: missing text writer grant for ' + consumer;
-      return writer.asValue();
+      if (revokedWriters.exists(consumer))
+        throw 'Host grants: revoked text writer grant for ' + consumer;
+      // The outer HostFunction must always return a callable (curried ABI),
+      // including when revocation happens between the two applications.
+      return HostFunction('write-text-key-guarded', key -> {
+        var staged = writer.writeKey(key);
+        return HostFunction('write-text-content-guarded', content -> {
+          if (revokedWriters.exists(consumer))
+            return ResultValue.error(Text('revoked'));
+          return switch (staged) {
+            case HostFunction(_, invoke): invoke(content);
+            case _: throw 'Host grants: invalid staged writer';
+          };
+        });
+      });
     }
     var reader = readers.get(consumer);
     if (reader == null)
       throw 'Host grants: missing text reader grant for ' + consumer;
-    return symbol == READ_TEXT ? reader.asValue() : reader.asResultValue();
+    if (revokedReaders.exists(consumer))
+      throw 'Host grants: revoked text reader grant for ' + consumer;
+    return HostFunction('read-text-guarded', key -> {
+      if (revokedReaders.exists(consumer))
+        return symbol == READ_TEXT
+          ? TextReadCapability.revokedOutcome()
+          : ResultValue.error(Text('revoked'));
+      return symbol == READ_TEXT ? reader.read(key) : reader.readResult(key);
+    });
   }
 }

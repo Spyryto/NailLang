@@ -13,6 +13,7 @@ class TextReadCapability {
   final allowed:StringMap<Bool>;
   final resolver:String->Null<String>;
   final maxScalars:Int;
+  var revoked:Bool = false;
 
   public function new(names:Array<String>, resolve:String->Null<String>,
       maxScalars:Int = 65536) {
@@ -28,6 +29,14 @@ class TextReadCapability {
     this.resolver = resolve;
     this.maxScalars = maxScalars;
   }
+
+  /** Permanently withdraw this capability instance. Existing captured HostFunction
+      closures check the same state on each invocation. Shared references to
+      this instance are all revoked; this cannot interrupt a running callback. */
+  public function revoke():Void revoked = true;
+
+  /** The standard structural read-error form used by grant-level revocation. */
+  public static function revokedOutcome():Value return outcome(false, '', 'revoked');
 
   /** Closed, field-sorted structural type suitable for TypeChecker.importSignature.
       No special type or VM opcode is required for this first capability slice. */
@@ -56,6 +65,7 @@ class TextReadCapability {
       case Text(v): v;
       case _: throw 'Text read capability requires a Text resource key';
     };
+    if (revoked) return revokedOutcome();
     if (!allowed.exists(name)) return outcome(false, '', 'denied');
     try {
       var result = resolver(name);

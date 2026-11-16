@@ -394,3 +394,58 @@ haxe trusted-module-images-test-php.hxml && php build/tests/php-trusted-module-i
 Future work: signature verification with trusted publisher keys and key
 rotation, an authenticated distribution manifest, revocation and time limits
 for host callbacks, and concrete secure filesystem/network adapters.
+
+## v0.41 — revocable read and write capability grants
+
+The host can now withdraw access **after a module has been linked**
+without replacing the entire module bundle:
+
+```haxe
+grants.revokeReadText('ReaderA');
+grants.revokeWriteText('WriterA');
+```
+
+Each `HostTextGrants` import is returned as a guarded `HostFunction`
+which checks the module's own one-way revocation flag on **every call**.
+Unlike revoking a shared capability instance, per-module revocation leaves
+other explicitly granted modules operational even when they share the same
+reader/writer object. Attempting to link a *new* module using an already
+revoked grant fails. An already-linked invocation returns the existing
+recoverable result type: `CoreErr "revoked"` or, for legacy
+`readText`, a structural outcome with `ok=false` and `error="revoked"`.
+
+The embedding host can also revoke an entire **capability instance**:
+
+```haxe
+reader.revoke();
+writer.revoke();
+```
+
+All direct or shared `TextReadCapability` and `TextWriteCapability`
+instances capture this state. Even a writer closure acquired through the
+**first curried application** before revocation checks again on the final
+content argument, before invoking the host callback. Instance revocation
+also works with direct AST VM, ByteVm and source-free BootRuntime grants.
+
+Revocations are irreversible and idempotent for the same grant or
+instance. There is no ambient Nail operation to undo them. Re-granting
+requires new capability/grant objects and a new runtime.
+
+**Limits:** This protects subsequent invocations, not work already started:
+synchronous in-flight host callbacks cannot be interrupted or rolled back,
+and no async cancellation or filesystem transaction guarantee is supplied.
+A host callback already running can commit even if revocation occurs while
+it runs. Readers and writers provided outside the guarded API must be
+managed independently by the embedding host. Trusted module image pins
+(v0.40) and revocable host functions solve distinct problems.
+
+```sh
+haxe seed-image.hxml
+haxe revocable-capabilities-test-interp.hxml
+haxe revocable-capabilities-test-js.hxml && node build/tests/revocable-capabilities.js
+haxe revocable-capabilities-test-php.hxml && php build/tests/php-revocable-capabilities/index.php
+```
+
+Remaining milestones include cryptographic publisher signatures
+(public-key verification), controlled real filesystem/HTTP adapters,
+resource/time budgets for host callbacks and asynchronous cancellation.

@@ -1,0 +1,5 @@
+-cp src
+-main RevocableCapabilitiesTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-js build/tests/revocable-capabilities.js
