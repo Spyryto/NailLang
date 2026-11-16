@@ -1,0 +1,4 @@
+-cp src
+-main SelfParserTestMain
+-php build/tests/php-self-parser
+-resource stdlib.nail@stdlib

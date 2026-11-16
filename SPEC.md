@@ -1,33 +1,68 @@
-# NailSeed 0.7 — text semantics & self-hosting milestone
+# NailSeed v0.8 — Self-authored parser experiment
 
-## Core invariants
+## Core invariant
 
-The complete expression AST remains `Literal | Var | Lambda | Apply | If` and all library code uses these forms after desugaring. The runtime evaluator in Haxe compiles to JS and PHP.
+Five executable expression cases, unchanged from the Haxe-first versions:
 
-## Strings
+`Literal(value)`, `Var(name)`, `Lambda(param, body)`, `Apply(fn, arg)`, `If(cond, yes, no)`.
 
-Source form: `" content with words "` where both quote marks are separate whitespace tokens. Raw whitespace between string payload words is normalized to one space. Quotes inside strings require the JSON escape `\"`, and escapes `\n`, `\t`, `\r`, `\uXXXX` are decoded with the Haxe JSON parser. An empty string is `" "`. A string containing one space is `" \u0020 "`.
+`def` is a top-level form rather than an expression. Inference retains Hindley–Milner polymorphism and purity. The v0.8 parser is *written in Nail* and returns an inert syntax tree as a value; execution remains the responsibility of the Haxe VM.
 
-All real strings are represented at runtime as `Text(String)` and statically as `TText`. Equality between text values is by contents; `Text` is an `Eq` type, and `[Text]` can be compared structurally. Comparisons across types remain statically invalid.
+## Syntax, a typed value, not a sixth expression
 
-Minimal host APIs:
+The Nail value domain gains:
 
-- `textLength : Text -> Number`
-- `textAt : Text -> Number -> Text` (zero-based, integer-only, bounds checked)
-- `textConcat : Text -> Text -> Text`
+- `SyntaxLeaf(tag: Text, text: Text)`
+- `SyntaxNode(tag: Text, children: [Syntax])`
 
-Indexable text is ASCII only (U+0000–U+007F) until portable Unicode scalar semantics can be specified. `textLength` and `textAt` reject non-ASCII input rather than silently disagreeing between target hosts.
+The Haxe `NType` domain gains a single `Syntax` type. It is comparable by structural equality. The constructor and inspector primitives have these types:
 
-## First Nail-native tooling
+```
+syntaxLeaf     : Text -> Text -> Syntax
+syntaxNode     : Text -> [Syntax] -> Syntax
+syntaxTag      : Syntax -> Text
+syntaxText     : Syntax -> Text     # leaf only
+syntaxChildren : Syntax -> [Syntax] # node only
+```
 
-`tokenize : Text -> [Text]` scans a string in Nail, recognizing space, tab, CR and LF and returning whitespace-separated tokens. All helper functions are written in `stdlib.nail`; there is no host `split` primitive. 
+Invalid inspectors throw a runtime error. `Syntax` is serialized to an object of the shape `{tag, value}` for a leaf or `{tag, children}` for a node. Nested syntax nodes can have varying tags without losing homogeneous list types. No general-purpose `Any` or dynamic casts are exposed to Nail.
 
-`parseTinyDef : Text -> [Text]` recognizes one special-case grammar: `def NAME ARG = ARG +|* LITERAL ;`. It returns a flat prefix-AST token sequence. It rejects unexpected token counts, mismatch between body variable and argument, unrecognized operators, etc. Its implementation is intentionally unsophisticated; this is a vertical slice proving that Nail can tokenize and inspect a subset of its own syntax, **not** full self-hosting.
+## Parser results
 
-## Constraints and tests
+```
+Program [ Define [ Name("twice"), Lambda [ Name("x"), Apply[...] ] ] ]
+```
 
-The persistent-list representation from v0.6 is unchanged. Source `let` and exhaustive list `match` desugar to the same five AST nodes. `cases.json` and `type-cases.json` extend regression suites. The CI runs on Haxe --interp, Node and PHP, then tests the distribution API. No generated targets are versioned.
+Canonical serialized form example:
 
-## Next work
+```json
+{"tag":"Program","children":[{"tag":"Evaluate","children":[{"tag":"Literal","children":[{"tag":"Number","value":"1"}]}]}]}
+```
 
-A proper parser should return a tagged AST as algebraic data types instead of a flat `[Text]`, support errors with positions and work on full function syntax. Tail-call elimination or iterative tokenization may be required for larger inputs. Unicode semantics and a more robust string/tokenizer contract should precede any claims of self-hosting.
+Functions parsing source are defined in `stdlib.nail`, including `parseAt`, `parsePrefix`, `parseSuffix`, `parseListItems`, `parseDefinition`, `parseForm`, `parseForms`, `parseSource`. This implements Pratt precedence parsing. Tokens and returned parse cursors are *homogeneous lists of Syntax*: a result is `[parsedTree, unconsumedToken1, ...]`, so no native parser-state class is needed. Parsing errors are returned as `SyntaxLeaf("Error", message)`; `parseSource` returns the first error instead of a partial program.
+
+## Grammar subset
+
+```
+program    := (definition | expression ';')*
+definition := 'def' identifier identifier* '=' expression ';'
+expression := atom (atom | operator expression)*
+atom       := number | identifier | 'true' | 'false' | '[]'
+            | '(' expression ')'
+            | '[' (expression (',' expression)*)? ']'
+            | 'fun' identifier+ '->' expression
+            | 'if' expression 'then' expression 'else' expression
+            | 'let' identifier '=' expression 'in' expression
+```
+
+Application binds tighter than `* /`, which bind tighter than `+ -`, which bind tighter than comparisons and equality. All infix operators associate to the left. Numeric tokens are **kept as text** in `Literal/Number` nodes pending a later self-hosted numeric parser, avoiding host number conversion. `let`, list literals and infix operators are desugared into the five expression cases. List literals use the bootstrap-compatible reserved `#cons` primitive. `Syntax` children for Lambda contain a `Name` leaf followed by the body.
+
+The current self-parser intentionally excludes `match`, text literals in the inner source, escaped strings, comments, automatic whitespace around punctuation and numeric exponent notation. The outer Haxe parser still supports the previous full language. These limitations must be removed before claiming full bootstrap equivalence.
+
+## Portability contract
+
+The original runtime and type-checker regression suites remain. The added `SelfParserTestMain` suite compares full serialized syntax trees to trees constructed from the existing Haxe `Parser.parse()` AST and checks errors on malformed input. GitHub Actions runs the same tests using `--interp`, compiled JS and compiled PHP. The suite checks what is implemented, not the entire language.
+
+## Costs to measure
+
+Pratt parsing in source Nail is deliberately simple but allocates many small immutable Syntax values and performs repeated textual identifier checks. Recursive depth, allocation and the default instruction step budget impose practical input-length limits. No security guarantees for untrusted input; do not expose VM execution to arbitrary remote source without stronger resource isolation.

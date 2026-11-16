@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.7
+# Nail Cookbook — v0.8
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,13 +24,13 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Testo e primo tokenizer in Nail
+## Ricetta 3 — Parser Pratt scritto in Nail
 
 ```nail
-tokenize " def twice x = x * 2 ; " ;
+parseSource " def twice x = x * 2 ; " ;
 ```
 
-Nasce la semantica `Text` e una prima parte del parsing scritta nel linguaggio stesso.
+Il parser Nail produce valori `Syntax` strutturati; non introduce un sesto nodo nel core.
 
 ## Allenamento: studiare l'implementazione
 

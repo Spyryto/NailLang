@@ -1,5 +1,5 @@
 {
-  "version": "0.7",
+  "version": "0.8",
   "positive": [
     {
       "code": "def twice x = x * 2 ; twice 5 ;",
@@ -476,6 +476,125 @@
         "yes"
       ],
       "stdlib": false
+    },
+    {
+      "code": "syntaxTag ( syntaxLeaf \" Var \" \" x \" ) ; syntaxText ( syntaxLeaf \" Var \" \" x \" ) ;",
+      "expected": [
+        "Var",
+        "x"
+      ]
+    },
+    {
+      "code": "syntaxChildren ( syntaxNode \" Pair \" [ syntaxLeaf \" Number \" \" 1 \" , syntaxLeaf \" Var \" \" y \" ] ) ;",
+      "expected": [
+        [
+          {
+            "tag": "Number",
+            "value": "1"
+          },
+          {
+            "tag": "Var",
+            "value": "y"
+          }
+        ]
+      ]
+    },
+    {
+      "code": "syntaxLeaf \" Number \" \" 1 \" == syntaxLeaf \" Number \" \" 1 \" ;",
+      "expected": [
+        true
+      ]
+    },
+    {
+      "code": "parseSource \" 1 ; \" ;",
+      "expected": [
+        {
+          "tag": "Program",
+          "children": [
+            {
+              "tag": "Evaluate",
+              "children": [
+                {
+                  "tag": "Literal",
+                  "children": [
+                    {
+                      "tag": "Number",
+                      "value": "1"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseSource \" def twice x = x * 2 ; \" ;",
+      "expected": [
+        {
+          "tag": "Program",
+          "children": [
+            {
+              "tag": "Define",
+              "children": [
+                {
+                  "tag": "Name",
+                  "value": "twice"
+                },
+                {
+                  "tag": "Lambda",
+                  "children": [
+                    {
+                      "tag": "Name",
+                      "value": "x"
+                    },
+                    {
+                      "tag": "Apply",
+                      "children": [
+                        {
+                          "tag": "Apply",
+                          "children": [
+                            {
+                              "tag": "Var",
+                              "value": "*"
+                            },
+                            {
+                              "tag": "Var",
+                              "value": "x"
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "Literal",
+                          "children": [
+                            {
+                              "tag": "Number",
+                              "value": "2"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseSource \" 1 + ; \" ;",
+      "expected": [
+        {
+          "tag": "Error",
+          "value": "Unexpected token:;"
+        }
+      ],
+      "stdlib": true
     }
   ],
   "negative": [
@@ -598,6 +717,22 @@
     {
       "code": "textLength \" \\u00e9 \" ;",
       "errorRegex": "Expected ASCII text"
+    },
+    {
+      "code": "syntaxTag 3 ;",
+      "errorRegex": "Expected Syntax"
+    },
+    {
+      "code": "syntaxText ( syntaxNode \" Root \" [] ) ;",
+      "errorRegex": "Expected syntax leaf"
+    },
+    {
+      "code": "syntaxChildren ( syntaxLeaf \" Var \" \" x \" ) ;",
+      "errorRegex": "Expected syntax node"
+    },
+    {
+      "code": "syntaxNode \" Root \" [ 1 ] ;",
+      "errorRegex": "Expected Syntax"
     }
   ]
 }

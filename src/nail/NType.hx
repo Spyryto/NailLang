@@ -5,6 +5,7 @@ enum NType {
   TNumber;
   TBoolean;
   TText;
+  TSyntax;
   TList(element:NType);
   TFunction(argument:NType, result:NType);
   TVariable(id:Int);

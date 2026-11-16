@@ -14,9 +14,9 @@ class Vm {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
     root = new Env();
-    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', 'textAt', 'textConcat'])
+    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
       root.bind(name, Native(name, 2, []));
-    for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength']) root.bind(name, Native(name, 1, []));
+    for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
     root.bind('nil', Nil);
   }
 
@@ -66,11 +66,32 @@ class Vm {
       case [Number(x), Number(y)]: x == y;
       case [Boolean(x), Boolean(y)]: x == y;
       case [Text(x), Text(y)]: x == y;
+      case [SyntaxLeaf(tx, x), SyntaxLeaf(ty, y)]: tx == ty && x == y;
+      case [SyntaxNode(tx, xs), SyntaxNode(ty, ys)]: tx == ty && equal(xs, ys);
       case [Nil, Nil]: true;
       case [Cons(x, xs), Cons(y, ys)]: equal(x, y) && equal(xs, ys);
       case [Nil, Cons(_, _)] | [Cons(_, _), Nil]: false;
       case _: throw 'Cannot compare these values';
     };
+  }
+
+  static function syntax(v:Value):Value {
+    return switch (v) {
+      case SyntaxLeaf(_, _) | SyntaxNode(_, _): v;
+      case _: throw 'Expected Syntax';
+    };
+  }
+
+  static function syntaxList(v:Value):Value {
+    var rest = v;
+    while (true) {
+      switch (rest) {
+        case Nil: return v;
+        case Cons(item, tail): syntax(item); rest = tail;
+        case _: throw 'Expected Syntax list';
+      }
+    }
+    return v;
   }
 
   static function primitive(name:String, args:Array<Value>):Value {
@@ -95,6 +116,20 @@ class Vm {
         var source = text(a);
         Text(source.charAt(index(b, source.length)));
       case 'textConcat': Text(text(a) + text(b));
+      case 'syntaxLeaf': SyntaxLeaf(text(a), text(b));
+      case 'syntaxNode': SyntaxNode(text(a), syntaxList(b));
+      case 'syntaxTag': switch (syntax(a)) {
+        case SyntaxLeaf(tag, _) | SyntaxNode(tag, _): Text(tag);
+        case _: throw 'Expected Syntax';
+      };
+      case 'syntaxText': switch (syntax(a)) {
+        case SyntaxLeaf(_, value): Text(value);
+        case _: throw 'Expected syntax leaf';
+      };
+      case 'syntaxChildren': switch (syntax(a)) {
+        case SyntaxNode(_, children): children;
+        case _: throw 'Expected syntax node';
+      };
       case 'cons' | '#cons':
         switch (b) {
           case Nil | Cons(_, _): Cons(a, b);
@@ -177,6 +212,8 @@ class Vm {
       case Number(n): n;
       case Boolean(b): b;
       case Text(s): s;
+      case SyntaxLeaf(kind, value): {tag:kind, value:value};
+      case SyntaxNode(kind, children): {tag:kind, children:toPlain(children)};
       case Nil: ([] : Array<Dynamic>);
       case Cons(_, _):
         var items:Array<Dynamic> = [];

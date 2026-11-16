@@ -9,6 +9,9 @@ enum Value {
   Text(value:String);
   Nil;
   Cons(head:Value, tail:Value);
+  /** Typed, first-class source trees; they are values, not additional Expr nodes. */
+  SyntaxLeaf(kind:String, text:String);
+  SyntaxNode(kind:String, children:Value);
   Closure(param:String, body:Expr, captured:Env);
   Native(name:String, arity:Int, applied:Array<Value>);
 }

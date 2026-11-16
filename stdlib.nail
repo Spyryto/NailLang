@@ -69,3 +69,224 @@ def parseTinyDefTokens ts =
     else [] ;
 
 def parseTinyDef source = parseTinyDefTokens ( tokenize source ) ;
+
+# v0.8: self-hosted recursive Pratt parser. The Haxe parser remains the
+# bootstrap. All parser state is a homogeneous list of Syntax values:
+# [ parsed-tree, unconsumed-token, ... ]; no native parser-state primitive.
+# Syntax itself is an immutable, typed data value (not a sixth Expr node).
+
+def syntaxToken word = syntaxLeaf " Token " word ;
+def syntaxVar name = syntaxLeaf " Var " name ;
+def syntaxName name = syntaxLeaf " Name " name ;
+def syntaxLiteral kind value = syntaxNode " Literal " [ syntaxLeaf kind value ] ;
+def syntaxApply f x = syntaxNode " Apply " [ f , x ] ;
+def syntaxLambda name body = syntaxNode " Lambda " [ syntaxName name , body ] ;
+def syntaxIf condition yes no = syntaxNode " If " [ condition , yes , no ] ;
+def syntaxBinary op lhs rhs = syntaxApply ( syntaxApply ( syntaxVar op ) lhs ) rhs ;
+def syntaxNil = syntaxLiteral " Nil " " nil " ;
+def syntaxList reversed =
+  fold ( fun acc item -> syntaxBinary " #cons " item acc ) syntaxNil reversed ;
+
+def parsePair tree rest = cons tree rest ;
+def parseTree pair = head pair ;
+def parseRest pair = tail pair ;
+def parseError message = [ syntaxLeaf " Error " message ] ;
+def parseFailed pair = syntaxTag ( parseTree pair ) == " Error " ;
+def parsePeek tokens =
+  if isEmpty tokens then " <eof> " else syntaxText ( head tokens ) ;
+
+def textContainsAt characters ch i =
+  if i == textLength characters then false
+  else if textAt characters i == ch then true
+  else textContainsAt characters ch ( i + 1 ) ;
+def isLetter ch =
+  textContainsAt " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_ " ch 0 ;
+def isDigit ch = textContainsAt " 0123456789 " ch 0 ;
+def isIdentTail source i =
+  if i == textLength source then true
+  else let ch = textAt source i in
+    if isLetter ch then isIdentTail source ( i + 1 )
+    else if isDigit ch then isIdentTail source ( i + 1 )
+    else false ;
+def isReserved word =
+  if word == " def " then true
+  else if word == " let " then true
+  else if word == " in " then true
+  else if word == " if " then true
+  else if word == " then " then true
+  else if word == " else " then true
+  else if word == " fun " then true
+  else if word == " true " then true
+  else if word == " false " then true
+  else if word == " match " then true
+  else if word == " with " then true
+  else false ;
+def isIdentifier word =
+  if textLength word == 0 then false
+  else if isReserved word then false
+  else if isLetter ( textAt word 0 ) then isIdentTail word 1
+  else false ;
+def numericTail word i hasDigit hasDot =
+  if i == textLength word then hasDigit
+  else let ch = textAt word i in
+    if isDigit ch then numericTail word ( i + 1 ) true hasDot
+    else if ch == " . " then
+      if hasDot then false else numericTail word ( i + 1 ) hasDigit true
+    else false ;
+def isNumeric word =
+  if textLength word == 0 then false
+  else if textAt word 0 == " - " then numericTail word 1 false false
+  else numericTail word 0 false false ;
+def isPrefixStart word =
+  if word == " ( " then true
+  else if word == " [ " then true
+  else if word == " [] " then true
+  else if word == " if " then true
+  else if word == " let " then true
+  else if word == " fun " then true
+  else if word == " true " then true
+  else if word == " false " then true
+  else if isNumeric word then true
+  else isIdentifier word ;
+def infixPower word =
+  if word == " * " then 50
+  else if word == " / " then 50
+  else if word == " + " then 40
+  else if word == " - " then 40
+  else if word == " == " then 30
+  else if word == " != " then 30
+  else if word == " < " then 30
+  else if word == " <= " then 30
+  else if word == " > " then 30
+  else if word == " >= " then 30
+  else -1 ;
+
+def parseLambdaWrap params body =
+  fold ( fun acc param -> syntaxLambda ( syntaxText param ) acc ) body ( reverse params ) ;
+# Duplicate binder names are rejected at parse time (matching the Haxe parser).
+def hasParam params name =
+  match params with
+  | [] -> false
+  | p :: rest -> if syntaxText p == name then true else hasParam rest name ;
+# This parses a whitespace-separated parameter sequence followed by a delimiter.
+def parseParams stop tokens reversed =
+  if isEmpty tokens then parseError " Missing parameter delimiter "
+  else let current = parsePeek tokens in
+    if current == stop then parsePair ( syntaxNode " Params " ( reverse reversed ) ) ( tail tokens )
+    else if isIdentifier current then
+      if hasParam reversed current then parseError " Duplicate parameter name "
+      else parseParams stop ( tail tokens ) ( cons ( syntaxName current ) reversed )
+    else parseError " Invalid parameter name " ;
+
+# Callback `recur` is the Pratt parser itself: Number -> [Syntax] -> [Syntax].
+# This avoids mutually recursive top-level definitions and keeps HM inference.
+def parseListItems recur tokens reversed =
+  if isEmpty tokens then parseError " Missing ] "
+  else if parsePeek tokens == " ] " then
+    parsePair ( syntaxList reversed ) ( tail tokens )
+  else
+    let item = recur 0 tokens in
+    if parseFailed item then item
+    else let remaining = parseRest item in
+      if parsePeek remaining == " , " then
+        parseListItems recur ( tail remaining ) ( cons ( parseTree item ) reversed )
+      else if parsePeek remaining == " ] " then
+        parsePair ( syntaxList ( cons ( parseTree item ) reversed ) ) ( tail remaining )
+      else parseError " Expected comma or ] " ;
+
+def parsePrefix recur tokens =
+  if isEmpty tokens then parseError " Unexpected end of source "
+  else let word = parsePeek tokens in
+    let remaining = tail tokens in
+    if word == " ( " then
+      let inner = recur 0 remaining in
+      if parseFailed inner then inner
+      else if parsePeek ( parseRest inner ) == " ) " then
+        parsePair ( parseTree inner ) ( tail ( parseRest inner ) )
+      else parseError " Expected ) "
+    else if word == " [] " then parsePair syntaxNil remaining
+    else if word == " [ " then parseListItems recur remaining []
+    else if word == " true " then parsePair ( syntaxLiteral " Bool " " true " ) remaining
+    else if word == " false " then parsePair ( syntaxLiteral " Bool " " false " ) remaining
+    else if word == " if " then
+      let condition = recur 0 remaining in
+      if parseFailed condition then condition
+      else if parsePeek ( parseRest condition ) != " then " then parseError " Expected then "
+      else let yes = recur 0 ( tail ( parseRest condition ) ) in
+        if parseFailed yes then yes
+        else if parsePeek ( parseRest yes ) != " else " then parseError " Expected else "
+        else let no = recur 0 ( tail ( parseRest yes ) ) in
+          if parseFailed no then no
+          else parsePair ( syntaxIf ( parseTree condition ) ( parseTree yes ) ( parseTree no ) ) ( parseRest no )
+    else if word == " let " then
+      if isEmpty remaining then parseError " Expected let name "
+      else let name = parsePeek remaining in
+        if isIdentifier name then
+          if parsePeek ( tail remaining ) != " = " then parseError " Expected = "
+          else let value = recur 0 ( tail ( tail remaining ) ) in
+            if parseFailed value then value
+            else if parsePeek ( parseRest value ) != " in " then parseError " Expected in "
+            else let body = recur 0 ( tail ( parseRest value ) ) in
+              if parseFailed body then body
+              else parsePair ( syntaxApply ( syntaxLambda name ( parseTree body ) ) ( parseTree value ) ) ( parseRest body )
+        else parseError " Expected let name "
+    else if word == " fun " then
+      let params = parseParams " -> " remaining [] in
+      if parseFailed params then params
+      else if isEmpty ( syntaxChildren ( parseTree params ) ) then parseError " Expected lambda parameter "
+      else let body = recur 0 ( parseRest params ) in
+        if parseFailed body then body
+        else parsePair ( parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ) ( parseRest body )
+    else if isNumeric word then parsePair ( syntaxLiteral " Number " word ) remaining
+    else if isIdentifier word then parsePair ( syntaxVar word ) remaining
+    else parseError ( textConcat " Unexpected token: " word ) ;
+
+# Pratt suffix step handles application at 70 and left-associative operators.
+def parseSuffix recur minimum parsed =
+  if parseFailed parsed then parsed
+  else let rest = parseRest parsed in
+    let next = parsePeek rest in
+    if isPrefixStart next then
+      if minimum <= 70 then
+        let arg = recur 71 rest in
+        if parseFailed arg then arg
+        else parseSuffix recur minimum ( parsePair ( syntaxApply ( parseTree parsed ) ( parseTree arg ) ) ( parseRest arg ) )
+      else parsed
+    else let power = infixPower next in
+      if power < minimum then parsed
+      else
+        let rhs = recur ( power + 1 ) ( tail rest ) in
+        if parseFailed rhs then rhs
+        else parseSuffix recur minimum ( parsePair ( syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) ) ( parseRest rhs ) ) ;
+
+def parseAt minimum tokens =
+  parseSuffix parseAt minimum ( parsePrefix parseAt tokens ) ;
+
+def parseDefinition tokens =
+  if isEmpty tokens then parseError " Expected definition name "
+  else let name = parsePeek tokens in
+    if isIdentifier name then
+      let params = parseParams " = " ( tail tokens ) [] in
+      if parseFailed params then params
+      else let body = parseAt 0 ( parseRest params ) in
+        if parseFailed body then body
+        else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
+        else parsePair
+          ( syntaxNode " Define " [ syntaxName name , parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ] )
+          ( tail ( parseRest body ) )
+    else parseError " Expected definition name " ;
+
+def parseForm tokens =
+  if parsePeek tokens == " def " then parseDefinition ( tail tokens )
+  else let expression = parseAt 0 tokens in
+    if parseFailed expression then expression
+    else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
+    else parsePair ( syntaxNode " Evaluate " [ parseTree expression ] ) ( tail ( parseRest expression ) ) ;
+
+def parseForms tokens reversed =
+  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
+  else let form = parseForm tokens in
+    if parseFailed form then parseTree form
+    else parseForms ( parseRest form ) ( cons ( parseTree form ) reversed ) ;
+
+def parseSource source = parseForms ( map syntaxToken ( tokenize source ) ) [] ;

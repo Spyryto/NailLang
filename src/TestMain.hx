@@ -56,6 +56,6 @@ class TestMain {
     }
     check([for (k in kinds.keys()) k].length == 5, 'Expected five expression kinds');
     passed++;
-    trace('NailSeed v0.7: ' + passed + ' tests passed');
+    trace('NailSeed v0.8: ' + passed + ' tests passed');
   }
 }

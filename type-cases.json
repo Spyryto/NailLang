@@ -1,5 +1,5 @@
 {
-  "version": "0.7",
+  "version": "0.8",
   "positive": [
     {
       "code": "1 ; true ; [] ;",
@@ -267,6 +267,37 @@
         "[Number]"
       ],
       "stdlib": true
+    },
+    {
+      "code": "syntaxLeaf \" Var \" \" x \" ;",
+      "types": [
+        "Syntax"
+      ]
+    },
+    {
+      "code": "syntaxNode \" App \" [ syntaxLeaf \" Var \" \" f \" ] ;",
+      "types": [
+        "Syntax"
+      ]
+    },
+    {
+      "code": "syntaxChildren ( syntaxNode \" Tree \" [] ) ;",
+      "types": [
+        "[Syntax]"
+      ]
+    },
+    {
+      "code": "def toTag t = syntaxTag t ; toTag ;",
+      "types": [
+        "Syntax -> Text"
+      ]
+    },
+    {
+      "code": "parseSource \" def inc x = x + 1 ; \" ;",
+      "types": [
+        "Syntax"
+      ],
+      "stdlib": true
     }
   ],
   "negative": [
@@ -383,6 +414,18 @@
       "code": "1 == \" 1 \" ;",
       "errorRegex": "cannot unify",
       "stdlib": false
+    },
+    {
+      "code": "syntaxTag 5 ;",
+      "errorRegex": "cannot unify"
+    },
+    {
+      "code": "syntaxNode \" Wrong \" [ 1 ] ;",
+      "errorRegex": "cannot unify"
+    },
+    {
+      "code": "syntaxLeaf true \" text \" ;",
+      "errorRegex": "cannot unify"
     }
   ]
 }

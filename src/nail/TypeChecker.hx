@@ -88,6 +88,12 @@ private class Inference {
     globals.set('textLength', mono(fun(s, n)));
     globals.set('textAt', mono(fun(s, fun(n, s))));
     globals.set('textConcat', mono(fun(s, fun(s, s))));
+    var tree = TSyntax;
+    globals.set('syntaxLeaf', mono(fun(s, fun(s, tree))));
+    globals.set('syntaxNode', mono(fun(s, fun(TList(tree), tree))));
+    globals.set('syntaxTag', mono(fun(tree, s)));
+    globals.set('syntaxText', mono(fun(tree, s)));
+    globals.set('syntaxChildren', mono(fun(tree, TList(tree))));
     for (name in ['==', '!=']) {
       var id = nextId++;
       var a = TVariable(id);
@@ -131,7 +137,7 @@ private class Inference {
 
   function requireEquality(ty:NType):Void {
     switch (prune(ty)) {
-      case TNumber | TBoolean | TText:
+      case TNumber | TBoolean | TText | TSyntax:
       case TList(a): requireEquality(a);
       case TVariable(id): eqRequired.set(id, true);
       case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
@@ -154,7 +160,7 @@ private class Inference {
     switch ([a, b]) {
       case [TVariable(i), _]: bindVariable(i, b);
       case [_, TVariable(j)]: bindVariable(j, a);
-      case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText]:
+      case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
       case [TList(x), TList(y)]: unify(x, y);
       case [TFunction(a1, b1), TFunction(a2, b2)]: unify(a1, a2); unify(b1, b2);
       case _: throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
@@ -308,6 +314,7 @@ private class Inference {
         case TNumber: 'Number';
         case TBoolean: 'Bool';
         case TText: 'Text';
+        case TSyntax: 'Syntax';
         case TVariable(id): label(id);
         case TList(item): '[' + write(item, false) + ']';
         case TFunction(a, b):
