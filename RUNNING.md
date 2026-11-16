@@ -140,7 +140,7 @@ haxe seed-image.hxml
 haxe arithmetic-relations-test-interp.hxml
 haxe arithmetic-relations-test-js.hxml && node build/tests/arithmetic-relations.js
 haxe arithmetic-relations-test-php.hxml && php build/tests/php-arithmetic-relations/index.php
-haxe modern-bootstrap-test-interp.hxml
+haxe modern-bootstrap-test-js.hxml && node build/tests/modern-bootstrap.js
 ```
 
 `nail 0.45 ;` è compatibile; `nail 0.46 ;` abilita le nuove
@@ -149,3 +149,6 @@ Il test `modern-bootstrap-test-interp.hxml` costruisce un'immagine
 sperimentale della stdlib in semantica moderna e ne confronta i tre stadi
 di compilazione; la distribuzione mantiene l'immagine legacy finché la
 migrazione completa dei test e dell'ABI non è terminata.
+
+The whole-stdlib modern bootstrap test runs on Node for speed; the
+Haxe `--interp` variant remains available for debugging.
