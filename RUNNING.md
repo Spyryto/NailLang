@@ -1,15 +1,15 @@
-# Come eseguire NailSeed — v0.9
+# Come eseguire NailSeed — v0.10
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.9/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.10/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
 ## Compilare e usare JS e PHP dalla CLI
 
 Prérequisiti: Haxe 4.3.x, Node.js, PHP 8. I target JS e PHP sono **compilazioni dell'interprete Haxe** (non traduzioni del file `.nail` in JS/PHP). Nella cartella della versione:
 
 ```sh
-cd v0.9
+cd v0.10
 haxe js.hxml
 haxe php.hxml
 node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
@@ -21,6 +21,10 @@ php build/php/index.php examples/cookbook-start.nail
 ### Verifica dei tipi
 
 Il checker è separato dall'esecuzione: si può usare l'API `NailSeed.createTypeChecker()` quando esposta dallo snapshot, oppure il runner di inferenza `type-test-*.hxml`. Per il supporto preciso ai flag CLI consulta `src/Main.hx`, senza presupporre che tutte le versioni accettino gli stessi argomenti.
+
+### Percorsi del bytecode e del bootstrap
+
+La v0.10 introduce ByteVM e compilatore Nail. Per studiare questo percorso usa `bytecode-test-interp.hxml` e, se presenti, i corrispondenti `bytecode-test-js.hxml` / `bytecode-test-php.hxml`. 
 
 ## Aprire il runtime in una pagina web
 

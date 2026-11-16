@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.9
+# Nail Cookbook — v0.10
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Parser Nail eseguibile
+## Ricetta 3 — Compilazione in bytecode strutturato
 
 ```nail
 def twice x = x * 2 ;
-twice 5 ;
+twice 7 ;
 ```
 
-Il percorso `runPlainWithNail` usa il parser Nail con ponte verso l'AST; si può confrontare col parser Haxe.
+Un compilatore scritto in Nail genera bytecode; un compilatore Haxe indipendente funge da oracolo di confronto.
 
 ## Allenamento: studiare l'implementazione
 

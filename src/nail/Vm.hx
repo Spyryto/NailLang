@@ -94,7 +94,7 @@ class Vm {
     return v;
   }
 
-  static function primitive(name:String, args:Array<Value>):Value {
+  public static function primitive(name:String, args:Array<Value>):Value {
     var a = args[0];
     var b = args.length > 1 ? args[1] : Nil;
     return switch (name) {
@@ -223,6 +223,22 @@ class Vm {
   }
 
   public function runPlainWithNail(source:String):Array<Dynamic> return plainResults(runWithNail(source));
+
+  /** Shared primitive environment for a bytecode executor; no source parsing. */
+  public function bytecodeRoot():Env return root;
+
+  /** Compile source using the compiler function written in Nail. */
+  public function compileWithNail(source:String):Value {
+    steps = 0;
+    return call(root.lookup('compileSource'), Text(source));
+  }
+
+  /** Compile an already-parsed Syntax program using Nail code only.
+      Used to bootstrap the compiler without hitting the recursive lexer limit. */
+  public function compileSyntaxWithNail(tree:Value):Value {
+    steps = 0;
+    return call(root.lookup('compileSyntax'), tree);
+  }
 
   public function names():Array<String> return root.keys();
 

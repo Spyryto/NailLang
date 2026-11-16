@@ -13,5 +13,7 @@ enum Value {
   SyntaxLeaf(kind:String, text:String);
   SyntaxNode(kind:String, children:Value);
   Closure(param:String, body:Expr, captured:Env);
+  /** Closure whose body is already compiled to structured bytecode. */
+  ByteClosure(param:String, code:Value, captured:Env);
   Native(name:String, arity:Int, applied:Array<Value>);
 }

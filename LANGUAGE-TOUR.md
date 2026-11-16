@@ -1,18 +1,18 @@
-# Nail Language Tour — v0.9
+# Nail Language Tour — v0.10
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Parser Nail eseguibile**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Compilazione in bytecode strutturato**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.8/LANGUAGE-TOUR.md) → **v0.9** → [versione successiva](../v0.10/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.9/LANGUAGE-TOUR.md) → **v0.10** → [versione successiva](../v0.11/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Il percorso `runPlainWithNail` usa il parser Nail con ponte verso l'AST; si può confrontare col parser Haxe.
+Un compilatore scritto in Nail genera bytecode; un compilatore Haxe indipendente funge da oracolo di confronto.
 
 ```nail
 def twice x = x * 2 ;
-twice 5 ;
+twice 7 ;
 ```
 
 ## Primo programma
@@ -69,7 +69,7 @@ Il `match` sulle liste richiede entrambi i casi. `let name = expression in expre
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.9 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.9) e cerca il test associato alla feature.
+4. Apri la [versione v0.10 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.10) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

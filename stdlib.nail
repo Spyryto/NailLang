@@ -430,3 +430,65 @@ def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
 
 def parseSource source = parseForms ( tokenizeCode source ) [] ;
 
+
+# v0.10: Compiler written in Nail. The output is structured stack bytecode
+# represented as immutable Syntax data; no opcode-generating host primitives.
+# The VM contains no source parser. A CLOSURE and a BRANCH both hold Code
+# subprograms, avoiding jump-offset calculations in this bootstrap iteration.
+
+def append xs ys =
+  match xs with
+  | [] -> ys
+  | first :: rest -> cons first ( append rest ys ) ;
+
+def bcCode instructions = syntaxNode " Code " instructions ;
+def bcInstruction0 tag = syntaxNode tag [] ;
+def bcInstruction1 tag a = syntaxNode tag [ a ] ;
+def bcInstruction2 tag a b = syntaxNode tag [ a , b ] ;
+def bcReturn = bcInstruction0 " RETURN " ;
+def bcCall = bcInstruction0 " CALL " ;
+
+def compileExpr tree =
+  let tag = syntaxTag tree in
+  if tag == " Literal " then [ bcInstruction1 " CONST " tree ]
+  else if tag == " Var " then [ bcInstruction1 " LOAD " tree ]
+  else if tag == " Lambda " then
+    let children = syntaxChildren tree in
+    let param = head children in
+    let body = head ( tail children ) in
+    [ bcInstruction2 " CLOSURE " param ( bcCode ( append ( compileExpr body ) [ bcReturn ] ) ) ]
+  else if tag == " Apply " then
+    let children = syntaxChildren tree in
+    let fn = head children in
+    let arg = head ( tail children ) in
+    append ( compileExpr fn ) ( append ( compileExpr arg ) [ bcCall ] )
+  else if tag == " If " then
+    let children = syntaxChildren tree in
+    let condition = head children in
+    let yes = head ( tail children ) in
+    let no = head ( tail ( tail children ) ) in
+    append ( compileExpr condition )
+      [ bcInstruction2 " BRANCH " ( bcCode ( compileExpr yes ) ) ( bcCode ( compileExpr no ) ) ]
+  else [] ;
+
+def compileForm form =
+  let parts = syntaxChildren form in
+  if syntaxTag form == " Define " then
+    let name = head parts in
+    let body = head ( tail parts ) in
+    bcInstruction2 " DEFINE " name ( bcCode ( append ( compileExpr body ) [ bcReturn ] ) )
+  else if syntaxTag form == " Evaluate " then
+    bcInstruction1 " EVAL " ( bcCode ( append ( compileExpr ( head parts ) ) [ bcReturn ] ) )
+  else bcInstruction0 " INVALID_FORM " ;
+
+def compileForms forms =
+  match forms with
+  | [] -> []
+  | form :: rest -> cons ( compileForm form ) ( compileForms rest ) ;
+
+def compileSyntax program =
+  if syntaxTag program == " Program " then
+    syntaxNode " Bytecode " ( compileForms ( syntaxChildren program ) )
+  else program ;
+
+def compileSource source = compileSyntax ( parseSource source ) ;

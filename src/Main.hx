@@ -1,5 +1,7 @@
 import nail.Vm;
 import nail.TypeChecker;
+import nail.ByteVm;
+import nail.BytecodeCompiler;
 
 /** Thin target adapters. Type inference never changes the five-node VM core. */
 @:expose('NailSeed')
@@ -9,6 +11,9 @@ class Main {
   /** Optional static checker; calls to .check(source) persist top-level signatures. */
   public static function createTypeChecker():TypeChecker return new TypeChecker();
 
+  /** Execute structured Nail bytecode with the shared primitive runtime. */
+  public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
+
   static function main():Void {
     #if php
     // php build/php/index.php example.nail
@@ -16,7 +21,8 @@ class Main {
     var paths = Sys.args();
     var typeMode = paths.length > 0 && paths[0] == '--types';
     var selfMode = paths.length > 0 && paths[0] == '--selfparse';
-    if (typeMode || selfMode) paths.shift();
+    var byteMode = paths.length > 0 && paths[0] == '--bytecode';
+    if (typeMode || selfMode || byteMode) paths.shift();
     if (paths.length == 0) return;
     if (typeMode) {
       var types = createTypeChecker();
@@ -25,8 +31,12 @@ class Main {
     } else {
       var vm = create();
       vm.loadStdlib();
+      var byteVm = byteMode ? createByteVm() : null;
+      if (byteMode) byteVm.run(BytecodeCompiler.compileSource(haxe.Resource.getString('stdlib')));
       for (path in paths) {
-        var results = selfMode ? vm.runPlainWithNail(sys.io.File.getContent(path)) : vm.runPlain(sys.io.File.getContent(path));
+        var code = sys.io.File.getContent(path);
+        var results = byteMode ? byteVm.runPlain(vm.compileWithNail(code))
+          : selfMode ? vm.runPlainWithNail(code) : vm.runPlain(code);
         for (v in results) Sys.println(haxe.Json.stringify(v));
       }
     }

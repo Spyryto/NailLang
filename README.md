@@ -1,40 +1,60 @@
-# NailSeed v0.9 — executing the Nail-written parser
+# NailSeed v0.10 — a compiler written in Nail
 
-The parser in `stdlib.nail` now accepts **quoted text literals**, **line comments** and **exhaustive list matching** (`match ... with | [] -> ... | h :: t -> ...`) in addition to the v0.8 expression grammar.
+This release introduces a **structured stack bytecode** and a compiler **implemented in Nail itself**, while leaving the five-node surface AST unchanged.
 
-Most importantly, the Haxe runtime provides a **validated Syntax-to-AST bridge** (`SyntaxBridge.hx`) so an AST emitted by the Nail parser can be executed by the existing five-constructor VM. It does *not* reparse the source with Haxe:
+- `stdlib.nail` now defines `compileExpr`, `compileForm`, `compileSyntax`, `compileSource` and their helpers. It produces immutable `Syntax` values representing the bytecode — **no Haxe opcode-emission primitive is needed**.
+- `src/nail/ByteVm.hx` executes compiled instructions with a private operand stack and lexical closures.
+- `src/nail/BytecodeCompiler.hx` is an independent Haxe reference compiler used for equivalence tests.
+- `src/BytecodeTestMain.hx` checks instruction tree equivalence, runtime equivalence, invalid bytecode and the compiler-bootstrap experiment.
+- The AST stays at five constructors: `Literal`, `Var`, `Lambda`, `Apply`, `If`.
 
-```haxe
-var vm = new nail.Vm(10000000);
-vm.loadStdlib(); // Haxe bootstrap loads the Nail standard library
-vm.runPlainWithNail('def twice x = x * 2 ; twice 5 ;'); // [10]
-var tree = vm.parseWithNail('match [ 3 ] with | [] -> 0 | h :: t -> h ;');
-vm.runSyntax(tree); // [Number(3)]
-```
+## Why structured bytecode?
 
-The optional type checker also supports `checkSyntax(tree)`. Both consume the same `Syntax` tree.
+Instead of encoding branch offsets immediately, the first bytecode version uses `BRANCH(thenCode, elseCode)`, and `CLOSURE(param, code)` stores its nested instruction block. This is still executable stack bytecode, but is dramatically easier to generate and validate in pure Nail. We can flatten it to jump offsets later without changing Nail's semantics.
 
-## Source conventions
+| Opcode | Stack effect / meaning |
+|---|---|
+| `CONST(literal)` | Pushes a literal |
+| `LOAD(var)` | Pushes the value of a lexically resolved name |
+| `CLOSURE(param, code)` | Captures the current environment and pushes a callable closure |
+| `CALL` | Pops argument and function, pushes result |
+| `BRANCH(yes, no)` | Pops a Bool, evaluates only the selected code, pushes its value |
+| `RETURN` | Returns the single stack value |
 
-- Every ordinary token must be separated by whitespace; string delimiters `"` must also be separated from nearby tokens.
-- Quoted strings support embedded spaces and `\\n`, `\\r`, `\\t`, `\\"`, `\\\\` (ASCII only).
-- `#` starts a comment at a token boundary outside a string.
-- The self-parser normalizes whitespace within plain quoted strings just as the existing Haxe bootstrap tokenizer does.
-- Patterns are the same two exhaustive list branches from v0.6: empty and `head :: tail`, in either order. `_` discards an element.
+Top-level `DEFINE(name, code)` and `EVAL(code)` are *program forms*, not expression opcodes.
 
-No numeric representation changes: numbers are still IEEE-754 floats. Exact rationals are explicitly **out of scope** for this version.
+## Build and tests
 
-## Tests
-
-From `v0.9/`, with Haxe 4.3.7:
+Requires Haxe 4.3.7. Run from this directory:
 
 ```sh
-haxe test-interp.hxml
-haxe type-test-interp.hxml
-haxe parser-test-interp.hxml
-haxe self-parser-test-interp.hxml
+haxe bytecode-test-interp.hxml
+haxe bytecode-test-js.hxml && node build/tests/bytecode.js
+haxe bytecode-test-php.hxml && php build/tests/php-bytecode/index.php
 ```
 
-GitHub Actions performs the same regressions for Haxe `--interp`, Node.js and PHP. See `self-parser-test-*.hxml` and `src/SelfParserV09TestMain.hx` for the cross-parser, malformed-input, executable Syntax and type-checker tests.
+Existing v0.9 regression suites are retained. GitHub Actions runs all tests and produces JavaScript and PHP distributions. The generated runtimes remain untracked.
 
-The bootstrap remains Haxe and there is no self-hosted compiler or independent binary yet. The aim of this milestone is **self-parsed execution**, not full self-hosting.
+### JavaScript
+
+```js
+const vm = NailSeed.create(10000000);
+vm.loadStdlib();
+const program = vm.compileWithNail('def twice x = x * 2 ; twice 7 ;');
+const byteVm = NailSeed.createByteVm(10000000);
+byteVm.runPlain(program); // [14]
+```
+
+### PHP CLI
+
+```sh
+php build/php/index.php --bytecode example.nail
+```
+
+This CLI mode compiles the **user program** with the Nail-written compiler, then executes it with the bytecode engine. The standard library is currently bootstrapped with the Haxe reference compiler to avoid parsing its entire recursive source with Nail in one call; the program can use its definitions.
+
+## Bootstrap status
+
+The Haxe host parser still loads the source for `stdlib.nail`. The Nail-written parser and compiler generate bytecode that is executed by Haxe `ByteVm`. The bootstrap test compiles the compiler's own library definitions with the **Nail-written compiler**, runs them on `ByteVm`, and invokes that bytecode-compiled `compileSource` on a fresh small Nail program. The initial library AST is supplied by the Haxe parser/`SyntaxEncoder`, since the recursively implemented Nail lexer cannot scan a long source file in one call yet. This is **not** independent self-hosting.
+
+Other known limits: bytecode uses Syntax trees rather than compact bytes; no verifier for resource limits; no tail-call optimization, modules, rational numbers, or standalone executable.

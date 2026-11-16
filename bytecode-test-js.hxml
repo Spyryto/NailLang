@@ -1,0 +1,4 @@
+-cp src
+-main BytecodeTestMain
+-resource stdlib.nail@stdlib
+-js build/tests/bytecode.js
