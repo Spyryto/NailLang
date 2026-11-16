@@ -67,8 +67,15 @@ class ModernNumbersTestMain {
     var vm=new Vm(40000000);
     vm.loadStdlib();
     var viaNail=vm.compileWithNail(source);
-    ok(BootstrapImage.encode(viaNail)==BootstrapImage.encode(compiled),
-      'self-hosted compiler preserves modern numeric types and rows');
+    var nailImage=BootstrapImage.encode(viaNail), hostImage=BootstrapImage.encode(compiled);
+    var difference=0;
+    while (difference < nailImage.length && difference < hostImage.length &&
+        nailImage.charAt(difference)==hostImage.charAt(difference)) difference++;
+    ok(nailImage==hostImage,
+      'self-hosted compiler preserves modern numeric types and rows; '
+      + 'first difference at '+difference
+      + ' host='+hostImage.substr(difference,180)
+      + ' nail='+nailImage.substr(difference,180));
     eq(new ByteVm(40000000).runPlain(viaNail),expected,'Nail bytecode execution');
     var boot=new BootRuntime(40000000);
     var sourceFree=boot.compile(source);
