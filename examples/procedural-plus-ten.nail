@@ -1,0 +1,21 @@
+# A procedural transformer written entirely in Nail.
+# Receives a first-class Syntax Program and emits ONE fresh top-level
+# definition. Local names prefixed #proc_local_ are hygienic binders:
+# the v0.30 compiler replaces them with deterministic private IDs.
+
+def emitPlusTen program =
+  let local = syntaxLeaf " Var " " #proc_local_x " in
+  let ten = syntaxNode " Literal " [ syntaxLeaf " Number " " 10 " ] in
+  let body = syntaxNode " Apply " [
+    syntaxNode " Apply " [ syntaxLeaf " Var " " + " , local ] ,
+    ten
+  ] in
+  let fn = syntaxNode " Lambda " [
+    syntaxLeaf " Name " " #proc_local_x " ,
+    body
+  ] in
+  if syntaxTag program == " Program " then
+    syntaxNode " Program " [
+      syntaxNode " Define " [ syntaxLeaf " Name " " plusTen " , fn ]
+    ]
+  else syntaxNode " Program " [] ;

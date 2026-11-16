@@ -1,0 +1,7 @@
+-cp src
+-main ProceduralTransformerTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/procedural-plus-ten.nail@procedural_transformer
+-resource examples/procedural-identity.nail@procedural_builder
+-php build/tests/php-procedural-transformer

@@ -384,6 +384,13 @@ class Vm {
     return evaluate(Apply(Literal(f), Literal(arg)), root);
   }
 
+  /** Public, budgeted invocation of an already defined Nail function.
+      Used by opt-in procedural transformations of first-class Syntax. */
+  public function invoke(name:String, argument:Value):Value {
+    steps = 0;
+    return call(root.lookup(name), argument);
+  }
+
   /** Execute validated core forms using the same evaluator on every target. */
   function executeForms(forms:Array<Form>):Array<Value> {
     var output:Array<Value> = [];

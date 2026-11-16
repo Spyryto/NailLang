@@ -1,0 +1,12 @@
+# Public procedural transformer using the ordinary Nail standard-library
+# Syntax builders (syntaxDefine, syntaxLambda, syntaxVar), not Haxe helpers.
+# #proc_local_value is alpha-renamed by the v0.30 hygiene boundary.
+
+def emitIdentity program =
+  if syntaxTag program == " Program " then
+    syntaxNode " Program " [
+      syntaxDefine " fromBuilder "
+        ( syntaxLambda " #proc_local_value "
+          ( syntaxVar " #proc_local_value " ) )
+    ]
+  else syntaxNode " Program " [] ;

@@ -21,12 +21,24 @@ class BootRuntime {
   @:keep
   public function compile(source:String, ?modules:String->Null<String>):Value return machine.compileSource(source, modules);
 
+  /** Compile first-class Syntax with the Nail-written compiler only.
+      No Haxe source parser is involved. */
+  @:keep
+  public function compileSyntax(tree:Value):Value
+    return machine.compileSyntax(tree);
+
   /** Execute a program compiled by the bootstrapped Nail compiler. */
   @:keep
   public function run(source:String, ?modules:String->Null<String>):Array<Value> return machine.run(compile(source, modules));
 
   @:keep
   public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return Vm.plainResults(run(source, modules));
+
+  /** Invoke a transformer written in Nail after loading its definitions.
+      Uses only compiled bytecode and the source-free runtime. */
+  @:keep
+  public function invoke(name:String, argument:Value):Value
+    return machine.invoke(name, argument);
 
   /** Expose the lower-level structural API for inspection and subsequent stages. */
   @:keep

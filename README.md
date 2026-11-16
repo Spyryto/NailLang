@@ -1,36 +1,108 @@
-# NailSeed v0.29 — opt-in exact numeric compiler/runtime integration
+# NailSeed v0.30 — Typed procedural transformers written in Nail
 
-An independent compiler and runtime snapshot derived from the stable v0.27
-language and the v0.29 compact-number lab, in `v0.29-runtime/`.
+v0.30 adds a **public, opt-in transformer API** to the independent v0.29-runtime
+snapshot. Existing expression-template macros, exact-number dialect support,
+the five-form expression core and the source-free compiler remain intact.
 
-## Intended verified slice
+A procedural transformer is an ordinary pure Nail function:
 
-- Existing unmarked Nail programs use unchanged floating `Number` values,
-  `TNumber` inference, native arithmetic and v1 bootstrap images.
-- First nonempty line `# nail: 0.29` opts the current **whole source file**
-  into exact numeric literals. They are `ExactNumber(FastValue)` at runtime
-  and `TExact` in the type checker.
-- Arithmetic `+ - * /` and order operators use exact primitives (via a
-  checked rewrite), not implicit Float promotion. Equality is polymorphic
-  but rejects mixed exact/legacy runtime numbers.
-- The Haxe parser and the Nail-written parser/transformer independently
-  produce the same five-constructor expression AST / Syntax representation,
-  with a canonical `ExactNumber E:n/d` leaf in bytecode. Both AST and
-  structured bytecode VMs execute the same immutable values.
-- The source-free bootstrap compiler chooses the versioned exact path
-  without calling the host parser.
-- `ExactImage` uses a separate v2-exact JSON envelope, retaining explicit
-  decimal-string rational payloads; legacy v1 decoders reject its header.
-- Cross-target comparison tests cover Haxe, JavaScript and PHP and are run
-  before the complete inherited bootstrap regression and fixed-point suite.
+```nail
+def emit program =
+  if syntaxTag program == " Program " then
+    syntaxNode " Program " [ ...new definition Syntax nodes... ]
+  else syntaxNode " Program " [] ;
+```
 
-## Deliberate boundaries
+Its required inferred signature is `Syntax -> Syntax`. Unlike the existing
+`macro name ... = quote (...)` syntax, it may **compute Syntax dynamically**
+using Nail functions, recursion, conditions and the existing immutable
+`SyntaxLeaf`/`SyntaxNode` APIs. No new interpreter opcode, object model,
+fexpr, or privileged compilation primitive is introduced.
 
-This is an **opt-in compiler/runtime integration candidate**, not a change
-to all existing Nail programs. User-facing explicit exact-to-Float
-conversions, mixed-dialect module linking, general numeric type classes,
-production memory budgets, and complete integration with numeric collection
-indices and generated declarations still need design and tests.
+## Example
 
-See [../v0.29](../v0.29/) for numerical performance work and the
-repository ROADMAP.md for the v0.40 feature balance.
+See [examples/procedural-plus-ten.nail](examples/procedural-plus-ten.nail).
+The Nail function `emitPlusTen` generates a `plusTen` declaration with a
+fresh local variable, and returns a `Program` containing only that definition.
+
+A second example, [examples/procedural-identity.nail](examples/procedural-identity.nail),
+shows that the generator can use the ordinary **Nail standard library's**
+`syntaxDefine`, `syntaxLambda` and `syntaxVar` helpers. The host contract
+checker reads the bundled stdlib's inferred signatures once and reuses an
+isolated copy for each transformer. In a minimal custom host build without
+that resource, transformers may still use the core Syntax primitives, but
+stdlib-only helper names must be provided by the host.
+
+Host integration (Haxe, with the same API on JS and PHP):
+
+```haxe
+var original = SyntaxEncoder.program(
+  new Parser('def base = 32 ;').parse());
+var transformerSource = /* contents of procedural-plus-ten.nail */;
+var contracts = [{
+  name: 'plusTen', type: TFunction(TNumber, TNumber)
+}];
+
+var emitted = ProceduralTransformer.generateHost(
+  original, transformerSource, 'emitPlusTen', contracts);
+
+// Or run the *same Nail transformer* with the source-free bootstrap:
+var fromBootstrap = ProceduralTransformer.generateBoot(
+  original, transformerSource, 'emitPlusTen', contracts);
+
+var bytecode = ProceduralTransformer.compile(original, emitted, contracts);
+// bytecode contains both def base and def plusTen; plusTen base evaluates to 42
+```
+
+### Contract and hygiene
+
+- The caller supplies a validated source `Syntax.Program`, transformer source,
+  transformer entry name and an **explicit closed monomorphic signature** for
+  each emitted definition. No unchecked generated declarations can enter
+  `ProceduralTransformer.compile`.
+- The generated result must be another `Syntax.Program` of **fresh definitions
+  only**; unexpected forms, duplicate names, wrong result types and unknown
+  references are errors. The original Program is never mutated.
+- A generated lambda must bind `#proc_local_<name>`, referring to that binder
+  using the same private marker. The hygiene pass deterministically rewrites
+  every marker to a fresh `#proc_gensym_<id>_<name>`, preserving caller free
+  variables. Bare `x` binders, dangling markers and fabricated/duplicate
+  private IDs are rejected.
+- The public compile boundary verifies already-prepared IDs again, and checks
+  types again, so directly supplying arbitrary Syntax cannot bypass it.
+- Type-contract errors can include an optional source call-site span. Complete
+  nested source-origin maps for arbitrary procedural transformations are not
+  yet implemented.
+- The transformer runs as an ordinary Nail closure, under the existing
+  evaluator instruction budget, with **no I/O or privileged callbacks**.
+
+## Test and runtime compatibility
+
+```sh
+# In v0.30/, after generating the bootstrap image:
+haxe seed-image.hxml
+haxe procedural-transformer-test-interp.hxml
+haxe procedural-transformer-test-js.hxml && node build/tests/procedural-transformer.js
+haxe procedural-transformer-test-php.hxml &&
+  php build/tests/php-procedural-transformer/index.php
+```
+
+GitHub Actions additionally runs the inherited v0.29-runtime regression,
+type inference, expression macro, module macro, exact-number, fixed-point
+bootstrap, stress and distribution checks on Haxe, Node and PHP. The new
+tests compare the Haxe AST VM, the Nail-written reference compiler and the
+source-free compiled Nail compiler, plus malformed/unsafe outputs.
+
+## Deliberate limits
+
+This is **Nail-authored procedural declaration generation through a public
+host API**, not user-defined `macro` registrations directly in the Nail
+source grammar. It does not yet support arbitrary program rewrites, automatic
+type inference of promised polymorphic declarations, phase-specific I/O,
+mixed-version module linking or complete inferred hygiene for unmarked syntax
+splices. Procedural transformers must explicitly mark the bindings they
+introduce. These boundaries make the first reusable API predictable and
+testable without expanding the trusted runtime core.
+
+See [SPEC.md](SPEC.md), the previous [v0.29-runtime](../v0.29-runtime/) and
+the repository's [roadmap](../ROADMAP.md).

@@ -195,6 +195,12 @@ class ByteVm {
     };
   }
 
+  /** Public, budgeted invocation of a compiled Nail function. */
+  public function invoke(name:String, argument:Value):Value {
+    steps = 0;
+    return call(globals.lookup(name), argument);
+  }
+
   /** Execute a top-level expression that may end in TAIL_CALL. */
   function executeTop(block:Value):Value return executeCode(block, globals, true);
 

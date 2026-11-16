@@ -1,3 +1,79 @@
+# v0.30 delta — Typed procedural declaration transformers
+
+This stage exposes Nail-authored `Syntax -> Syntax` functions through
+`ProceduralTransformer`, a **host-side orchestration API**, while preserving
+all v0.29-runtime semantics and the same five expression constructors.
+
+## Public contract
+
+1. A valid source `SyntaxNode('Program', ...)` and a Nail transformer module
+   are supplied explicitly. TypeChecker must infer the selected entry as
+   exactly `Syntax -> Syntax`; unbound symbols or other signatures fail.
+2. The module executes in an ordinary `Vm` or in the source-free
+   `BootRuntime`. The user's Nail source creates first-class Syntax and
+   returns a `Program` consisting exclusively of new `Define` forms.
+3. `ProceduralHygiene.prepare` rewrites explicit local markers and rejects
+   unexpected binders; `verifyPrepared` confirms all IDs are private,
+   unique and lexically bound.
+4. `GeneratedDeclarationValidator.validateTyped` checks every fresh
+   definition against a caller-provided manifest of `{name, type:NType}`.
+   Names must be fresh and signatures **closed and monomorphic**. The source
+   program supplies existing types, functions and nominal fields. The type
+   environment is transactional.
+5. `ProceduralTransformer.compile` re-verifies prepared syntax and type
+   contracts, appends generated declarations in order, and compiles them
+   through the unchanged structured bytecode compiler.
+6. `BootRuntime.compileSyntax` and the AST VM's compileSyntax path must
+   generate the **same canonical bytecode**, and the host/bootstrap
+   transformers must generate the same hygienic Syntax.
+
+## Hygiene specification
+
+- Generated binders have an explicit lexical role, distinguished from
+  arbitrary caller `Var` references. The transformer author emits
+  `#proc_local_x` as a Lambda Name and in the corresponding bound Vars.
+- Each introduced binder receives a deterministic unique private ID
+  `#proc_gensym_<serial>_<name>` on output. Nested markers obey lexical
+  shadowing. Existing ordinary source names remain untouched, so unmarked
+  free caller references cannot be captured by a generated binder.
+- A new Lambda with an unmarked binder is rejected rather than guessing
+  which variables to rename. Unbound markers and references to private
+  IDs constructed directly by the generator fail.
+- The final compilation boundary rejects raw markers, unbound private
+  identifiers and reused private binding IDs.
+- The transform has a bounded expansion traversal depth and node budget.
+  Interpreter instruction budgets apply while running the generator.
+
+This is strict, deliberately **opt-in hygiene**, not a claim of automatic
+origin-aware hygiene for arbitrary syntax splices or intentional capture
+annotations. The underlying v0.26 token/AST provenance metadata is not
+serialized into the five-constructor AST or runtime bytecode.
+
+## Security and failure boundaries
+
+- Generated declarations are checked before compilation; only new
+  definitions can be returned, no top-level `Evaluate` forms or new type
+  declarations. Returned source trees do not silently change the original.
+- No host file access, network access or reflection is exposed to user Nail
+  transformers. They execute through normal lexical bindings and primitives.
+- Generator type errors, invalid output shapes, duplicate declarations,
+  invalid names, unbound variables and incompatible claimed return types
+  are compile-time errors.
+- `NType` manifest construction and scheduling are performed in the host,
+  not via a new `macro` source-language declaration syntax.
+- Source-free bootstrap execution, PHP/JS runtime parity and unchanged
+  legacy/exact numeric behavior are required CI checks.
+
+## Later work
+
+General polymorphic generated signatures need rigid/skolem verification.
+Unrestricted program rewriting needs per-origin binder identities and a
+more expressive Syntax/phase contract. A source-language registration
+surface may wrap this host API later, after the error and hygiene contract
+has demonstrated value without adding new VM instructions.
+
+---
+
 # v0.29-runtime delta: real exact-number execution, isolated from v0.27
 
 This directory is a full standalone snapshot of the v0.27 compiler and both

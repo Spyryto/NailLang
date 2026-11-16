@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.29-runtime
+# Nail Cookbook — v0.30
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,16 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Dialetto esatto eseguibile (opt-in)
+## Ricetta 3 — Trasformatori procedurali tipizzati
 
 ```nail
-# nail: 0.29
-def cost = 0.1 + 0.2 ;
-cost ;
+def twice n = n * 2 ;
+twice 21 ;
 ```
 
-La prima riga opt-in seleziona `Exact` nell'intero file; conserva le semantiche legacy dei sorgenti senza header.
+Trasformatori puri `Syntax -> Syntax` scritti in Nail, registrati tramite l'API tipizzata dell'host, con verifica e igiene dei binding.
+
+Per creare un trasformatore procedurale, parti dai file `examples/procedural-*.nail` e dal test `procedural-transformer-test-*.hxml`: una semplice `def` non registra da sola un trasformatore nell'host.
 
 ## Allenamento: studiare l'implementazione
 
