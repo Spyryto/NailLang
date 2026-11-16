@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "positive": [
     {
       "code": "1 ; true ; [] ;",
@@ -216,6 +216,57 @@
         "Number"
       ],
       "stdlib": false
+    },
+    {
+      "code": "\" hello world \" ;",
+      "types": [
+        "Text"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "textLength \" abc \" ; textAt \" abc \" 1 ; textConcat \" a \" \" b \" ;",
+      "types": [
+        "Number",
+        "Text",
+        "Text"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "\" a \" == \" b \" ;",
+      "types": [
+        "Bool"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "tokenize \" a b ; \" ;",
+      "types": [
+        "[Text]"
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseTinyDef \" def inc x = x + 1 ; \" ;",
+      "types": [
+        "[Text]"
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "def first xs = head xs ; first [ \" hi \" , \" there \" ] ;",
+      "types": [
+        "Text"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "map ( fun s -> textLength s ) [ \" a \" , \" ab \" ] ;",
+      "types": [
+        "[Number]"
+      ],
+      "stdlib": true
     }
   ],
   "negative": [
@@ -307,6 +358,31 @@
     {
       "code": "match [ fun x -> x ] with | [] -> 0 | f :: rest -> f == f ;",
       "errorRegex": "cannot unify|functions cannot be compared"
+    },
+    {
+      "code": "textLength 4 ;",
+      "errorRegex": "cannot unify",
+      "stdlib": false
+    },
+    {
+      "code": "textAt \" ab \" true ;",
+      "errorRegex": "cannot unify",
+      "stdlib": false
+    },
+    {
+      "code": "textConcat \" a \" 1 ;",
+      "errorRegex": "cannot unify",
+      "stdlib": false
+    },
+    {
+      "code": "[ \" a \" , 2 ] ;",
+      "errorRegex": "cannot unify",
+      "stdlib": false
+    },
+    {
+      "code": "1 == \" 1 \" ;",
+      "errorRegex": "cannot unify",
+      "stdlib": false
     }
   ]
 }

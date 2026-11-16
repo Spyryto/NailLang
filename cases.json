@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "positive": [
     {
       "code": "def twice x = x * 2 ; twice 5 ;",
@@ -340,6 +340,142 @@
         ]
       ],
       "stdlib": true
+    },
+    {
+      "code": "\" hello world \" ;",
+      "expected": [
+        "hello world"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "\" \" ;",
+      "expected": [
+        ""
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "\" a # b \" ;",
+      "expected": [
+        "a # b"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "textLength \" hello \" ; textAt \" hello \" 1 ; textConcat \" ab \" \" cd \" ;",
+      "expected": [
+        5,
+        "e",
+        "abcd"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "\" a \" == \" a \" ; \" a \" != \" b \" ;",
+      "expected": [
+        true,
+        true
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "textLength \" \\u0020 \" ; textAt \" abc \" 0 ;",
+      "expected": [
+        1,
+        "a"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "def greet who = textConcat \" hello \" who ; greet \" earth \" ;",
+      "expected": [
+        "helloearth"
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "tokenize \" def twice x = x * 2 ; \" ;",
+      "expected": [
+        [
+          "def",
+          "twice",
+          "x",
+          "=",
+          "x",
+          "*",
+          "2",
+          ";"
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "tokenize \" \\u0020\\u0020a\\t\\u0020b\\n c \\u0020 \" ;",
+      "expected": [
+        [
+          "a",
+          "b",
+          "c"
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "tokenize \" \" ;",
+      "expected": [
+        []
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseTinyDef \" def twice x = x * 2 ; \" ;",
+      "expected": [
+        [
+          "Define",
+          "twice",
+          "x",
+          "Multiply",
+          "x",
+          "2"
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseTinyDef \" def inc x = x + 1 ; \" ;",
+      "expected": [
+        [
+          "Define",
+          "inc",
+          "x",
+          "Add",
+          "x",
+          "1"
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseTinyDef \" def f x = 1 + 2 ; \" ;",
+      "expected": [
+        []
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "parseTinyDef \" def broken x = y + 2 ; \" ;",
+      "expected": [
+        []
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "def id x = x ; id \" yes \" ;",
+      "expected": [
+        "yes"
+      ],
+      "stdlib": false
     }
   ],
   "negative": [
@@ -434,6 +570,34 @@
     {
       "code": "match true with | [] -> 1 | x :: xs -> 2 ;",
       "errorRegex": "Expected list"
+    },
+    {
+      "code": "textAt \" abc \" 4 ;",
+      "errorRegex": "Text index out of range"
+    },
+    {
+      "code": "textAt \" abc \" -1 ;",
+      "errorRegex": "Text index out of range"
+    },
+    {
+      "code": "textAt \" abc \" 0.5 ;",
+      "errorRegex": "Text index out of range"
+    },
+    {
+      "code": "textLength 5 ;",
+      "errorRegex": "Expected text"
+    },
+    {
+      "code": "textConcat \" yes \" 7 ;",
+      "errorRegex": "Expected text"
+    },
+    {
+      "code": "\" unterminated ;",
+      "errorRegex": "Unterminated string literal"
+    },
+    {
+      "code": "textLength \" \\u00e9 \" ;",
+      "errorRegex": "Expected ASCII text"
     }
   ]
 }

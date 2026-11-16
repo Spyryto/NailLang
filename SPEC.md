@@ -1,53 +1,33 @@
-# NailSeed 0.6 — Specifica sperimentale
+# NailSeed 0.7 — text semantics & self-hosting milestone
 
-## Obiettivo e compatibilità
+## Core invariants
 
-Portare la v0.5 più vicino al linguaggio funzionale sorgente voluto, **senza aumentare le cinque espressioni del core**. Restano compatibili i programmi eseguibili nella v0.5, compreso l'ordine di valutazione eager. La fonte della semantica è l'implementazione Haxe e i test `cases.json` / `type-cases.json` identici per interpreter Haxe, JS e PHP.
+The complete expression AST remains `Literal | Var | Lambda | Apply | If` and all library code uses these forms after desugaring. The runtime evaluator in Haxe compiles to JS and PHP.
 
-### Sintassi
+## Strings
 
-```text
-expression := ... | "let" name "=" expression "in" expression
-                  | "match" expression "with" match-arm match-arm
-match-arm  := "|" "[]" "->" expression
-            | "|" name "::" name "->" expression
-```
+Source form: `" content with words "` where both quote marks are separate whitespace tokens. Raw whitespace between string payload words is normalized to one space. Quotes inside strings require the JSON escape `\"`, and escapes `\n`, `\t`, `\r`, `\uXXXX` are decoded with the Haxe JSON parser. An empty string is `" "`. A string containing one space is `" \u0020 "`.
 
-`[ ]` è una grafia alternativa per il pattern vuoto. Le due alternative sono obbligatorie e in ordine libero, con una sola occorrenza ciascuna. `name` è un identificatore o `_` (wildcard) solo per i campi `head` e `tail`. Due binding con lo stesso nome in un pattern sono rifiutati. Gli altri operatori conservano precedenze e associatività della v0.5. Ogni token deve essere separato da whitespace. I commenti `# ...` occupano il resto della riga.
+All real strings are represented at runtime as `Text(String)` and statically as `TText`. Equality between text values is by contents; `Text` is an `Eq` type, and `[Text]` can be compared structurally. Comparisons across types remain statically invalid.
 
-Non supportiamo `let rec`; la destra di `let` viene analizzata nell'ambiente precedente. Se un costrutto è annidato e il delimitatore `|` risulta ambiguo, si usano parentesi esplicite. Una terza alternativa di match viene rifiutata.
+Minimal host APIs:
 
-### Desugaring
+- `textLength : Text -> Number`
+- `textAt : Text -> Number -> Text` (zero-based, integer-only, bounds checked)
+- `textConcat : Text -> Text -> Text`
 
-`let x = a in b` equivale a `Apply(Lambda("x", b), a)` nel core.
+Indexable text is ASCII only (U+0000–U+007F) until portable Unicode scalar semantics can be specified. `textLength` and `textAt` reject non-ASCII input rather than silently disagreeing between target hosts.
 
-`match xs with | [] -> e | h :: t -> n` equivale schematicamente a:
+## First Nail-native tooling
 
-```text
-( fun #list ->
-    if #isEmpty #list then e
-    else ( fun h -> fun t -> n ) ( #head #list ) ( #tail #list )
-) xs
-```
+`tokenize : Text -> [Text]` scans a string in Nail, recognizing space, tab, CR and LF and returning whitespace-separated tokens. All helper functions are written in `stdlib.nail`; there is no host `split` primitive. 
 
-Le parole `#list`, `#isEmpty`, `#head` e `#tail` sono interne (non token utente); `#list` viene generata con identificatore fresco. L'espressione `xs` viene valutata una sola volta, mentre solo il ramo selezionato viene valutato. Il desugaring non dipende da un eventuale binding utente di `head`, `tail`, `isEmpty` o `cons`.
+`parseTinyDef : Text -> [Text]` recognizes one special-case grammar: `def NAME ARG = ARG +|* LITERAL ;`. It returns a flat prefix-AST token sequence. It rejects unexpected token counts, mismatch between body variable and argument, unrecognized operators, etc. Its implementation is intentionally unsophisticated; this is a vertical slice proving that Nail can tokenize and inspect a subset of its own syntax, **not** full self-hosting.
 
-### Inferenza dei tipi
+## Constraints and tests
 
-Il type checker della v0.5 ha ora un caso speciale per la forma core `Apply(Lambda(name, body), value)`, che equivale a un `let` non ricorsivo. Inferisce il tipo di `value`, generalizza le variabili libere non vincolate dall'ambiente e inferisce `body` con il relativo schema. In un linguaggio puro e senza riferimenti mutabili, questo permette il polimorfismo let locale. Una lambda passata come valore a una funzione conserva invece la regola standard dei parametri monomorfi.
+The persistent-list representation from v0.6 is unchanged. Source `let` and exhaustive list `match` desugar to the same five AST nodes. `cases.json` and `type-cases.json` extend regression suites. The CI runs on Haxe --interp, Node and PHP, then tests the distribution API. No generated targets are versioned.
 
-L'inferenza di `match` discende dalle primitive listate private, dalla condizione booleana di `If` e dall'unificazione dei tipi dei due rami: nessuna regola speciale `Match` è richiesta nel checker. Si applicano gli stessi vincoli `Eq` della v0.5.
+## Next work
 
-### Libreria standard
-
-`stdlib.nail` utilizza `match` per implementare `map`, `filter`, `fold`. Conserva `id`, `compose`, `reverse`, `length`; nessuna delle funzioni di libreria è una primitiva host.
-
-### Test e CI
-
-- Test runtime: `cases.json` positivi + negativi, più controllo che l'AST usi esattamente i cinque nodi.
-- Test tipi: `type-cases.json` positivi + negativi, più controlli incrementali e non-commit dei fallimenti, inferenza della firma di un `match`.
-- GitHub Actions: compila Haxe interpreter, JavaScript/Node.js, PHP 8.3; test di distribuzione, artefatti JS/PHP.
-
-### Limiti
-
-Non è ancora possibile scrivere il parser di Nail interamente in Nail, perché mancano stringhe, rappresentazione dei token, primitive di elaborazione testuale e lettura di sorgenti. Le liste e le closure restano implementate nella VM Haxe, senza TCO e senza sandboxing. Il checker rimane opzionale e il parser non possiede diagnostica con posizioni nel sorgente. I pattern sono limitati alle liste e devono essere esaustivi.
+A proper parser should return a tagged AST as algebraic data types instead of a flat `[Text]`, support errors with positions and work on full function syntax. Tail-call elimination or iterative tokenization may be required for larger inputs. Unicode semantics and a more robust string/tokenizer contract should precede any claims of self-hosting.

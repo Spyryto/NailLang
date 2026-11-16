@@ -1,20 +1,17 @@
-# Nail Language Tour — v0.6
+# Nail Language Tour — v0.7
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Binding locali e pattern di lista**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Testo e primo tokenizer in Nail**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.5/LANGUAGE-TOUR.md) → **v0.6** → [versione successiva](../v0.7/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.6/LANGUAGE-TOUR.md) → **v0.7** → [versione successiva](../v0.8/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-`let ... in` e `match` esaustivo su liste sono desugarizzati nel core esistente. La ricorsione locale `let` non è prevista.
+Nasce la semantica `Text` e una prima parte del parsing scritta nel linguaggio stesso.
 
 ```nail
-def sum xs = match xs with
-  | [] -> 0
-  | head :: rest -> head + sum rest ;
-sum [ 1 , 2 , 3 ] ;
+tokenize " def twice x = x * 2 ; " ;
 ```
 
 ## Primo programma
@@ -71,7 +68,7 @@ Il `match` sulle liste richiede entrambi i casi. `let name = expression in expre
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.6 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.6) e cerca il test associato alla feature.
+4. Apri la [versione v0.7 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.7) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

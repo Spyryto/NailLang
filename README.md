@@ -1,43 +1,31 @@
-# NailSeed v0.6 — Local bindings & exhaustive list patterns
+# NailSeed v0.7 — Text + self-hosted tokenizer and tiny parser
 
-**Haxe-first**, compilato in JavaScript e PHP dallo stesso sorgente. La v0.6 mantiene le **cinque forme** dell'AST (`Literal`, `Var`, `Lambda`, `Apply`, `If`) della v0.5; introduce due costrutti di superficie, entrambi eliminati dal parser tramite *desugaring*.
+**Haxe-first**: single source for `--interp`, JavaScript and PHP. Same five core AST nodes as v0.6.
 
-## Esempi
+## New features
+
+- A first-class `Text` value, `TText` type and text equality.
+- Three host primitives only: `textLength`, `textAt`, `textConcat`. Characters processed by these primitives must be **ASCII** for identical JS/PHP indexing semantics in this experimental version.
+- Text syntax: a double-quote delimiter must itself be a whitespace-separated token: `" hello world "`, `" "` (empty), `" \u0020 "` (single space); escape sequences inside quotes follow JSON rules. Content spacing is normalized to one space between constituent words.
+- `tokenize`, `isSpace`, `tokenizeAt` implemented **in Nail**, not in Haxe; recursive and naïve but sufficient for small examples.
+- `parseTinyDef` recognizes the narrow grammar `def NAME ARG = ARG OP LITERAL ;` for `+` and `*`; returns a flat prefix-AST represented as `[Text]`, or `[]` if unrecognized. This is not the production Nail parser or a self-hosted compiler.
+- Existing v0.6 runtime and type tests preserved; new positive/negative tests validate text, tokens, simple source syntax and type errors.
+
+## Example
 
 ```nail
-def area w h = let base = w * h in base ;
-area 6 7 ;
+tokenize " def twice x = x * 2 ; " ;
+# ["def", "twice", "x", "=", "x", "*", "2", ";"]
 
-# Per ora il match supporta solo due pattern esaustivi per lista.
-def sum xs =
-  match xs with
-  | [] -> 0
-  | head :: rest -> head + sum rest ;
-sum [ 1 , 2 , 3 ] ;
-
-# 'let' è non ricorsivo e polimorfico; nessuna annotazione necessaria.
-let identity = fun x -> x in
-  let ignored = identity 42 in
-  identity true ;
+parseTinyDef " def twice x = x * 2 ; " ;
+# ["Define", "twice", "x", "Multiply", "x", "2"]
 ```
 
-I token sono **sempre separati da spazi**, inclusi `|`, `::`, `->`, `;`, parentesi e operatori; i newline non terminano un'espressione. La forma `[]` oppure `[ ]` rappresenta la lista vuota.
+`stdlib.nail` contains all the new Nail-language functions. Load it once before calling them. The host parser itself is still written in Haxe and is responsible for bootstrapping the text library.
 
-`match` richiede *esattamente* due rami in ordine arbitrario: uno `[]`, uno `head :: tail`, con identificatori oppure `_` come wildcard. Non esiste ancora il matching su booleani, numeri, record o strutture annidate. Il parser rifiuta rami mancanti o duplicati.
+## Run
 
-## Cosa è cambiato
-
-- `let name = value in body` diventa `(fun name -> body) value`, con valutazione *eager* del valore.
-- Il type checker riconosce l'applicazione diretta di lambda e applica generalizzazione Hindley–Milner anche ai `let` locali (nella versione 0.5 la generalizzazione era disponibile soprattutto per le definizioni globali).
-- Il `match` sulle liste diventa un `if` con primitive private `#isEmpty`, `#head`, `#tail`, e closure che legano `head` e `tail`. Lo scrutinee viene calcolato una sola volta; i nomi interni non possono essere scritti dall'utente.
-- `stdlib.nail` riscrive **map, filter e fold usando `match`**; non sono native dell'interprete.
-- `cases.json` e `type-cases.json` estendono i test di regressione positivi e negativi.
-
-Il checker statico resta un passaggio **opzionale**; il runtime rifiuta gli errori dinamici e non è una sandbox per codice ostile.
-
-## Prova locale
-
-Richiede Haxe 4.3.7, Node.js 22, PHP 8.3 (o versioni compatibili). Dalla cartella `v0.6`:
+From this directory, with Haxe 4.3.7 installed:
 
 ```sh
 haxe test-interp.hxml
@@ -46,13 +34,14 @@ haxe test-js.hxml && node build/tests/test.js
 haxe type-test-js.hxml && node build/tests/types.js
 haxe test-php.hxml && php build/tests/php/index.php
 haxe type-test-php.hxml && php build/tests/php-types/index.php
-haxe js.hxml && haxe php.hxml
 ```
 
-La [pipeline GitHub Actions](../.github/workflows/nailseed-v06.yml) esegue le tre modalità, prova le API distribuite JS e PHP e pubblica artefatti generati dalla build. I file generati non sono committati.
+Workflow: [nailseed-v07.yml](../.github/workflows/nailseed-v07.yml). Build artifacts are published by GitHub Actions, not committed.
 
-## Architettura e limiti
+## Limitations
 
-Il parser restituisce l'**AST dei cinque costruttori**, senza introdurre `Let` o `Match` nel runtime. Le liste sono celle `Cons` persistenti. Il matching è strettamente esaustivo sulle liste e i pattern non sono nidificabili; le lambda e le definizioni globali restano ricorsive solo dove previsto. Non ci sono stringhe, lexer autogenerato, ottimizzazione tail-call, ADT generali, macro o parser self-hosted. Il prossimo prerequisito sostanziale per il parser scritto in Nail è il supporto a **stringhe e token**, non un ulteriore costrutto di controllo del flusso.
-
-Vedi [SPEC.md](./SPEC.md) per la semantica e le scelte progettuali.
+- No full Nail parser in Nail itself, only a bounded grammar recognizer for one form.
+- Source text is ASCII for indexing; text literals may contain other Unicode, but `textLength`/`textAt` reject it. Unicode/code-point semantics remain future work.
+- The string delimiter and punctuation still require surrounding whitespace. String input normalizes the spaces between words; use JSON escapes (such as `\u0020`, `\t`, `\n`) to represent exact whitespace.
+- No tail-call optimization. The tokenizer is recursive and intended for short source snippets, not arbitrary-sized input.
+- Type checking remains optional in the execution API.

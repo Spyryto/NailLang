@@ -6,6 +6,7 @@ import nail.Ast.Expr;
 enum Value {
   Number(value:Float);
   Boolean(value:Bool);
+  Text(value:String);
   Nil;
   Cons(head:Value, tail:Value);
   Closure(param:String, body:Expr, captured:Env);

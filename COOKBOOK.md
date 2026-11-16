@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.6
+# Nail Cookbook — v0.7
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,13 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Binding locali e pattern di lista
+## Ricetta 3 — Testo e primo tokenizer in Nail
 
 ```nail
-def sum xs = match xs with
-  | [] -> 0
-  | head :: rest -> head + sum rest ;
-sum [ 1 , 2 , 3 ] ;
+tokenize " def twice x = x * 2 ; " ;
 ```
 
-`let ... in` e `match` esaustivo su liste sono desugarizzati nel core esistente. La ricorsione locale `let` non è prevista.
+Nasce la semantica `Text` e una prima parte del parsing scritta nel linguaggio stesso.
 
 ## Allenamento: studiare l'implementazione
 

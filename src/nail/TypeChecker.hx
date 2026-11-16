@@ -82,9 +82,12 @@ private class Inference {
   }
 
   public function installPrimitives():Void {
-    var n = TNumber, b = TBoolean;
+    var n = TNumber, b = TBoolean, s = TText;
     for (name in ['+', '-', '*', '/']) globals.set(name, mono(fun(n, fun(n, n))));
     for (name in ['<', '<=', '>', '>=']) globals.set(name, mono(fun(n, fun(n, b))));
+    globals.set('textLength', mono(fun(s, n)));
+    globals.set('textAt', mono(fun(s, fun(n, s))));
+    globals.set('textConcat', mono(fun(s, fun(s, s))));
     for (name in ['==', '!=']) {
       var id = nextId++;
       var a = TVariable(id);
@@ -128,7 +131,7 @@ private class Inference {
 
   function requireEquality(ty:NType):Void {
     switch (prune(ty)) {
-      case TNumber | TBoolean:
+      case TNumber | TBoolean | TText:
       case TList(a): requireEquality(a);
       case TVariable(id): eqRequired.set(id, true);
       case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
@@ -151,7 +154,7 @@ private class Inference {
     switch ([a, b]) {
       case [TVariable(i), _]: bindVariable(i, b);
       case [_, TVariable(j)]: bindVariable(j, a);
-      case [TNumber, TNumber] | [TBoolean, TBoolean]:
+      case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText]:
       case [TList(x), TList(y)]: unify(x, y);
       case [TFunction(a1, b1), TFunction(a2, b2)]: unify(a1, a2); unify(b1, b2);
       case _: throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
@@ -228,6 +231,7 @@ private class Inference {
     return switch (expr) {
       case Literal(Number(_)): TNumber;
       case Literal(Boolean(_)): TBoolean;
+      case Literal(Text(_)): TText;
       case Literal(Nil): TList(fresh());
       case Literal(_): throw 'Type error: unsupported literal';
       case Var(name):
@@ -303,6 +307,7 @@ private class Inference {
       return switch (prune(t)) {
         case TNumber: 'Number';
         case TBoolean: 'Bool';
+        case TText: 'Text';
         case TVariable(id): label(id);
         case TList(item): '[' + write(item, false) + ']';
         case TFunction(a, b):

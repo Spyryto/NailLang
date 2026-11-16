@@ -12,14 +12,42 @@ class Parser {
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
-  static final commentPattern = ~/(^|\s)#.*$/;
   static final spacePattern = ~/\s+/g;
 
   public function new(source:String) {
-    var lines:Array<String> = [];
-    for (line in source.split('\n')) lines.push(commentPattern.replace(line, '$1'));
-    var clean = StringTools.trim(lines.join(' '));
-    tokens = clean == '' ? [] : spacePattern.split(clean);
+    tokens = tokenizeHost(source);
+  }
+
+  // String boundaries are separate whitespace-delimited tokens: " hello world ".
+  // Contents are joined with one space and decoded as JSON string escapes.
+  // Comments are ignored outside quoted text only.
+  static function tokenizeHost(source:String):Array<String> {
+    var result:Array<String> = [];
+    var quoted = false;
+    var parts:Array<String> = [];
+    for (line in source.split('\n')) {
+      var clean = StringTools.trim(line);
+      var words = clean == '' ? [] : spacePattern.split(clean);
+      for (word in words) {
+        if (quoted) {
+          if (word == '"') {
+            var value:String;
+            try value = haxe.Json.parse('"' + parts.join(' ') + '"')
+            catch (e:Dynamic) throw 'Invalid string escape: ' + Std.string(e);
+            result.push('\u0001' + value);
+            parts = [];
+            quoted = false;
+          } else parts.push(word);
+        } else if (StringTools.startsWith(word, '#')) {
+          break;
+        } else if (word == '"') {
+          quoted = true;
+          parts = [];
+        } else result.push(word);
+      }
+    }
+    if (quoted) throw 'Unterminated string literal';
+    return result;
   }
 
   static function isName(s:Null<String>):Bool {
@@ -35,7 +63,7 @@ class Parser {
   static function beginsAtom(s:Null<String>):Bool {
     return switch (s) {
       case '(' | '[' | '[]' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
-      case _: isName(s) || isNumber(s);
+      case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
     };
   }
 
@@ -119,6 +147,7 @@ class Parser {
   function atom():Expr {
     var token = take();
     if (token == null) throw 'Unexpected end of input';
+    if (StringTools.startsWith(token, '\u0001')) return Literal(Text(token.substr(1)));
     if (token == '[]') return Literal(Nil);
     if (token == '(') {
       var inner = expression(); expect(')'); return inner;

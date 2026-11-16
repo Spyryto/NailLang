@@ -54,6 +54,6 @@ class TypeTestMain {
     check(pattern.signature('headOrZero') == '[Number] -> Number',
       'Wrong inferred type for exhaustive list pattern');
     passed++;
-    trace('NailSeed v0.6 types: ' + passed + ' tests passed');
+    trace('NailSeed v0.7 types: ' + passed + ' tests passed');
   }
 }

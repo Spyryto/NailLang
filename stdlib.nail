@@ -23,3 +23,49 @@ def fold f init xs =
 
 def reverse xs = fold ( fun acc x -> cons x acc ) [] xs ;
 def length xs = fold ( fun n x -> n + 1 ) 0 xs ;
+
+# v0.7: self-hosted whitespace tokenizer. Host primitives: textLength/textAt/textConcat.
+# Input is ASCII text. Punctuation must still be separated by whitespace.
+def isSpace ch =
+  if ch == " \u0020 " then true
+  else if ch == " \t " then true
+  else if ch == " \n " then true
+  else if ch == " \r " then true
+  else false ;
+
+def tokenizeAt source i n word reversed =
+  if i == n then
+    reverse ( if word == " " then reversed else cons word reversed )
+  else
+    let ch = textAt source i in
+    if isSpace ch then
+      if word == " " then tokenizeAt source ( i + 1 ) n " " reversed
+      else tokenizeAt source ( i + 1 ) n " " ( cons word reversed )
+    else tokenizeAt source ( i + 1 ) n ( textConcat word ch ) reversed ;
+
+def tokenize source = tokenizeAt source 0 ( textLength source ) " " [] ;
+
+# One deliberately tiny self-hosted recognizer.
+# Grammar: def <name> <arg> = <arg> <op> <literal> ;
+# Result: prefix *flat* AST as [Text], [] means not recognized.
+# This is NOT the full Nail parser; it establishes the data path and tests it.
+def parseTinyDefTokens ts =
+  if length ts != 8 then []
+  else
+    let kw = head ts in
+    let name = head ( tail ts ) in
+    let param = head ( tail ( tail ts ) ) in
+    let eq = head ( tail ( tail ( tail ts ) ) ) in
+    let lhs = head ( tail ( tail ( tail ( tail ts ) ) ) ) in
+    let op = head ( tail ( tail ( tail ( tail ( tail ts ) ) ) ) ) in
+    let rhs = head ( tail ( tail ( tail ( tail ( tail ( tail ts ) ) ) ) ) ) in
+    let end = head ( tail ( tail ( tail ( tail ( tail ( tail ( tail ts ) ) ) ) ) ) ) in
+    if kw != " def " then []
+    else if eq != " = " then []
+    else if end != " ; " then []
+    else if lhs != param then []
+    else if op == " * " then [ " Define " , name , param , " Multiply " , lhs , rhs ]
+    else if op == " + " then [ " Define " , name , param , " Add " , lhs , rhs ]
+    else [] ;
+
+def parseTinyDef source = parseTinyDefTokens ( tokenize source ) ;

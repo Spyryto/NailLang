@@ -14,9 +14,9 @@ class Vm {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
     root = new Env();
-    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons'])
+    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', 'textAt', 'textConcat'])
       root.bind(name, Native(name, 2, []));
-    for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty']) root.bind(name, Native(name, 1, []));
+    for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength']) root.bind(name, Native(name, 1, []));
     root.bind('nil', Nil);
   }
 
@@ -39,6 +39,23 @@ class Vm {
     };
   }
 
+  static function text(v:Value):String {
+    return switch (v) {
+      case Text(s):
+        // Source processing is ASCII-only for now, making Haxe's indexing
+        // consistent across JS UTF-16 and PHP's string implementation.
+        for (i in 0...s.length) if (s.charCodeAt(i) > 127) throw 'Expected ASCII text';
+        s;
+      case _: throw 'Expected text';
+    };
+  }
+
+  static function index(v:Value, size:Int):Int {
+    var n = number(v);
+    if (n < 0 || n >= size || n != Math.floor(n)) throw 'Text index out of range';
+    return Std.int(n);
+  }
+
   static function finite(n:Float):Value {
     if (!Math.isFinite(n)) throw 'Nonfinite arithmetic result';
     return Number(n);
@@ -48,6 +65,7 @@ class Vm {
     return switch ([a, b]) {
       case [Number(x), Number(y)]: x == y;
       case [Boolean(x), Boolean(y)]: x == y;
+      case [Text(x), Text(y)]: x == y;
       case [Nil, Nil]: true;
       case [Cons(x, xs), Cons(y, ys)]: equal(x, y) && equal(xs, ys);
       case [Nil, Cons(_, _)] | [Cons(_, _), Nil]: false;
@@ -72,6 +90,11 @@ class Vm {
       case '>=': Boolean(number(a) >= number(b));
       case '==': Boolean(equal(a, b));
       case '!=': Boolean(!equal(a, b));
+      case 'textLength': Number(text(a).length);
+      case 'textAt':
+        var source = text(a);
+        Text(source.charAt(index(b, source.length)));
+      case 'textConcat': Text(text(a) + text(b));
       case 'cons' | '#cons':
         switch (b) {
           case Nil | Cons(_, _): Cons(a, b);
@@ -153,6 +176,7 @@ class Vm {
     return switch (value) {
       case Number(n): n;
       case Boolean(b): b;
+      case Text(s): s;
       case Nil: ([] : Array<Dynamic>);
       case Cons(_, _):
         var items:Array<Dynamic> = [];

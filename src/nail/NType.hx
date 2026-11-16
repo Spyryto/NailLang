@@ -4,6 +4,7 @@ package nail;
 enum NType {
   TNumber;
   TBoolean;
+  TText;
   TList(element:NType);
   TFunction(argument:NType, result:NType);
   TVariable(id:Int);
