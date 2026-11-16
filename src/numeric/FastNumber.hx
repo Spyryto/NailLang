@@ -183,6 +183,52 @@ class FastNumber {
     return fromRational(checkSize(result, budget));
   }
 
+  /** Exact rounding to an integer, without ever converting through Float.
+      For half-even (banker's rounding), ties select the even integer.
+      The canonical Rational sign is separate and negative zero is impossible.
+      All operations enforce the same output digit budget as exact arithmetic. */
+  public static function roundInteger(value:FastValue, mode:String,
+      maxDigits:Int = DEFAULT_DIGITS):FastValue {
+    checkBudget(maxDigits);
+    if (mode != 'floor' && mode != 'ceil' &&
+        mode != 'truncate' && mode != 'half-even')
+      throw 'Unknown exact integer rounding mode ' + mode;
+    switch (value) {
+      case Small(n):
+        if (Std.string(n < 0 ? -n : n).length > maxDigits)
+          throw 'Exact numeric digit budget exceeded';
+        return value;
+      case Approximate(_):
+        throw 'Exact value required';
+      case _:
+    }
+    var r = checkSize(rational(value), maxDigits);
+    if (r.denominator == '1') return value;
+    var qr = BigNat.divmod(r.numerator, r.denominator);
+    var increase = switch (mode) {
+      case 'floor': r.negative;
+      case 'ceil': !r.negative;
+      case 'truncate': false;
+      case 'half-even':
+        var doubled = BigNat.add(qr.r, qr.r);
+        var comparison = BigNat.compare(doubled, r.denominator);
+        comparison > 0 || (comparison == 0 &&
+          (qr.q.charCodeAt(qr.q.length - 1) - 48) % 2 != 0);
+      case _: false;
+    };
+    var whole = increase ? BigNat.add(qr.q, '1') : qr.q;
+    if (whole.length > maxDigits)
+      throw 'Exact numeric digit budget exceeded';
+    return fromRational(Rational.make(r.negative, whole, '1'));
+  }
+
+  /** Exact integral predicate, including arbitrarily large integers. */
+  public static function isInteger(value:FastValue):Bool return switch (value) {
+    case Small(_): true;
+    case Fraction(r): r.denominator == '1';
+    case Approximate(_): throw 'Exact value required';
+  };
+
   public static function equal(a:FastValue, b:FastValue):Bool {
     return switch ([a, b]) {
       case [Small(x), Small(y)]: x == y;

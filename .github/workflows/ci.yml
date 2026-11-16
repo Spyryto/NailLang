@@ -59,6 +59,13 @@ jobs:
           XDEBUG_MODE=off php build/tests/php-shared-result/index.php
       - name: Test offline Ed25519 distribution signing helper
         run: node --test tools/sign-modules.test.mjs
+      - name: Verify exact rational rounding on Haxe, JS and PHP
+        run: |
+          haxe exact-rounding-test-interp.hxml
+          haxe exact-rounding-test-js.hxml
+          node build/tests/exact-rounding.js
+          haxe exact-rounding-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-exact-rounding/index.php
       - name: Check Nail-written compiler fixed point
         run: haxe rebootstrap-image.hxml
       - name: Compile JavaScript and PHP distributions

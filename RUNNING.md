@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.42
+# Eseguire NailLang — v0.43
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -88,3 +88,17 @@ Ed25519 solo in Node.js o PHP (con estensione sodium attiva).
 Per applicazioni web/browser o altri host è necessario integrare un
 verificatore Ed25519 sincrono affidabile con
 `linkSignedImagesWithVerifier`, altrimenti il controllo fallisce.
+
+## Test delle operazioni numeriche esatte v0.43
+
+```sh
+haxe seed-image.hxml
+haxe exact-rounding-test-interp.hxml
+haxe exact-rounding-test-js.hxml && node build/tests/exact-rounding.js
+haxe exact-rounding-test-php.hxml && php build/tests/php-exact-rounding/index.php
+```
+
+Le cinque funzioni sono pure e disponibili nella VM standard. Il bootstrap
+esistente può compilare i loro nomi senza modificare parser, formato delle
+immagini o set di istruzioni. Non convertono mai `Number` in `Exact`
+automaticamente.

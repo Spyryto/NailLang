@@ -65,6 +65,11 @@ jobs:
           XDEBUG_MODE=off php build/tests/php-signed-manifests/index.php
           haxe shared-result-test-interp.hxml
           node --test tools/sign-modules.test.mjs
+          haxe exact-rounding-test-interp.hxml
+          haxe exact-rounding-test-js.hxml
+          node build/tests/exact-rounding.js
+          haxe exact-rounding-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-exact-rounding/index.php
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml

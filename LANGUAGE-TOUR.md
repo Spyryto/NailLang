@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.42
+# Nail Language Tour — v0.43
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -95,3 +95,39 @@ dall'applicazione; altrimenti la verifica fallisce. I test reali includono
 manomissione, chiavi sconosciute, cambio versione e sostituzione di moduli.
 
 Approfondisci [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
+
+## v0.43 — Arrotondare i razionali senza perdere precisione
+
+Nail possiede due domini numerici intenzionalmente separati: il vecchio
+`Number` (Float binario) e il tipo `Exact`, attivato esplicitamente con
+`# nail: 0.29`. La v0.43 **non introduce un nuovo dialetto**: arricchisce
+`Exact` con operazioni pure e tipizzate, senza conversione implicita.
+
+```nail
+# nail: 0.29
+
+exactFloor ( 7 / 3 ) ;       # 2
+exactCeil ( -7 / 3 ) ;       # -2
+exactTruncate ( -7 / 3 ) ;   # -2
+exactRoundEven ( 5 / 2 ) ;   # 2
+exactRoundEven ( 7 / 2 ) ;   # 4
+exactIsInteger ( 8 / 4 ) ;   # true
+exactIsInteger ( 5 / 2 ) ;   # false
+```
+
+- `exactFloor : Exact -> Exact` arrotonda verso meno infinito.
+- `exactCeil : Exact -> Exact` arrotonda verso più infinito.
+- `exactTruncate : Exact -> Exact` arrotonda verso zero.
+- `exactRoundEven : Exact -> Exact` arrotonda al più vicino;
+  esattamente a metà sceglie il numero pari (ties-to-even).
+- `exactIsInteger : Exact -> Bool` controlla se il denominatore ridotto è 1.
+
+I risultati restano di tipo `Exact` anche quando sono numeri interi; non
+creiamo un finto nuovo tipo `Int`. Il type checker rifiuta `exactFloor 1`
+nel dialetto Float perché non applica conversioni implicite. Per passare
+testo numerico a Exact c'è `exactFromText`.
+
+L'implementazione usa divisione euclidea su naturali arbitrariamente grandi
+e conserva i budget di cifre dell'aritmetica esatta; **nessun Float**
+intermedio e nessuna variazione del bytecode. Esempi eseguibili in
+`src/ExactRoundingTestMain.hx` e [COOKBOOK.md](./COOKBOOK.md).
