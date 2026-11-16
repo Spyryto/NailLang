@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.16
+# Nail Cookbook — v0.28
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -10,12 +10,12 @@ La cartella è un laboratorio, non un'interprete Nail completo. Esegui i tre tar
 
 ## Ricetta 2 — evitare le false aspettative
 
-```nail
-# nail: 0.16
-def thirds = 1/3 ;
+```haxe
+var a = NumericCandidate.exact("0.1");
+var b = NumericCandidate.exact("0.2");
 ```
 
-La sintassi del dialetto è futura: non eseguirla nel runtime come prova di supporto.
+È materiale di laboratorio Haxe: non è un programma Nail eseguibile da browser o CLI standard.
 
 ## Ricetta 3 — esperimento controllato
 

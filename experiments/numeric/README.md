@@ -1,51 +1,70 @@
-# NailSeed v0.16 — Exact Number Lab (experimental)
+# NailSeed v0.28 — Numeric semantics decision laboratory
 
-This folder is **an independent experiment**, not a replacement for the v0.15 runtime or a complete v0.16 Nail compiler. Full self-hosting is intentionally deferred.
+This is an **isolated experiment**, not an integrated Nail compiler or VM
+release. The existing runtime still represents `Number` with a Haxe
+`Float`. No previous source dialect or bootstrap image is changed.
 
-Goals:
+## Candidates under evaluation
 
-1. Try a **single exact number model**: integers, rational fractions, and finite decimal literals all normalized as rational values.
-2. Implement arbitrary-precision magnitude arithmetic in **pure Haxe**, without JS BigInt, npm packages, GMP, or other target-specific dependencies.
-3. Use the **same source and independently generated test vectors** on Haxe `--interp`, JavaScript, and PHP.
-4. Explore **per-source language versioning**, following the broad idea used by Dart, without changing the older language semantics yet.
+1. **Unified exact `Number` plus explicit `Float`**: integers, finite
+   decimal literals and fractions are normalized as the same exact rational.
+   `Float` is explicitly approximate, optimized for audio, graphics and
+   measurement workloads.
+2. **Separate `Int`, `Rational`, `Float`**: may improve integer
+   indexing and specialized operations, but adds conversion and type-inference
+   rules. This remains a design comparison, not yet a second implementation.
 
-## Example numeric syntax (future dialect, not currently wired into Nail)
+The current executable candidate explores option 1, reusing
+[v0.16's pure-Haxe BigNat/Rational implementation](../v0.16/).
+The `NumericCandidate` wrapper deliberately rejects implicit mixed-domain
+arithmetic/equality/comparison, enforces finite approximate values, supports
+an explicit (conservative) rational-to-Float bridge and requires exact
+nonnegative integers for indexing.
 
-```nail
-# nail: 0.16
-def thirds = 1/3 ;
-def tenth = 0.1 ;
-def total = tenth + 0.2 ;
-# total = 3/10 exactly
+```haxe
+var a = NumericCandidate.exact("0.1");
+var b = NumericCandidate.exact("0.2");
+var sum = NumericCandidate.arithmetic("+", a, b);
+// exact:3/10, not an approximated IEEE 754 result
+var approximation = NumericCandidate.toApproximate(sum);
 ```
 
-Spaces remain the token separator. `3/4` would be one rational literal; `3 / 4` remains three tokens. Unlike the v0.15 floating-point runtime, both would be evaluated exactly in this proposed dialect.
-
-## Source files
-
-- `src/numeric/BigNat.hx`: normalized, nonnegative arbitrary-precision decimal integer primitives.
-- `src/numeric/Rational.hx`: signed canonical fractions with a strictly positive denominator.
-- `src/numeric/LanguageVersion.hx`: **standalone experimental** header recognition; NOT connected to the Nail compiler/VM.
-- `src/NumericLabMain.hx`: smoke tests, errors, large numbers, version header.
-- `tests/numeric-cases.json`: all 270 independently generated exact arithmetic/comparison reference vectors, committed and used unchanged by local tests and CI. The optional `tests/generate_cases.py` records their original Python `fractions.Fraction` provenance; Python is not required for testing.
-- `test-{interp,js,php}.hxml`: build/test entry points.
-
-Run the three platforms from this folder (no Python needed):
+## Execute (Haxe, JavaScript and PHP)
 
 ```sh
 haxe test-interp.hxml
 haxe test-js.hxml && node build/numeric-lab.js
 haxe test-php.hxml && php build/php/index.php
+haxe candidate-test-interp.hxml
+haxe candidate-test-js.hxml && node build/numeric-model.js
+haxe candidate-test-php.hxml && php build/php-numeric-model/index.php
 ```
 
-The matching workflow under `.github/workflows/nailseed-v016.yml` verifies all three automatically.
+The repository commits the full 270-case independent arithmetic oracle,
+originally generated with Python `fractions.Fraction`. Local builds and
+GitHub Actions consume these fixed reference vectors directly, without Python,
+and run all inherited v0.16 tests before checking candidate arithmetic,
+conversions, indexing, resource errors, and simple cross-target arithmetic
+benchmarks. `tests/generate_cases.py` remains an optional provenance tool.
 
-## Important limitations
+## Constraints and benchmark interpretation
 
-- Big integer algorithms currently operate on **decimal digit strings**; they are simple and portable, but not optimized, especially GCD/division.
-- Arithmetic is exact within available memory/time; it is *not* constant-time or hardened against untrusted huge inputs.
-- Floating-point transcendental functions, scientific notation, fractional exponents, and mixed approximate/exact arithmetic are deliberately out of scope.
-- The existing Nail type `Number` is **unchanged**, as is the v0.15 compiler and bytecode. The header is a proof of concept only.
-- Generated JS/PHP code may be larger than native implementations; size/performance should be measured on CI.
+- The pure-Haxe decimal-digit algorithms prioritize portability and
+  auditability, **not performance**. Benchmark output is informative only:
+  there is no arbitrary target-relative speed threshold in CI.
+- The wrapper limits input/output numerator and denominator sizes
+  (`DEFAULT_DIGITS=128`, hard maximum `4096`). Intermediate products
+  can be larger than the limit. This is not yet an instruction/memory budget
+  adequate for executing untrusted programs.
+- Conversion to `Float` rejects non-finite intermediate magnitudes, even if
+  a huge numerator/denominator ratio would be representable. This
+  conservative rule is revisable.
+- Benchmark timing varies substantially by VM, JIT, host CPU and warmup.
+  Allocation, memory, indexing in a real Nail runtime, and complete
+  self-hosted compilation costs are **not measured** here.
 
-See `SPEC.md` and `LANGUAGE-VERSIONING.md` for the design decision points.
+See [SPEC.md](SPEC.md) for open language design choices and
+[BENCHMARK-RESULTS.md](BENCHMARK-RESULTS.md) for the first measured CI comparison. **Do not change the
+meaning of `Number` or `/` in the main language until source dialect
+versioning, mixed-version modules, serialization, inference and bootstrap
+compatibility have explicit tests.**

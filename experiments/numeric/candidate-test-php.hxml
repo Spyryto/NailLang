@@ -1,0 +1,3 @@
+-cp src
+-main NumericDecisionTestMain
+-php build/php-numeric-model

@@ -1,0 +1,3 @@
+-cp src
+-main NumericDecisionTestMain
+-js build/numeric-model.js
