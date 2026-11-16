@@ -1225,6 +1225,7 @@ def modernRewrite tree =
     else syntaxLeaf " Int " ( exactEncode ( syntaxText tree ) )
   else if tag == " Var " then syntaxVar ( modernOperator ( syntaxText tree ) )
   else if tag == " Name " then tree
+  else if tag == " Type " then tree
   else if tag == " Bool " then tree
   else if tag == " Text " then tree
   else if tag == " Nil " then tree
