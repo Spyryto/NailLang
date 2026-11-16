@@ -64,7 +64,7 @@ class Parser {
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
-      case 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
+      case 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'function' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
     };
   }
@@ -73,7 +73,7 @@ class Parser {
 
   static function beginsAtom(s:Null<String>):Bool {
     return switch (s) {
-      case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | '{' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
+      case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | '{' | 'fun' | 'function' | 'if' | 'let' | 'match' | 'true' | 'false': true;
       case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
     };
   }
@@ -137,6 +137,12 @@ class Parser {
   function parseMatch():Expr {
     var scrutinee = expression();
     expect('with');
+    return parseMatchBranches(scrutinee);
+  }
+
+  /** Share exhaustive branches between ordinary match and F# function
+      patterns, keeping the same five expression constructors. */
+  function parseMatchBranches(scrutinee:Expr):Expr {
     if (peek() != '|') throw 'Expected | in match';
     var first:Null<String> = at + 1 < tokens.length ? tokens[at + 1] : null;
     var next:Null<String> = at + 2 < tokens.length ? tokens[at + 2] : null;
@@ -175,6 +181,11 @@ class Parser {
     var pair = Apply(Apply(Lambda(headName, Lambda(tailName, pairBranch)),
       call('#head', list)), call('#tail', list));
     return Apply(Lambda(listName, If(call('#isEmpty', list), emptyBranch, pair)), scrutinee);
+  }
+
+  function parseFunctionMatch():Expr {
+    var name = hidden('function_subject');
+    return Lambda(name, parseMatchBranches(Var(name)));
   }
 
   function parseSumMatch(scrutinee:Expr):Expr {
@@ -313,6 +324,7 @@ class Parser {
     }
     if (token == 'let') return parseLet();
     if (token == 'match') return parseMatch();
+    if (token == 'function') return parseFunctionMatch();
     if (token == 'if') {
       var condition = expression(); expect('then');
       var yes = expression(); expect('else');

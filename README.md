@@ -177,3 +177,33 @@ remain text in image v1, with explicit contract checking at linking.
 The five expression forms, bytecode instruction set, default Float and
 opt-in Exact number semantics are unchanged. The empty form `{}` is
 not supported yet, and anonymous fields must be explicitly named.
+
+## First v0.36 slice: F# pattern function expressions
+
+Instead of writing `fun value -> match value with ...`, write a unary
+pattern function directly:
+
+```nail
+def firstOr fallback = function
+  | [] -> fallback
+  | head :: tail -> head ;
+```
+
+The same form supports local algebraic sum constructors:
+
+```nail
+type Option a = None | Some a ;
+def hasValue = function
+  | None -> false
+  | Some value -> true ;
+```
+
+List patterns retain two exhaustive branches (`[]`, `head :: tail`)
+and ADT patterns require constructor coverage. The expression is a
+lambda over an ordinary lowered match. The Haxe and Nail-written
+parsers produce identical bytecode, the source-free bootstrap is
+unchanged, and separate module linking retains inferred HM signatures.
+
+No sixth core expression kind, new VM opcode or runtime dispatch is
+introduced. Function-parameter destructuring, guards, structural
+record patterns and general nested patterns remain future slices.

@@ -1,18 +1,20 @@
-# Nail Language Tour — v0.35
+# Nail Language Tour — v0.36
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Record strutturali anonimi chiusi**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Function expression a pattern**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.34/LANGUAGE-TOUR.md) → **v0.35** → [versione successiva](../v0.36/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.35/LANGUAGE-TOUR.md) → **v0.36** → [versione successiva](../v0.37/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-I tipi dei record anonimi dipendono dai nomi e tipi dei campi; sono CHIUSI (nessun row polymorphism o width subtyping).
+`function | pattern -> expression` è una lambda unaria abbassata a `match`; esaustività su liste e somme.
 
 ```nail
-def profile = { age = 36 , name = " Ada " } ;
-profile . age ;
+def firstOr fallback = function
+  | [] -> fallback
+  | head :: tail -> head ;
+firstOr 0 [ 4 , 5 ] ;
 ```
 
 ## Primo programma
@@ -125,7 +127,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.35 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.35) e cerca il test associato alla feature.
+4. Apri la [versione v0.36 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.36) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.35
+# Nail Cookbook — v0.36
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,16 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Record strutturali anonimi chiusi
+## Ricetta 3 — Function expression a pattern
 
 ```nail
-def profile = { age = 36 , name = " Ada " } ;
-profile . age ;
+def firstOr fallback = function
+  | [] -> fallback
+  | head :: tail -> head ;
+firstOr 0 [ 4 , 5 ] ;
 ```
 
-I tipi dei record anonimi dipendono dai nomi e tipi dei campi; sono CHIUSI (nessun row polymorphism o width subtyping).
+`function | pattern -> expression` è una lambda unaria abbassata a `match`; esaustività su liste e somme.
 
 ## Allenamento: studiare l'implementazione
 

@@ -1,0 +1,7 @@
+# F#-style pattern functions over an algebraic practice result.
+type PracticeEvent = Rest | Played Number ;
+def practiceTempo = function
+  | Rest -> 0
+  | Played bpm -> bpm ;
+practiceTempo ( Played 116 ) ;
+practiceTempo Rest ;

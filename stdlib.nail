@@ -126,6 +126,7 @@ def isReserved word =
   else if word == " then " then true
   else if word == " else " then true
   else if word == " fun " then true
+  else if word == " function " then true
   else if word == " true " then true
   else if word == " false " then true
   else if word == " match " then true
@@ -156,6 +157,7 @@ def isPrefixStart word =
   else if word == " if " then true
   else if word == " let " then true
   else if word == " match " then true
+  else if word == " function " then true
   else if word == " fun " then true
   else if word == " true " then true
   else if word == " false " then true
@@ -336,29 +338,38 @@ def lowerSumMatch scrutinee branches =
   syntaxApply
     ( syntaxLambda " #nail_sum_subject_0 " ( lowerSumBranches branches variable ) ) scrutinee ;
 
+# List and ADT branches shared by match and F#-style function expressions.
+def parseMatchClauses recur scrutinee start =
+  if parsePeek start != " | " then parseError " Expected | "
+  else if isRecordTypeName ( parsePeek ( tail start ) ) then
+    let branches = parseSumBranches recur start [] in
+    if parseFailed branches then branches
+    else parsePair
+      ( lowerSumMatch scrutinee ( syntaxChildren ( parseTree branches ) ) )
+      ( parseRest branches )
+  else let first = parseListBranch recur ( tail start ) in
+    if parseFailed first then first
+    else if parsePeek ( parseRest first ) != " | " then parseError " Expected second | "
+    else let second = parseListBranch recur ( tail ( parseRest first ) ) in
+      if parseFailed second then second
+      else let a = parseTree first in
+        let b = parseTree second in
+        if syntaxTag a == syntaxTag b then parseError " Duplicate list branch "
+        else if syntaxTag a == " EmptyBranch " then
+          parsePair ( lowerListMatch scrutinee a b ) ( parseRest second )
+        else parsePair ( lowerListMatch scrutinee b a ) ( parseRest second ) ;
+
 def parseListMatch recur tokens =
   let scrutinee = recur 0 tokens in
   if parseFailed scrutinee then scrutinee
   else if parsePeek ( parseRest scrutinee ) != " with " then parseError " Expected with "
-  else let start = tail ( parseRest scrutinee ) in
-    if parsePeek start != " | " then parseError " Expected | "
-    else if isRecordTypeName ( parsePeek ( tail start ) ) then
-      let branches = parseSumBranches recur start [] in
-      if parseFailed branches then branches
-      else parsePair
-        ( lowerSumMatch ( parseTree scrutinee ) ( syntaxChildren ( parseTree branches ) ) )
-        ( parseRest branches )
-    else let first = parseListBranch recur ( tail start ) in
-      if parseFailed first then first
-      else if parsePeek ( parseRest first ) != " | " then parseError " Expected second | "
-      else let second = parseListBranch recur ( tail ( parseRest first ) ) in
-        if parseFailed second then second
-        else let a = parseTree first in
-          let b = parseTree second in
-          if syntaxTag a == syntaxTag b then parseError " Duplicate list branch "
-          else if syntaxTag a == " EmptyBranch " then
-            parsePair ( lowerListMatch ( parseTree scrutinee ) a b ) ( parseRest second )
-          else parsePair ( lowerListMatch ( parseTree scrutinee ) b a ) ( parseRest second ) ;
+  else parseMatchClauses recur ( parseTree scrutinee ) ( tail ( parseRest scrutinee ) ) ;
+
+def parseFunctionMatch recur tokens =
+  let subject = " #nail_function_subject_0 " in
+  let branches = parseMatchClauses recur ( syntaxVar subject ) tokens in
+  if parseFailed branches then branches
+  else parsePair ( syntaxLambda subject ( parseTree branches ) ) ( parseRest branches ) ;
 
 # Named record fields are a pure parsing/typing sugar for #recordMake.
 # Both lists preserve the user's source ordering, including evaluation order.
@@ -405,6 +416,7 @@ def parsePrefix recur tokens =
       parsePair ( syntaxLiteral " Text " word ) remaining
     else if isMacroKeyword word then parsePair ( syntaxVar ( textConcat " #macro_ " word ) ) remaining
     else if word == " match " then parseListMatch recur remaining
+    else if word == " function " then parseFunctionMatch recur remaining
     else if word == " ( " then
       let inner = recur 0 remaining in
       if parseFailed inner then inner

@@ -1,0 +1,6 @@
+-cp src
+-main FunctionPatternsTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/function-practice.nail@function_example
+-php build/tests/php-function-patterns
