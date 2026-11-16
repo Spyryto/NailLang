@@ -1,0 +1,6 @@
+-cp src
+-main NamedRecordsTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/named-guitar-practice.nail@named_practice
+-js build/tests/named-records.js

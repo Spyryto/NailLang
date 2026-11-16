@@ -138,3 +138,20 @@ generic records. This slice does not add source-native runtime imports,
 exported record layouts, quantified structured image metadata or generic
 cross-module sum type ownership. The original monomorphic record syntax
 remains supported.
+
+## Named-field record construction (v0.34 first slice)
+
+Write `Person { age = 36 , name = " Ada " }` instead of relying on
+positional argument order. Both parsers emit existing `#recordMake`,
+`#cons`, `Literal`, `Apply` nodes: no sixth expression kind or new VM
+opcode. Fields are evaluated **once, left to right in source order**, and
+stored by their names; declaration order can differ. The type checker
+uses the existing nominal constructor and qualified getter schemes to
+check each field independently, including `Box a` and `Pair a b`.
+
+Named construction requires all declared fields, rejects unknown and
+duplicate fields and respects the established record identity and
+numeric dialect. Commas separate named assignments. In untyped VM
+execution, as with other unchecked raw source, static type errors are
+only rejected when the caller invokes `TypeChecker`; use the typed path
+when schema validation is required.

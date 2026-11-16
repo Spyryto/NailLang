@@ -359,6 +359,43 @@ def parseListMatch recur tokens =
             parsePair ( lowerListMatch ( parseTree scrutinee ) a b ) ( parseRest second )
           else parsePair ( lowerListMatch ( parseTree scrutinee ) b a ) ( parseRest second ) ;
 
+# Named record fields are a pure parsing/typing sugar for #recordMake.
+# Both lists preserve the user's source ordering, including evaluation order.
+def namedFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
+def namedFieldExists fields name =
+  match fields with
+  | [] -> false
+  | field :: rest ->
+    if namedFieldName field == name then true
+    else namedFieldExists rest name ;
+def namedRecordExpression owner reversed =
+  let fields = reverse reversed in
+  let names = map
+    ( fun field -> syntaxLiteral " Text " ( namedFieldName field ) ) fields in
+  let values = map
+    ( fun field -> head ( tail ( syntaxChildren field ) ) ) fields in
+  syntaxApply
+    ( syntaxApply
+      ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " owner ) )
+      ( syntaxList ( reverse names ) ) )
+    ( syntaxList ( reverse values ) ) ;
+def parseNamedFields recur owner tokens reversed =
+  if isEmpty tokens then parseError " Missing } in named record "
+  else let fieldName = parsePeek tokens in
+    if isIdentifier fieldName == false then parseError " Expected named record field "
+    else if namedFieldExists reversed fieldName then parseError " Duplicate named record field "
+    else if parsePeek ( tail tokens ) != " = " then parseError " Expected = in named record "
+    else let value = recur 0 ( tail ( tail tokens ) ) in
+      if parseFailed value then value
+      else let entry = syntaxNode " NamedField " [ syntaxName fieldName , parseTree value ] in
+        let rest = parseRest value in
+        if parsePeek rest == " } " then
+          parsePair ( namedRecordExpression owner ( cons entry reversed ) ) ( tail rest )
+        else if parsePeek rest == " , " then
+          if parsePeek ( tail rest ) == " } " then parseError " Trailing comma in named record "
+          else parseNamedFields recur owner ( tail rest ) ( cons entry reversed )
+        else parseError " Expected comma or } in named record " ;
+
 def parsePrefix recur tokens =
   if isEmpty tokens then parseError " Unexpected end of source "
   else let word = parsePeek tokens in
@@ -407,6 +444,11 @@ def parsePrefix recur tokens =
         if parseFailed body then body
         else parsePair ( parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ) ( parseRest body )
     else if isNumeric word then parsePair ( syntaxLiteral " Number " word ) remaining
+    else if isRecordTypeName word then
+      if parsePeek remaining == " { " then
+        if parsePeek ( tail remaining ) == " } " then parseError " Named record requires a field "
+        else parseNamedFields recur word ( tail remaining ) []
+      else parsePair ( syntaxVar word ) remaining
     else if isIdentifier word then parsePair ( syntaxVar word ) remaining
     else parseError ( textConcat " Unexpected token: " word ) ;
 

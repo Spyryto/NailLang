@@ -232,6 +232,42 @@ class Parser {
     return SumType(name, params, ctors);
   }
 
+  /** Surface named-record construction produces only existing core calls.
+      Source-order fields stay in source-order #cons lists, so expressions
+      are evaluated exactly once and from left to right. */
+  static function namedList(values:Array<Expr>):Expr {
+    var result:Expr = Literal(Nil);
+    var i = values.length;
+    while (i > 0) {
+      i--;
+      result = Apply(Apply(Var('#cons'), values[i]), result);
+    }
+    return result;
+  }
+
+  function parseNamedRecord(owner:String):Expr {
+    expect('{');
+    var names:Array<Expr> = [];
+    var values:Array<Expr> = [];
+    var seen = new haxe.ds.StringMap<Bool>();
+    if (peek() == '}') throw 'Named record requires at least one field';
+    while (true) {
+      var name = take();
+      if (!isName(name) || name == '_') throw 'Expected named record field';
+      if (seen.exists(name)) throw 'Duplicate named record field ' + name;
+      seen.set(name, true);
+      expect('=');
+      names.push(Literal(Text(name)));
+      values.push(expression());
+      if (values.length > 128) throw 'Too many named record fields';
+      if (peek() == '}') { take(); break; }
+      expect(',');
+      if (peek() == '}') throw 'Trailing comma in named record';
+    }
+    return Apply(Apply(Apply(Var('#recordMake'), Literal(Text(owner))),
+      namedList(names)), namedList(values));
+  }
+
   function atom():Expr {
     var first = at;
     return provenance.expression(atomUntracked(), first, at);
@@ -304,7 +340,11 @@ class Parser {
       return Literal(Number(number));
     }
     if (token == 'true' || token == 'false') return Literal(Boolean(token == 'true'));
-    if (isName(token)) return Var(exactMode ? exactBuiltinName(token) : token);
+    if (isName(token)) {
+      if (recordTypePattern.match(token) && peek() == '{')
+        return parseNamedRecord(token);
+      return Var(exactMode ? exactBuiltinName(token) : token);
+    }
     throw 'Unexpected token ' + token + ' at token ' + at;
   }
 

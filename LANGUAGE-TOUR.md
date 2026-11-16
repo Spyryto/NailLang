@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.33
+# Nail Language Tour — v0.34
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Interfacce pubbliche polimorfiche e record generici**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Costruzione con campi nominati**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.32/LANGUAGE-TOUR.md) → **v0.33** → [versione successiva](../v0.34/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.33/LANGUAGE-TOUR.md) → **v0.34** → [versione successiva](../v0.35/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Il linker supporta schemi HM inferiti/esportati e identità nominali; `Box a`/`Pair a b` sono dichiarazioni di record parametrici.
+L'ordine di scrittura dei campi è indipendente da quello della dichiarazione; il checker valida nomi/tipi.
 
 ```nail
-type Box a { value a } ;
-def numberBox = Box 42 ;
-numberBox . value ;
+type Person { name Text age Number } ;
+def ada = Person { age = 36 , name = " Ada " } ;
+ada . name ;
 ```
 
 ## Primo programma
@@ -117,7 +117,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.33 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.33) e cerca il test associato alla feature.
+4. Apri la [versione v0.34 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.34) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

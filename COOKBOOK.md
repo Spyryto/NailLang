@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.33
+# Nail Cookbook — v0.34
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Interfacce pubbliche polimorfiche e record generici
+## Ricetta 3 — Costruzione con campi nominati
 
 ```nail
-type Box a { value a } ;
-def numberBox = Box 42 ;
-numberBox . value ;
+type Person { name Text age Number } ;
+def ada = Person { age = 36 , name = " Ada " } ;
+ada . name ;
 ```
 
-Il linker supporta schemi HM inferiti/esportati e identità nominali; `Box a`/`Pair a b` sono dichiarazioni di record parametrici.
+L'ordine di scrittura dei campi è indipendente da quello della dichiarazione; il checker valida nomi/tipi.
 
 ## Allenamento: studiare l'implementazione
 

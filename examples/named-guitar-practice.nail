@@ -1,0 +1,9 @@
+# Real application: a guitar practice session recorded by named fields.
+type Practice { exercise Text bpm Number minutes Number } ;
+def session = Practice {
+  minutes = 20 ,
+  exercise = " Alternate picking " ,
+  bpm = 116
+} ;
+session . bpm ;
+session . minutes ;

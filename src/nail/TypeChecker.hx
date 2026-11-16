@@ -295,6 +295,8 @@ private class InferFrame {
   public var scope:StringMap<TypeScheme>;
   public var phase:Int = 0;
   public var saved:NType;
+  public var namedFields:Array<{name:String, expr:Expr}>;
+  public var namedIndex:Int = 0;
   public function new(source:Expr, scope:StringMap<TypeScheme>) {
     this.source = source;
     this.scope = scope;
@@ -604,6 +606,24 @@ private class Inference {
     return output;
   }
 
+  /** Extract the exact, private #cons list emitted by both named-record
+      parsers. Each element retains its own expression and lexical scope.
+      This does not attempt to infer a homogeneous Haxe list type. */
+  static function namedItems(expr:Expr):Array<Expr> {
+    var out:Array<Expr> = [];
+    var current = expr;
+    while (true) switch (current) {
+      case Literal(Nil): return out;
+      case Apply(Apply(Var('#cons'), head), tail):
+        out.push(head);
+        current = tail;
+        if (out.length > 128)
+          throw 'Type error: too many named record fields';
+      case _:
+        throw 'Type error: invalid named record constructor lowering';
+    }
+  }
+
   /** Dot syntax desugars to #recordGet receiver "field". The field
       projection type follows the receiver's *nominal* record type. When an
       unconstrained parameter is used, a unique field name can determine it;
@@ -673,6 +693,65 @@ private class Inference {
           } else {
             results.push(projectField(results.pop(), field));
             work.pop();
+          }
+        case Apply(Apply(Apply(Var(make), Literal(Text(owner))), fieldNames), fieldValues)
+          if (MacroExpander.globalName(make) == '#recordMake'):
+          if (frame.phase == 0) {
+            if (!records.exists(owner)) throw 'Type error: unknown named record type ' + owner;
+            var names = namedItems(fieldNames);
+            var values = namedItems(fieldValues);
+            if (names.length != values.length)
+              throw 'Type error: malformed named record construction';
+            var seen = new StringMap<Bool>();
+            frame.namedFields = [];
+            for (i in 0...names.length) {
+              var field:String = switch (names[i]) {
+                case Literal(Text(label)): label;
+                case _: throw 'Type error: malformed named record field';
+              };
+              if (seen.exists(field)) throw 'Type error: duplicate named record field ' + field;
+              seen.set(field, true);
+              if (!globals.exists(owner + '.' + field))
+                throw 'Type error: unknown named record field ' + owner + '.' + field;
+              frame.namedFields.push({name:field, expr:values[i]});
+            }
+            var count = 0;
+            for (key in globals.keys())
+              if (StringTools.startsWith(key, owner + '.')) count++;
+            if (count != frame.namedFields.length)
+              throw 'Type error: missing named record field for ' + owner;
+            var constructor = globals.get(owner);
+            if (constructor == null) throw 'Type error: unknown named record type ' + owner;
+            var resultType = instantiate(constructor);
+            var scanning = true;
+            while (scanning) switch (prune(resultType)) {
+              case TFunction(_, next): resultType = next;
+              case TRecord(label) if (label == owner): scanning = false;
+              case TRecordApplied(label, _) if (label == owner): scanning = false;
+              case _: throw 'Type error: invalid named record constructor ' + owner;
+            }
+            frame.saved = resultType;
+            frame.phase = 1;
+            if (frame.namedFields.length > 0)
+              work.push(new InferFrame(frame.namedFields[0].expr, frame.scope));
+            else {
+              results.push(frame.saved);
+              work.pop();
+            }
+          } else {
+            var valueType = results.pop();
+            var currentField = frame.namedFields[frame.namedIndex];
+            var accessor = globals.get(owner + '.' + currentField.name);
+            var fieldType = fresh();
+            unify(instantiate(accessor), fun(frame.saved, fieldType));
+            unify(valueType, fieldType);
+            frame.namedIndex++;
+            if (frame.namedIndex < frame.namedFields.length)
+              work.push(new InferFrame(frame.namedFields[frame.namedIndex].expr, frame.scope));
+            else {
+              results.push(frame.saved);
+              work.pop();
+            }
           }
         case Apply(Lambda(param, body), argument):
           if (frame.phase == 0) {
