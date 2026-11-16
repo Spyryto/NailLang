@@ -1,39 +1,38 @@
-# NailSeed v0.13 — Structured AST traversal with explicit frames
+# NailSeed v0.14 — Bootstrap image specification
 
-## Invariants
+The **semantic core and ISA are exactly v0.13**. This release adds a deterministic build-time image format and a source-free runtime entrypoint; it does not assert full self-hosting.
 
-1. Core AST remains `Literal`, `Var`, `Lambda`, `Apply`, `If` and program forms `Define`, `Evaluate`.
-2. The compiled bytecode remains `CONST`, `LOAD`, `CLOSURE`, `CALL`, `TAIL_CALL`, `BRANCH`, `RETURN`, plus program forms `DEFINE`, `EVAL`.
-3. Child evaluation/compilation order remains left-to-right; `if` evaluates/checks its condition before the branches.
-4. `let` desugars to a directly applied lambda, and generalization takes place at that boundary. A recursive global `def` remains monomorphic during inference and generalizes only afterward.
-5. The host bytecode compiler and the Nail-written compiler must produce equivalent instruction trees; existing regression suites guard that behavior.
+## Postorder image
 
-## Iterative syntax conversion
+A JSON object with fields:
 
-The `SyntaxBridge` and `SyntaxEncoder` both use `pending` and `values` stacks. A `(node, finish = false)` task schedules its children in reverse visitation order, followed by a `(node, finish = true)` task. The completion task pops child results and constructs the parent. This removes host-language recursion proportional to expression-tree depth. Form lists are still processed in a loop.
+- `format`: the exact string `nailseed.postfix-image.v1`.
+- `records`: an array of records, each exactly three elements.
+  - `["L", tag, text]`: a `SyntaxLeaf(tag,text)`.
+  - `["N", tag, arity]`: a `SyntaxNode(tag, children)` consuming the most recent `arity` complete nodes, preserving left-to-right child order.
 
-## Iterative inference
+The final record stack must contain exactly one `SyntaxNode("Bytecode",...)`. The decoder checks the format tag, row shapes, arities, stack balance and the final root. It does not trust the image to be a safe executable: normal ByteVM validation, instruction budgets and host security constraints still apply.
 
-`Inference.infer()` is now a state machine with explicitly saved scopes and intermediate types. The four important paths are:
+This is a **transport representation** for the already-existing `Syntax`-encoded structured bytecode, not a replacement ISA. It deliberately avoids a recursive JSON tree and supports an iterative loader on Haxe, JS and PHP.
 
-- Ordinary application: infer function, then argument, unify `fType` with `argumentType -> resultType`.
-- Direct lambda application (local `let`): infer binding first, generalize against outer environment, then infer body with a polymorphic binding.
-- Lambda: introduce fresh monomorphic parameter and infer body in a child scope.
-- Conditional: require `Bool`, infer both branches and unify branch types.
+## Two-stage bootstrap
 
-Type utilities (`prune`, `occurs`, `unify`, `free`, `replacement`, `normalize`, `requireEquality`, `describe`) use stacks/worklists instead of recursive calls.
+**Stage 0 / build:** `BootstrapImageMain` uses the reference `nail.Parser` and `nail.BytecodeCompiler` to compile the full `stdlib.nail`, writes `build/bootstrap/stdlib-image.json`, and checks the encode/decode roundtrip.
 
-## Reference bytecode lowering
+**Stage 1 / packaged runtime:** `BootRuntime` reads the image compiled into its resources, decodes it and executes it with `ByteVm`. Thus `parseSource`, `compileSource`, `compileSyntax`, the standard library and their Nail dependencies are installed as compiled bytecode closures in one run.
 
-`BytecodeCompiler.emit()` performs iterative postorder lowering and preserves tail position through `Lambda` bodies and `If` branches. `Apply` in tail position emits `TAIL_CALL` instead of `CALL`; value-producing terminal expressions emit `RETURN`. No changes to the bytecode executor are required.
+**Stage 2 / user code:** `BootRuntime.compile(source)` calls the compiled **Nail** `compileSource` function, and `BootRuntime.run(source)` executes that bytecode using the same `ByteVm`. The host Haxe parser is not called for user code.
 
-## Test scope
+The boot-only target defines `nail_seed_only`. The old `Vm.run(source)` method then deliberately throws instead of invoking Haxe `Parser`, to ensure that the old entrypoint cannot accidentally become an implicit runtime bootstrap.
 
-`StructuralDepthTestMain` directly constructs AST trees to stress the structural conversions independently from the still-recursive host source parser. It also checks static inference and bytecode execution on deeply nested conditions and applications, along with malformed Syntax error messages. The deep grouping test exercises an optimization in the first-stage Haxe parser, not a full iterative Pratt parser.
+## Testing invariants
 
-## Known limitations
+- Existing runtime, type, parser, compiler and structural tests remain in place.
+- New `BootTestMain` tests source execution from only the packaged image across all three targets, errors, currying, higher-order functions, `match`, user-defined recursion and compiled bytecode roundtrips.
+- Image-specific tests cover noncanonical/malformed headers, arities, roots and thousands of levels of nesting without native recursion.
+- GitHub Actions creates image before compiling/running boot tests and packaging new JS/PHP boot distributions.
+- Integration tests use the public Node `NailSeedBoot.create()` API and PHP CLI without first loading `stdlib.nail` or running the Haxe source parser.
 
-- `Parser.expression()` and grammar-directed parsing of arbitrarily nested constructs are **not** fully iterative.
-- The Nail-written bootstrap parser still runs atop the host loader. Haxe `SyntaxBridge` validates its AST, and the host type checker remains the source of static type semantics.
-- Structural transformations are bounded by heap memory, and repeatedly concatenating emitted instruction arrays or copying lexical environments can be superlinear. Stack safety is not a performance guarantee.
-- No arbitrary precision numbers, new source syntax or new VM operations are introduced in v0.13.
+## Known limits
+
+The initial image depends on **Haxe at build time**. The Nail-written parser/compiler are still subject to the existing restricted whitespace tokenization, ASCII-related text limitations, and resource budgets. Runtime type checking is not included in the minimal boot target; it remains available in the historical full distribution. Source-to-bytecode execution is not a hardened sandbox.

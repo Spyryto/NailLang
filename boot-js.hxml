@@ -1,0 +1,7 @@
+-cp src
+-main BootMain
+-js build/boot/js/nailseed-boot.js
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-D js-es=6
+-D nail_seed_only
+-dce full

@@ -12,7 +12,6 @@ private enum EvalFrame {
   ChooseBranch(yes:Expr, no:Expr, scope:Env);
 }
 
-
 /** Small, pure Nail evaluator. No JS / PHP target branches. */
 class Vm {
   final root:Env;
@@ -166,8 +165,11 @@ class Vm {
     };
   }
 
-  /** Host-stack independent CEK-style evaluator. Nested applications and
-      branches use heap continuations rather than recursive host calls. */
+  /** Host-stack independent CEK-style evaluator. All nested applications and
+      conditional branches use explicit continuation frames, so even the Nail
+      lexer/parser can make tens of thousands of recursive calls without
+      exhausting the Haxe/JS/PHP call stack. Non-tail source calls may still
+      require linear heap space, but never linear host-stack space. */
   function evaluate(expr:Expr, env:Env):Value {
     var current:Expr = expr;
     var scope:Env = env;
@@ -201,6 +203,9 @@ class Vm {
             scope = captured;
             hasResult = false;
           case ApplyFunction(fn):
+            // Count applications independently from expression visits, as in
+            // the recursive v0.11 evaluator. A smaller maxSteps still bounds
+            // even an unproductive loop of function applications.
             tick();
             switch (fn) {
               case Closure(param, body, captured):
@@ -221,7 +226,8 @@ class Vm {
     throw 'Unreachable iterative evaluator';
   }
 
-  /** The self-hosted parser/compiler use the same iterative evaluation path. */
+  /** Run an existing callable, e.g. the Nail-written parser/compiler, through
+      the same iterative evaluator. No separate recursive call path exists. */
   function call(f:Value, arg:Value):Value {
     return evaluate(Apply(Literal(f), Literal(arg)), root);
   }
@@ -242,8 +248,13 @@ class Vm {
   }
 
   public function run(source:String):Array<Value> {
+    #if nail_seed_only
+    // A bootstrap-only build cannot even use the host parser accidentally.
+    throw 'Host source parser disabled in bootstrap-only build';
+    #else
     steps = 0;
     return executeForms(new Parser(source).parse());
+    #end
   }
 
   /** Execute a first-class Syntax Program built by code running in Nail. */

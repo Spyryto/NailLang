@@ -2,7 +2,8 @@ package nail;
 
 import nail.Value;
 
-/** Saved activation for a non-tail CALL or BRANCH; never a host call frame. */
+/** Saved interpreter activation. Both non-tail CALL and non-tail BRANCH use
+    this explicit heap frame instead of a recursive Haxe/JS/PHP invocation. */
 private typedef ByteFrame = {
   var code:Array<Value>;
   var next:Int;
@@ -72,8 +73,10 @@ class ByteVm {
     return stack.pop();
   }
 
-  /** Complete iterative executor. Ordinary calls use heap frames; tail calls
-      replace the active code/environment without growing the frame stack. */
+  /** A complete iterative executor. Ordinary calls and non-tail branches
+      save a heap frame; TAIL_CALL replaces the active code/environment and
+      *does not* push a frame. Even deeply nested non-tail programs therefore
+      cannot overflow the host language's call stack. */
   function executeCode(block:Value, initial:Env, mustReturn:Bool):Value {
     var code = operands(block, 'Code', -1);
     var pc = 0;
@@ -83,6 +86,7 @@ class ByteVm {
     var frames:Array<ByteFrame> = [];
     var delivering = false;
     var completed:Value = Nil;
+
     while (true) {
       if (delivering) {
         if (frames.length == 0) return completed;
@@ -126,7 +130,7 @@ class ByteVm {
           var arg = pop(stack);
           var fn = pop(stack);
           if (tail && stack.length != 0) throw 'Invalid bytecode tail-call stack depth';
-          tick();
+          tick(); // Count calls in addition to instruction fetches.
           switch (fn) {
             case ByteClosure(param, body, captured):
               if (!tail) frames.push({code:code, next:pc, env:env, stack:stack, needsReturn:needsReturn});
@@ -174,7 +178,8 @@ class ByteVm {
     throw 'Unreachable iterative bytecode executor';
   }
 
-  /** External entry point for a bytecode-compiled Nail callable. */
+  /** Entry point used to run a compiled closure outside another bytecode
+      program (e.g. compiler.bootstrap). Calls inside it are still iterative. */
   function call(fn:Value, arg:Value):Value {
     tick();
     return switch (fn) {
@@ -190,7 +195,7 @@ class ByteVm {
     };
   }
 
-  /** Top-level block may finish with RETURN or terminal TAIL_CALL. */
+  /** Execute a top-level expression that may end in TAIL_CALL. */
   function executeTop(block:Value):Value return executeCode(block, globals, true);
 
   public function run(program:Value):Array<Value> {
