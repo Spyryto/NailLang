@@ -21,16 +21,22 @@ class Parser {
   static final spacePattern = ~/\s+/g;
 
   final exactMode:Bool;
+  public final modernMode:Bool;
+  public final declaredDivRows:Array<{left:String, right:String, result:String}>;
   /** Opt-in type relation declarations; erased before bytecode generation. */
   public final declaredRelations:haxe.ds.StringMap<String>;
 
 
   public function new(source:String) {
+    modernMode = numeric.LanguageVersion.isModern(source);
     exactMode = numeric.NumericDialect.isExact(source);
+    declaredDivRows = [];
+    if (modernMode && exactMode) throw 'Source cannot combine numeric dialects';
     declaredRelations = new haxe.ds.StringMap<String>();
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
+    if (modernMode) at = 3; // explicit "nail 0.45 ;" header
   }
 
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
@@ -68,7 +74,7 @@ class Parser {
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
-      case 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'function' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
+      case 'nail' | 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'function' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
     };
   }
@@ -349,6 +355,9 @@ class Parser {
       return lambdas(params, expression(), positions);
     }
     if (isNumber(token)) {
+      if (modernMode) return token.indexOf('.') >= 0
+        ? Literal(Number(Std.parseFloat(token)))
+        : Literal(IntNumber(numeric.FastNumber.exact(token)));
       if (exactMode) return Literal(ExactNumber(numeric.FastNumber.exact(
         StringTools.startsWith(token, '.') ? '0' + token :
         StringTools.startsWith(token, '-.') ? '-0' + token.substr(1) : token)));
@@ -390,7 +399,8 @@ class Parser {
       var prec = precedence(peek());
       if (prec < minimum) break;
       var op = take();
-      if (exactMode && op != '==' && op != '!=') op = '#exact' + op;
+      if (modernMode && op != '==' && op != '!=') op = '#modern' + op;
+      else if (exactMode && op != '==' && op != '!=') op = '#exact' + op;
       left = Apply(Apply(Var(op), left), expression(prec + 1));
       if (first >= 0) left = provenance.expression(left, first, at);
     }
@@ -455,6 +465,17 @@ class Parser {
     var forms:Array<Form> = [];
     while (peek() != null) {
       var first = at;
+      // Row declarations are static type metadata, not runtime forms.
+      if (modernMode && peek() == 'Div' && at + 1 < tokens.length
+          && tokens[at + 1] == ':') {
+        take();
+        expect(':');
+        var left = take(), right = take(), output = take();
+        expect(';');
+        numeric.NumericRelation.requireModernRow(left,right,output,declaredDivRows);
+        declaredDivRows.push({left:left,right:right,result:output});
+        continue;
+      }
       if (peek() == 'type') {
         take();
         var typeName = take();
@@ -499,7 +520,7 @@ class Parser {
             throw 'Type relation: only binary Div declarations are supported';
           if (exactMode)
             throw 'Type relation: exact source dialect is not supported yet';
-          declaredRelations.set(name, relation);
+          declaredRelations.set(name, modernMode ? 'Div45' : relation);
         }
         expect('=');
         var body = lambdas(params, expression(), positions);

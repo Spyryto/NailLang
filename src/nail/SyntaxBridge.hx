@@ -78,6 +78,11 @@ class SyntaxBridge {
               if (!Math.isFinite(n)) throw 'Invalid Syntax nonfinite number';
               Literal(Number(n));
             case SyntaxLeaf('ExactNumber', text): Literal(ExactNumber(numeric.FastNumber.decodeExact(text)));
+            case SyntaxLeaf('Int', text):
+              var value = numeric.FastNumber.decodeExact(text);
+              if (!numeric.FastNumber.isInteger(value)) throw 'Invalid Syntax noninteger Int';
+              Literal(IntNumber(value));
+            case SyntaxLeaf('Ratio', text): Literal(RatioNumber(numeric.FastNumber.decodeExact(text)));
             case SyntaxLeaf('Bool', 'true'): Literal(Boolean(true));
             case SyntaxLeaf('Bool', 'false'): Literal(Boolean(false));
             case SyntaxLeaf('Nil', 'nil'): Literal(Nil);

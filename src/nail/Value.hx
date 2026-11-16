@@ -5,6 +5,10 @@ import nail.Ast.Expr;
 /** A target-independent value model. Lists are immutable linked cons cells. */
 enum Value {
   Number(value:Float);
+  /** v0.45: exact integer and rational are different *static* domains.
+      Internally both reuse the portable arbitrary-precision FastNumber. */
+  IntNumber(value:numeric.FastNumber.FastValue);
+  RatioNumber(value:numeric.FastNumber.FastValue);
   /** Exact signed integer or rational, never implicitly converted to Float. */
   ExactNumber(value:numeric.FastNumber.FastValue);
   Boolean(value:Bool);
