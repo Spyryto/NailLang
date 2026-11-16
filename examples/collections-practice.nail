@@ -1,0 +1,15 @@
+# A tiny stage set-list: persistent map of song titles to tempos and
+# a set of styles. Run on the bootstrapped Nail CLI (Haxe / JS / PHP).
+def bpmByTitle = mapPut ( mapPut mapEmpty " Blues " 116 ) " Swing " 140 ;
+def rehearsed = mapPut bpmByTitle " Blues " 132 ;
+
+def bpmOrZero result = match result with
+  | MapMissing -> 0
+  | MapFound value -> value ;
+
+def styles = setAdd ( setAdd setEmpty " swing " ) " gypsy " ;
+
+bpmOrZero ( mapFind rehearsed " Blues " ) ;
+mapContains rehearsed " Swing " ;
+setContains styles " gypsy " ;
+setContains ( setDelete styles " gypsy " ) " gypsy " ;

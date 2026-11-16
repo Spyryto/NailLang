@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.36
+# Nail Cookbook — v0.37
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,17 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Function expression a pattern
+## Ricetta 3 — Unicode e mappe/set persistenti
 
 ```nail
-def firstOr fallback = function
-  | [] -> fallback
-  | head :: tail -> head ;
-firstOr 0 [ 4 , 5 ] ;
+def original = mapEmpty ;
+def changed = mapPut original " key " 42 ;
+mapFind changed " key " ;
 ```
 
-`function | pattern -> expression` è una lambda unaria abbassata a `match`; esaustività su liste e somme.
+`Text` usa punti di codice Unicode fra target; Map/Set sono implementati in Nail con liste associative e lookup O(n).
+
+Per mappe e set consulta [`examples/collections-practice.nail`](./examples/collections-practice.nail). I risultati di `mapFind` vanno gestiti come tipo di lookup, non confusi con una mappa JS.
 
 ## Allenamento: studiare l'implementazione
 

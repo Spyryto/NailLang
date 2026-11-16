@@ -2,6 +2,11 @@
   "version": "0.8",
   "positive": [
     {
+      "code": "textLength \" é \" ; textAt \" é \" 0 ;",
+      "expected": [1, "é"],
+      "stdlib": false
+    },
+    {
       "code": "def twice x = x * 2 ; twice 5 ;",
       "expected": [
         10
@@ -713,10 +718,6 @@
     {
       "code": "\" unterminated ;",
       "errorRegex": "Unterminated string literal"
-    },
-    {
-      "code": "textLength \" \\u00e9 \" ;",
-      "errorRegex": "Expected ASCII text"
     },
     {
       "code": "syntaxTag 3 ;",

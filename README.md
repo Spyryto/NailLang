@@ -1,8 +1,10 @@
-# NailSeed v0.33 — inferred and polymorphic public interfaces (second slice)
+# NailSeed v0.37 — Unicode and immutable collections
 
-This is an **independent v0.33 development snapshot** of v0.32.
-The first slice removes duplicate monomorphic export types from host manifests;
-the second adds an opt-in public scheme API for polymorphic imports/exports.
+This directory is a **v0.37 independent development snapshot**, preserving
+previous v0.33–v0.36 features and their detailed historical documentation.
+The first v0.37 slice adds Unicode scalar Text; the second adds persistent
+Map and Set combinators in Nail. The original v0.33 public-interface work
+is documented below for historical continuity.
 
 The new `ModuleLinker.compileInferred` accepts only export **names**,
 reads their precise source types from the existing Hindley–Milner checker,
@@ -207,3 +209,75 @@ unchanged, and separate module linking retains inferred HM signatures.
 No sixth core expression kind, new VM opcode or runtime dispatch is
 introduced. Function-parameter destructuring, guards, structural
 record patterns and general nested patterns remain future slices.
+
+## v0.37 first slice — portable Unicode scalar Text
+
+Nail's `textLength`, `textAt`, `textLengthExact` and `textAtExact`
+now operate on Unicode **code points** rather than host-dependent UTF-8
+bytes (PHP/eval) or UTF-16 code units (JS). The former ASCII restriction
+is removed, so `textAt " 🪕 " 0` returns the whole emoji and
+`textLength " café🪕 "` returns five. `textConcat` and equality
+continue to operate on unchanged text values. ASCII programs retain
+their previous behavior. No new VM opcodes, AST variants or numeric
+coercions are introduced.
+
+This is explicitly **not** grapheme-cluster segmentation: a decomposed
+`e` followed by the combining acute accent counts as two scalars, and
+a joined emoji may count as several. No Unicode normalization,
+case-folding, locale collation or Unicode identifiers are promised.
+Source-span offsets still use the host parser's native String units and
+will require a separate cross-target provenance upgrade.
+
+The Nail-written tokenizer uses codepoint indexing too. A small bounded
+cache makes repeatedly indexing the same source practical for
+self-bootstrap, without changing the language semantics. Invalid
+Unicode scalars are rejected rather than silently interpreted as
+characters. Tests cover ASCII, BMP/non-BMP, combining marks, emoji
+sequences, exact numeric dialect, independent module linkage and
+Haxe/JS/PHP bootstrap and bytecode parity.
+
+Unicode-aware source diagnostics remain future work.
+
+## v0.37 second slice — persistent Map and Set in pure Nail
+
+The standard library now provides generic immutable association-list maps
+and equality-based sets without any new AST or VM instruction. Maps are
+represented as lists of nominal `MapEntry k v` records; lookup returns the
+typed algebraic result `MapLookup v`, not a sentinel that might collide
+with a real value.
+
+```nail
+def tempos = mapPut ( mapPut mapEmpty " Blues " 116 ) " Swing " 140 ;
+def updated = mapPut tempos " Blues " 132 ;
+def bpm result = match result with
+  | MapMissing -> 0
+  | MapFound value -> value ;
+bpm ( mapFind updated " Blues " ) ;
+```
+
+Map API: `mapEmpty`, `mapFind`, `mapContains`, `mapPut`, `mapDelete`.
+Set API: `setEmpty`, `setContains`, `setAdd`, `setDelete`.
+
+`mapPut` removes every old occurrence of the key then adds its replacement;
+`mapDelete` and `setDelete` remove all duplicates, even if a raw list
+broke the invariant. Calls are pure and return fresh lists, leaving the input
+untouched. Keys/elements require the existing Hindley–Milner Eq constraint;
+map values are independently polymorphic. The design works with default
+`Number`, Text, Bool, and other equality-comparable types.
+
+**Scope boundary:** this first collection backend is **O(n)** for lookup,
+insert and delete (not a hash map or balanced tree); construction exposes
+lists rather than opaque nominal collection types. No automatic key sorting,
+custom comparator, order guarantees beyond prepend, row polymorphism, or
+cross-module nominal ADT interface is claimed. Later optimization may replace
+the representation while retaining the functional API.
+
+```sh
+haxe seed-image.hxml
+haxe collections-test-interp.hxml
+haxe collections-test-js.hxml && node build/tests/collections.js
+haxe collections-test-php.hxml && php build/tests/php-collections/index.php
+```
+
+The tests cover Haxe/Nail compiler bytecode parity, Haxe/JS/PHP execution,
+source-free fixed bootstrap, duplicate handling and negative type cases.

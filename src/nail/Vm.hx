@@ -84,11 +84,7 @@ class Vm {
 
   static function text(v:Value):String {
     return switch (v) {
-      case Text(s):
-        // Source processing is ASCII-only for now, making Haxe's indexing
-        // consistent across JS UTF-16 and PHP's string implementation.
-        for (i in 0...s.length) if (s.charCodeAt(i) > 127) throw 'Expected ASCII text';
-        s;
+      case Text(s): s;
       case _: throw 'Expected text';
     };
   }
@@ -270,11 +266,11 @@ class Vm {
             fields.get(key);
           case _: throw 'Expected record';
         }
-      case 'textLength': Number(text(a).length);
-      case 'textLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(text(a).length)));
+      case 'textLength': Number(UnicodeText.length(text(a)));
+      case 'textLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(UnicodeText.length(text(a)))));
       case 'textAt' | 'textAtExact':
         var source = text(a);
-        Text(source.charAt(index(b, source.length)));
+        Text(UnicodeText.at(source, index(b, UnicodeText.length(source))));
       case 'textConcat': Text(text(a) + text(b));
       case 'syntaxLeaf': SyntaxLeaf(text(a), text(b));
       case 'syntaxNode': SyntaxNode(text(a), syntaxList(b));

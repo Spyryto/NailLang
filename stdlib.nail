@@ -24,6 +24,60 @@ def fold f init xs =
 def reverse xs = fold ( fun acc x -> cons x acc ) [] xs ;
 def length xs = fold ( fun n x -> n + 1 ) 0 xs ;
 
+# v0.37 collections BEGIN
+# Persistent association-list Map and equality-based Set, implemented in Nail.
+# Representation is intentionally exposed; later versions may provide opaque
+# hash/tree-backed collections without changing this functional API.
+type MapEntry k v { key k value v } ;
+type MapLookup a = MapMissing | MapFound a ;
+
+def mapEmpty = [] ;
+def mapFind entries key =
+  match entries with
+  | [] -> MapMissing
+  | entry :: rest ->
+    if entry . key == key
+    then MapFound ( entry . value )
+    else mapFind rest key ;
+
+def mapContains entries key =
+  match mapFind entries key with
+  | MapMissing -> false
+  | MapFound found -> true ;
+
+# Delete every matching key, including duplicates supplied by raw list users.
+def mapDelete entries key =
+  match entries with
+  | [] -> []
+  | entry :: rest ->
+    if entry . key == key
+    then mapDelete rest key
+    else cons entry ( mapDelete rest key ) ;
+
+# Put inserts at the front; replacement has exactly one occurrence of key.
+def mapPut entries key value =
+  cons ( MapEntry key value ) ( mapDelete entries key ) ;
+
+def setEmpty = [] ;
+def setContains entries item =
+  match entries with
+  | [] -> false
+  | entry :: rest ->
+    if entry == item then true else setContains rest item ;
+
+def setDelete entries item =
+  match entries with
+  | [] -> []
+  | entry :: rest ->
+    if entry == item
+    then setDelete rest item
+    else cons entry ( setDelete rest item ) ;
+
+def setAdd entries item =
+  if setContains entries item then entries else cons item entries ;
+# v0.37 collections END
+
+
 # v0.7: self-hosted whitespace tokenizer. Host primitives: textLength/textAt/textConcat.
 # Input is ASCII text. Punctuation must still be separated by whitespace.
 def isSpace ch =

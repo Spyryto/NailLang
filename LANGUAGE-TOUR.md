@@ -1,20 +1,19 @@
-# Nail Language Tour — v0.36
+# Nail Language Tour — v0.37
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Function expression a pattern**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Unicode e mappe/set persistenti**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.35/LANGUAGE-TOUR.md) → **v0.36** → [versione successiva](../v0.37/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.36/LANGUAGE-TOUR.md) → **v0.37** → [versione successiva](../v0.38/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-`function | pattern -> expression` è una lambda unaria abbassata a `match`; esaustività su liste e somme.
+`Text` usa punti di codice Unicode fra target; Map/Set sono implementati in Nail con liste associative e lookup O(n).
 
 ```nail
-def firstOr fallback = function
-  | [] -> fallback
-  | head :: tail -> head ;
-firstOr 0 [ 4 , 5 ] ;
+def original = mapEmpty ;
+def changed = mapPut original " key " 42 ;
+mapFind changed " key " ;
 ```
 
 ## Primo programma
@@ -127,7 +126,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.36 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.36) e cerca il test associato alla feature.
+4. Apri la [versione v0.37 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.37) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 
