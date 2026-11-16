@@ -1,33 +1,47 @@
-# NailSeed v0.5 — Haxe type inference
+# NailSeed v0.6 — Local bindings & exhaustive list patterns
 
-Evoluzione **Haxe-first** della v0.4. Il nucleo di esecuzione rimane invariato: `Literal`, `Var`, `Lambda`, `Apply`, `If`. Il nuovo modulo `TypeChecker` effettua inferenza statica Hindley–Milner su questi stessi nodi, senza nuove annotazioni richieste in Nail.
+**Haxe-first**, compilato in JavaScript e PHP dallo stesso sorgente. La v0.6 mantiene le **cinque forme** dell'AST (`Literal`, `Var`, `Lambda`, `Apply`, `If`) della v0.5; introduce due costrutti di superficie, entrambi eliminati dal parser tramite *desugaring*.
 
 ## Esempi
 
 ```nail
-def id x = x ;
-id 42 ;
-id true ;
+def area w h = let base = w * h in base ;
+area 6 7 ;
+
+# Per ora il match supporta solo due pattern esaustivi per lista.
+def sum xs =
+  match xs with
+  | [] -> 0
+  | head :: rest -> head + sum rest ;
+sum [ 1 , 2 , 3 ] ;
+
+# 'let' è non ricorsivo e polimorfico; nessuna annotazione necessaria.
+let identity = fun x -> x in
+  let ignored = identity 42 in
+  identity true ;
 ```
 
-I due risultati del checker sono `Number` e `Bool`. Ogni `def` è generalizzata per permettere polimorfismo let-style; durante la propria definizione una funzione ricorsiva rimane monomorfa.
+I token sono **sempre separati da spazi**, inclusi `|`, `::`, `->`, `;`, parentesi e operatori; i newline non terminano un'espressione. La forma `[]` oppure `[ ]` rappresenta la lista vuota.
 
-```nail
-def twice x = x * 2 ;
-map twice [ 1 , 2 , 3 ] ;
-```
+`match` richiede *esattamente* due rami in ordine arbitrario: uno `[]`, uno `head :: tail`, con identificatori oppure `_` come wildcard. Non esiste ancora il matching su booleani, numeri, record o strutture annidate. Il parser rifiuta rami mancanti o duplicati.
 
-Dopo `stdlib.nail`, `map` è inferita come una funzione di ordine superiore e il risultato ha tipo `[Number]`.
+## Cosa è cambiato
 
-Le equality primitive `==` / `!=` supportano solo `Number`, `Bool` e liste di valori confrontabili. Il checker usa un vincolo `Eq a`, per esempio `fun x -> x == x` produce `Eq a => a -> Bool`; il confronto tra funzioni viene rifiutato.
+- `let name = value in body` diventa `(fun name -> body) value`, con valutazione *eager* del valore.
+- Il type checker riconosce l'applicazione diretta di lambda e applica generalizzazione Hindley–Milner anche ai `let` locali (nella versione 0.5 la generalizzazione era disponibile soprattutto per le definizioni globali).
+- Il `match` sulle liste diventa un `if` con primitive private `#isEmpty`, `#head`, `#tail`, e closure che legano `head` e `tail`. Lo scrutinee viene calcolato una sola volta; i nomi interni non possono essere scritti dall'utente.
+- `stdlib.nail` riscrive **map, filter e fold usando `match`**; non sono native dell'interprete.
+- `cases.json` e `type-cases.json` estendono i test di regressione positivi e negativi.
 
-## Esecuzione locale
+Il checker statico resta un passaggio **opzionale**; il runtime rifiuta gli errori dinamici e non è una sandbox per codice ostile.
 
-Installare Haxe 4.3.7, Node.js 22 e PHP 8.3 (o compatibili). Nella directory `v0.5`:
+## Prova locale
+
+Richiede Haxe 4.3.7, Node.js 22, PHP 8.3 (o versioni compatibili). Dalla cartella `v0.6`:
 
 ```sh
-haxe test-interp.hxml         # 37 test runtime originali
-haxe type-test-interp.hxml    # test di inferenza
+haxe test-interp.hxml
+haxe type-test-interp.hxml
 haxe test-js.hxml && node build/tests/test.js
 haxe type-test-js.hxml && node build/tests/types.js
 haxe test-php.hxml && php build/tests/php/index.php
@@ -35,40 +49,10 @@ haxe type-test-php.hxml && php build/tests/php-types/index.php
 haxe js.hxml && haxe php.hxml
 ```
 
-## JavaScript
+La [pipeline GitHub Actions](../.github/workflows/nailseed-v06.yml) esegue le tre modalità, prova le API distribuite JS e PHP e pubblica artefatti generati dalla build. I file generati non sono committati.
 
-```javascript
-const api = require('./build/js/nailseed.js').NailSeed;
-const types = api.createTypeChecker();
-types.check('def id x = x ;');
-console.log(types.signature('id')); // 'a -> a'
-console.log(types.check('id 1 ; id true ;')); // ['Number','Bool']
-```
+## Architettura e limiti
 
-La API `NailSeed.create()` continua a fornire il runtime sperimentale senza controllo statico automatico. `createTypeChecker()` è un'API opzionale distinta, utile per l'editor e la validazione.
+Il parser restituisce l'**AST dei cinque costruttori**, senza introdurre `Let` o `Match` nel runtime. Le liste sono celle `Cons` persistenti. Il matching è strettamente esaustivo sulle liste e i pattern non sono nidificabili; le lambda e le definizioni globali restano ricorsive solo dove previsto. Non ci sono stringhe, lexer autogenerato, ottimizzazione tail-call, ADT generali, macro o parser self-hosted. Il prossimo prerequisito sostanziale per il parser scritto in Nail è il supporto a **stringhe e token**, non un ulteriore costrutto di controllo del flusso.
 
-## PHP
-
-```sh
-php build/php/index.php --types example.nail
-php build/php/index.php example.nail
-```
-
-La modalità `--types` carica prima la libreria standard e stampa i tipi delle espressioni; senza flag viene eseguito il codice Nail come nella v0.4.
-
-## Struttura
-
-- `src/nail/TypeChecker.hx` — unificazione, occurs check, generalizzazione/istanziazione, vincoli Eq.
-- `src/nail/NType.hx` e `TypeScheme.hx` — linguaggio dei tipi (non l'AST runtime).
-- `type-cases.json` — prove positive/negative identiche per Haxe, JS e PHP.
-- `src/TypeTestMain.hx` — runner dei test di tipo cross-target.
-- `stdlib.nail`, `cases.json`, `src/nail/Vm.hx` e parser — conservati dalla v0.4.
-- [Workflow di build](../.github/workflows/nailseed-v05.yml) — verifica tutti i target e pubblica gli artefatti generati.
-
-## Limiti deliberati
-
-- Il checker **non viene applicato automaticamente** a `Vm.run()`; il codice si può controllare separatamente o usare la modalità CLI `--types`.
-- I tipi inferiti non rappresentano ancora un sistema di effetti, ADT/pattern matching o moduli.
-- Le liste sono omogenee a livello statico; l'accesso a `head []` passa il controllo dei tipi ma fallisce a runtime.
-- Il runtime resta eager, usa numeri IEEE-754 finiti e limita i passi; non esegue codice non attendibile in una sandbox sicura.
-- I vincoli `Eq` sono una piccola estensione della normale inferenza HM.
+Vedi [SPEC.md](./SPEC.md) per la semantica e le scelte progettuali.

@@ -1,60 +1,53 @@
-# NailSeed v0.5 — inferenza statica senza nuove forme AST
+# NailSeed 0.6 — Specifica sperimentale
 
-## Obiettivo
+## Obiettivo e compatibilità
 
-Conservare **esattamente cinque** costruttori di espressioni (`Literal`, `Var`, `Lambda`, `Apply`, `If`) e tutti i 37 test della v0.4. Aggiungere un **passaggio separato** di inferenza Hindley–Milner per controllare il sorgente e dedurre firme di funzione, senza annotazioni manuali.
+Portare la v0.5 più vicino al linguaggio funzionale sorgente voluto, **senza aumentare le cinque espressioni del core**. Restano compatibili i programmi eseguibili nella v0.5, compreso l'ordine di valutazione eager. La fonte della semantica è l'implementazione Haxe e i test `cases.json` / `type-cases.json` identici per interpreter Haxe, JS e PHP.
 
-## Sistema dei tipi
+### Sintassi
 
-```
-Type = Number | Bool | [Type] | Type -> Type | Variable
-Scheme = forall variables. [Eq constraints] Type
-```
-
-I tipi funzione sono associativi a destra. `Number` indica il numero float finito del runtime, non un intero separato. Tutte le liste hanno elementi omogenei; `[]` è polimorfa.
-
-Esempi:
-
-```
-def twice x = x * 2 ;          # Number -> Number
-def id x = x ;                # forall a. a -> a
-def compose f g x = f ( g x ) ;
-                                  # forall a b c. (a -> b) -> (c -> a) -> c -> b
-def same x y = x == y ;       # forall a:Eq. a -> a -> Bool
+```text
+expression := ... | "let" name "=" expression "in" expression
+                  | "match" expression "with" match-arm match-arm
+match-arm  := "|" "[]" "->" expression
+            | "|" name "::" name "->" expression
 ```
 
-I `def` sono trattati come `letrec` di alto livello: durante l'analisi del corpo il nome è disponibile, ma con un **solo tipo monomorfo provvisorio**. Terminato il corpo, quel tipo viene generalizzato nei parametri non liberi nell'ambiente esterno.
+`[ ]` è una grafia alternativa per il pattern vuoto. Le due alternative sono obbligatorie e in ordine libero, con una sola occorrenza ciascuna. `name` è un identificatore o `_` (wildcard) solo per i campi `head` e `tail`. Due binding con lo stesso nome in un pattern sono rifiutati. Gli altri operatori conservano precedenze e associatività della v0.5. Ogni token deve essere separato da whitespace. I commenti `# ...` occupano il resto della riga.
 
-La v0.5 **non** implementa polymorphic recursion né `let` locale; l'applicazione parziale segue il currying del nucleo.
+Non supportiamo `let rec`; la destra di `let` viene analizzata nell'ambiente precedente. Se un costrutto è annidato e il delimitatore `|` risulta ambiguo, si usano parentesi esplicite. Una terza alternativa di match viene rifiutata.
 
-## Regole di inferenza
+### Desugaring
 
-- `Literal`: `Number`, `Bool` o lista di un tipo fresco `a` (per `[]`).
-- `Var`: istanzia le variabili quantificate nella `Scheme` associata al nome.
-- `Lambda`: introduce un tipo fresco monomorfo per il parametro.
-- `Apply`: unifica `type(fn)` con `type(arg) -> freshResult`.
-- `If`: la condizione deve avere tipo `Bool`; i rami devono unificarsi.
-- `Def`: preassegna il nome ricorsivo a una variabile di tipo fresca, inferisce il corpo, unifica e generalizza.
+`let x = a in b` equivale a `Apply(Lambda("x", b), a)` nel core.
 
-`+`, `-`, `*`, `/` hanno tipo `Number -> Number -> Number`. I confronti `<`, `<=`, `>` e `>=` sono `Number -> Number -> Bool`. `cons`, `head`, `tail`, `isEmpty`, `nil` e la primitiva privata `#cons` hanno firme polimorfe parametriche.
+`match xs with | [] -> e | h :: t -> n` equivale schematicamente a:
 
-`==` e `!=` hanno tipo `forall a:Eq. a -> a -> Bool`, dove i tipi `Eq` sono ricorsivamente `Number`, `Bool` e `[Eq]`. Non si può confrontare una funzione, anche se Haxe o JavaScript permetterebbero un confronto per identità.
+```text
+( fun #list ->
+    if #isEmpty #list then e
+    else ( fun h -> fun t -> n ) ( #head #list ) ( #tail #list )
+) xs
+```
 
-## Algoritmo e limiti
+Le parole `#list`, `#isEmpty`, `#head` e `#tail` sono interne (non token utente); `#list` viene generata con identificatore fresco. L'espressione `xs` viene valutata una sola volta, mentre solo il ramo selezionato viene valutato. Il desugaring non dipende da un eventuale binding utente di `head`, `tail`, `isEmpty` o `cons`.
 
-Unificatore con sostituzioni e occurs check (rifiuta `fun x -> x x`). Ogni sessione di `TypeChecker.check` lavora su una copia delle firme globali e le aggiorna soltanto al successo dell'intero programma. Un identificatore progressivo evita collisioni tra chiamate incrementali. Le `Scheme` salvate sono normalizzate: non dipendono dalle sostituzioni di sessioni precedenti.
+### Inferenza dei tipi
 
-`TypeChecker.signature(name)` restituisce la firma inferita delle definizioni. `TypeChecker.preview()` permette analisi senza mutare il checker, e `TypeChecker.copy()` permette fork temporanei. Il TypeChecker è isolato dalla VM: **controllare non significa eseguire**. Le prove di regressione originali restano eseguibili su `Vm.run()` senza variazioni.
+Il type checker della v0.5 ha ora un caso speciale per la forma core `Apply(Lambda(name, body), value)`, che equivale a un `let` non ricorsivo. Inferisce il tipo di `value`, generalizza le variabili libere non vincolate dall'ambiente e inferisce `body` con il relativo schema. In un linguaggio puro e senza riferimenti mutabili, questo permette il polimorfismo let locale. Una lambda passata come valore a una funzione conserva invece la regola standard dei parametri monomorfi.
 
-### Limiti consapevoli
+L'inferenza di `match` discende dalle primitive listate private, dalla condizione booleana di `If` e dall'unificazione dei tipi dei due rami: nessuna regola speciale `Match` è richiesta nel checker. Si applicano gli stessi vincoli `Eq` della v0.5.
 
-- Nessuna inferenza degli effetti, verifica di totalità o controllo dei casi esaustivi; `head []` resta un errore runtime.
-- Niente tipi ricorsivi, polimorfismo ricorsivo o varianti algebriche utente.
-- Niente tipi `Int`, `Float` separati, record o strutture dei moduli.
-- Niente local `let`: `def` resta una forma top-level.
-- Niente ottimizzazione tail-call: la VM rimane ricorsiva e dipendente dallo stack host.
-- Le API restano sperimentali: nessun formato di serializzazione dei tipi né informazioni source-span.
+### Libreria standard
 
-## Compilazione
+`stdlib.nail` utilizza `match` per implementare `map`, `filter`, `fold`. Conserva `id`, `compose`, `reverse`, `length`; nessuna delle funzioni di libreria è una primitiva host.
 
-Il sorgente unico è Haxe 4.3.7. Il workflow `.github/workflows/nailseed-v05.yml` testa inferenza + runtime su `--interp`, JS/Node e PHP, poi compila i distributable. Le compilazioni JS/PHP non vengono committate nel repository: sono artefatti CI.
+### Test e CI
+
+- Test runtime: `cases.json` positivi + negativi, più controllo che l'AST usi esattamente i cinque nodi.
+- Test tipi: `type-cases.json` positivi + negativi, più controlli incrementali e non-commit dei fallimenti, inferenza della firma di un `match`.
+- GitHub Actions: compila Haxe interpreter, JavaScript/Node.js, PHP 8.3; test di distribuzione, artefatti JS/PHP.
+
+### Limiti
+
+Non è ancora possibile scrivere il parser di Nail interamente in Nail, perché mancano stringhe, rappresentazione dei token, primitive di elaborazione testuale e lettura di sorgenti. Le liste e le closure restano implementate nella VM Haxe, senza TCO e senza sandboxing. Il checker rimane opzionale e il parser non possiede diagnostica con posizioni nel sorgente. I pattern sono limitati alle liste e devono essere esaustivi.

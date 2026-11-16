@@ -96,8 +96,11 @@ private class Inference {
     globals.set('cons', poly(fun(a, fun(list, list)), [elem]));
     globals.set('#cons', poly(fun(a, fun(list, list)), [elem]));
     globals.set('head', poly(fun(list, a), [elem]));
+    globals.set('#head', poly(fun(list, a), [elem]));
     globals.set('tail', poly(fun(list, list), [elem]));
+    globals.set('#tail', poly(fun(list, list), [elem]));
     globals.set('isEmpty', poly(fun(list, b), [elem]));
+    globals.set('#isEmpty', poly(fun(list, b), [elem]));
     globals.set('nil', poly(list, [elem]));
   }
 
@@ -236,6 +239,14 @@ private class Inference {
         var child = scopeCopy(env);
         child.set(param, mono(arg));
         fun(arg, infer(body, child));
+      // Direct lambda application is the core representation of a surface `let`.
+      // In a pure language we can generalize the evaluated binding at this
+      // boundary, yielding full Hindley-Milner local let-polymorphism.
+      case Apply(Lambda(param, body), argument):
+        var boundType = infer(argument, env);
+        var child = scopeCopy(env);
+        child.set(param, generalize(boundType, env));
+        infer(body, child);
       case Apply(f, x):
         var fn = infer(f, env);
         var argument = infer(x, env);

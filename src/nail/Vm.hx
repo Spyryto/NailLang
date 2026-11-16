@@ -16,7 +16,7 @@ class Vm {
     root = new Env();
     for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons'])
       root.bind(name, Native(name, 2, []));
-    for (name in ['head', 'tail', 'isEmpty']) root.bind(name, Native(name, 1, []));
+    for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty']) root.bind(name, Native(name, 1, []));
     root.bind('nil', Nil);
   }
 
@@ -77,19 +77,19 @@ class Vm {
           case Nil | Cons(_, _): Cons(a, b);
           case _: throw 'Expected list';
         }
-      case 'isEmpty':
+      case 'isEmpty' | '#isEmpty':
         switch (a) {
           case Nil: Boolean(true);
           case Cons(_, _): Boolean(false);
           case _: throw 'Expected list';
         }
-      case 'head':
+      case 'head' | '#head':
         switch (a) {
           case Cons(x, _): x;
           case Nil: throw 'head of empty list';
           case _: throw 'Expected list';
         }
-      case 'tail':
+      case 'tail' | '#tail':
         switch (a) {
           case Cons(_, xs): xs;
           case Nil: throw 'tail of empty list';

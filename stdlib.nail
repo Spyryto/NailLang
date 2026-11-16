@@ -1,26 +1,25 @@
-# NailSeed 0.3 standard library: all definitions in Nail itself.
-# No host-provided map/filter/fold/compose.
+# NailSeed v0.6 standard library: functions are written in Nail.
+# All list traversal uses source-level exhaustive matching (no native map/filter/fold).
 
 def id x = x ;
-
 def compose f g x = f ( g x ) ;
 
 def map f xs =
-  if isEmpty xs then []
-  else cons ( f ( head xs ) ) ( map f ( tail xs ) ) ;
+  match xs with
+  | [] -> []
+  | x :: rest -> cons ( f x ) ( map f rest ) ;
 
 def filter f xs =
-  if isEmpty xs then []
-  else if f ( head xs ) then
-    cons ( head xs ) ( filter f ( tail xs ) )
-  else filter f ( tail xs ) ;
+  match xs with
+  | [] -> []
+  | x :: rest ->
+    if f x then cons x ( filter f rest )
+    else filter f rest ;
 
 def fold f init xs =
-  if isEmpty xs then init
-  else fold f ( f init ( head xs ) ) ( tail xs ) ;
+  match xs with
+  | [] -> init
+  | x :: rest -> fold f ( f init x ) rest ;
 
-def reverse xs =
-  fold ( fun acc x -> cons x acc ) [] xs ;
-
-def length xs =
-  fold ( fun n x -> n + 1 ) 0 xs ;
+def reverse xs = fold ( fun acc x -> cons x acc ) [] xs ;
+def length xs = fold ( fun n x -> n + 1 ) 0 xs ;

@@ -49,13 +49,13 @@ class TestMain {
       passed++;
     }
     var kinds:Map<String, Bool> = new Map();
-    for (form in new Parser('def twice x = if true then x * 2 else 0 ;').parse()) {
+    for (form in new Parser('def twice x = if true then x * 2 else 0 ; let x = 3 in x ; match [ 1 ] with | [] -> 0 | h :: t -> h ;').parse()) {
       switch (form) {
         case Define(_, body) | Evaluate(body): inspect(body, kinds);
       }
     }
     check([for (k in kinds.keys()) k].length == 5, 'Expected five expression kinds');
     passed++;
-    trace('NailSeed v0.4: ' + passed + ' tests passed');
+    trace('NailSeed v0.6: ' + passed + ' tests passed');
   }
 }

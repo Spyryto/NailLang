@@ -49,6 +49,11 @@ class TypeTestMain {
     incremental.check('def twice x = x * 2 ;');
     check(incremental.signature('twice') == 'Number -> Number', 'Wrong twice signature');
     passed++;
-    trace('NailSeed v0.5 types: ' + passed + ' tests passed');
+    var pattern = new TypeChecker();
+    pattern.check('def headOrZero xs = match xs with | [] -> 0 | h :: t -> h ;');
+    check(pattern.signature('headOrZero') == '[Number] -> Number',
+      'Wrong inferred type for exhaustive list pattern');
+    passed++;
+    trace('NailSeed v0.6 types: ' + passed + ' tests passed');
   }
 }

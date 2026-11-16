@@ -1,5 +1,5 @@
 {
-  "version": "0.3",
+  "version": "0.6",
   "positive": [
     {
       "code": "def twice x = x * 2 ; twice 5 ;",
@@ -202,6 +202,144 @@
         2
       ],
       "stdlib": false
+    },
+    {
+      "code": "let x = 21 in x * 2 ;",
+      "expected": [
+        42
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "let x = 2 in let x = x + 3 in x * 4 ;",
+      "expected": [
+        20
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "def addX x = let y = 3 in x + y ; addX 7 ;",
+      "expected": [
+        10
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "let xs = [ 1 , 2 ] in match xs with | [] -> 0 | h :: t -> h ;",
+      "expected": [
+        1
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "match [] with | [] -> 7 | h :: t -> h ;",
+      "expected": [
+        7
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "match [ 3 , 4 ] with | h :: t -> h + head t | [] -> 0 ;",
+      "expected": [
+        7
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "def sum xs = match xs with | [] -> 0 | x :: rest -> x + sum rest ; sum [ 1 , 2 , 3 , 4 ] ;",
+      "expected": [
+        10
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "def length2 xs = match xs with | [] -> 0 | _ :: rest -> 1 + length2 rest ; length2 [ 3 , 4 , 5 ] ;",
+      "expected": [
+        3
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "match [ 42 ] with | [] -> false | _ :: _ -> true ;",
+      "expected": [
+        true
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "let head = fun xs -> 999 in let isEmpty = fun xs -> true in match [ 8 ] with | [] -> 0 | x :: rest -> x ;",
+      "expected": [
+        8
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "match [ 4 , 5 ] with | [ ] -> 0 | x :: rest -> x ;",
+      "expected": [
+        4
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "def firstOr zero xs = match xs with | [] -> zero | a :: _ -> a ; firstOr 9 [] ; firstOr 9 [ 3 ] ;",
+      "expected": [
+        9,
+        3
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "let id = fun x -> x in let n = id 1 in id true ;",
+      "expected": [
+        true
+      ],
+      "stdlib": false
+    },
+    {
+      "code": "map ( fun x -> let y = x * x in y + 1 ) [ 1 , 2 , 3 ] ;",
+      "expected": [
+        [
+          2,
+          5,
+          10
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "filter ( fun x -> x > 2 ) [ 1 , 2 , 3 , 4 ] ;",
+      "expected": [
+        [
+          3,
+          4
+        ]
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "fold ( fun sum x -> sum + x ) 0 [ 1 , 2 , 3 , 4 ] ;",
+      "expected": [
+        10
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "length ( reverse [ 1 , 2 , 3 ] ) ;",
+      "expected": [
+        3
+      ],
+      "stdlib": true
+    },
+    {
+      "code": "map ( fun xs -> match xs with | [] -> 0 | n :: _ -> n ) [ [] , [ 1 ] , [ 2 ] ] ;",
+      "expected": [
+        [
+          0,
+          1,
+          2
+        ]
+      ],
+      "stdlib": true
     }
   ],
   "negative": [
@@ -252,6 +390,50 @@
     {
       "code": "1 2 ;",
       "errorRegex": "Value is not a function"
+    },
+    {
+      "code": "let x = 1 x ;",
+      "errorRegex": "Expected in"
+    },
+    {
+      "code": "let _ = 1 in 2 ;",
+      "errorRegex": "Invalid let binding"
+    },
+    {
+      "code": "let x = x in x ;",
+      "errorRegex": "Unknown name"
+    },
+    {
+      "code": "match [ 1 ] with | [] -> 0 ;",
+      "errorRegex": "Expected \\|"
+    },
+    {
+      "code": "match [] with | [] -> 0 | [] -> 1 ;",
+      "errorRegex": "Duplicate empty-list pattern"
+    },
+    {
+      "code": "match [ 1 ] with | x :: x -> x | [] -> 0 ;",
+      "errorRegex": "Duplicate list pattern binding"
+    },
+    {
+      "code": "match [ 1 ] with | x :: y -> 1 | z :: rest -> 2 ;",
+      "errorRegex": "Duplicate cons-list pattern"
+    },
+    {
+      "code": "match [ 1 ] with | _ -> 1 | x :: xs -> 2 ;",
+      "errorRegex": "Expected \\:\\:"
+    },
+    {
+      "code": "match [ 1 ] with | [] -> 0 | x :: xs -> x | [] -> 3 ;",
+      "errorRegex": "Expected"
+    },
+    {
+      "code": "let x = true in x + 1 ;",
+      "errorRegex": "Expected finite number"
+    },
+    {
+      "code": "match true with | [] -> 1 | x :: xs -> 2 ;",
+      "errorRegex": "Expected list"
     }
   ]
 }
