@@ -14,6 +14,9 @@ class Main {
   /** Execute structured Nail bytecode with the shared primitive runtime. */
   public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
 
+  public static function expand(source:String):String
+    return nail.ExpansionView.render(new nail.Parser(source).parse());
+
   static function main():Void {
     #if php
     // php build/php/index.php example.nail
@@ -22,9 +25,12 @@ class Main {
     var typeMode = paths.length > 0 && paths[0] == '--types';
     var selfMode = paths.length > 0 && paths[0] == '--selfparse';
     var byteMode = paths.length > 0 && paths[0] == '--bytecode';
-    if (typeMode || selfMode || byteMode) paths.shift();
+    var expandMode = paths.length > 0 && paths[0] == '--expand';
+    if (typeMode || selfMode || byteMode || expandMode) paths.shift();
     if (paths.length == 0) return;
-    if (typeMode) {
+    if (expandMode) {
+      for (path in paths) Sys.println(expand(sys.io.File.getContent(path)));
+    } else if (typeMode) {
       var types = createTypeChecker();
       types.check(haxe.Resource.getString('stdlib'));
       for (path in paths) for (type in types.check(sys.io.File.getContent(path))) Sys.println(type);
@@ -43,3 +49,4 @@ class Main {
     #end
   }
 }
+

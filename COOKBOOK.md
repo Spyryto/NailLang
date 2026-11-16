@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.22
+# Nail Cookbook — v0.23
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,18 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Macro igieniche di espressione
+## Ricetta 3 — Ispezione dell'espansione macro
 
 ```nail
 macro unless condition action = quote (
   if unquote condition then 0 else unquote action
 ) ;
-expand unless false ( 40 + 2 ) ;
+expand unless false 42 ;
 ```
 
-Le macro operano su alberi sintattici con `quote`/`unquote`; `expand` rende esplicita l'espansione.
+`--expand` mostra le trasformazioni e i binding; sono presenti esempi relativi a lezioni di chitarra.
+
+Per le macro modulari, riusa le sorgenti e gli script reali in [`examples/`](./examples/) invece di inventare un loader. Alcuni esempi richiedono `--macro-module nome=percorso`.
 
 ## Allenamento: studiare l'implementazione
 

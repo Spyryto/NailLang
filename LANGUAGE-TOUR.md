@@ -1,20 +1,20 @@
-# Nail Language Tour — v0.22
+# Nail Language Tour — v0.23
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Macro igieniche di espressione**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Ispezione dell'espansione macro**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.21/LANGUAGE-TOUR.md) → **v0.22** → [versione successiva](../v0.23/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.22/LANGUAGE-TOUR.md) → **v0.23** → [versione successiva](../v0.24/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Le macro operano su alberi sintattici con `quote`/`unquote`; `expand` rende esplicita l'espansione.
+`--expand` mostra le trasformazioni e i binding; sono presenti esempi relativi a lezioni di chitarra.
 
 ```nail
 macro unless condition action = quote (
   if unquote condition then 0 else unquote action
 ) ;
-expand unless false ( 40 + 2 ) ;
+expand unless false 42 ;
 ```
 
 ## Primo programma
@@ -104,7 +104,7 @@ Le macro manipolano strutture sintattiche, non stringhe arbitrarie. Dalla v0.24 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.22 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.22) e cerca il test associato alla feature.
+4. Apri la [versione v0.23 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.23) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

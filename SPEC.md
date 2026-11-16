@@ -1,51 +1,23 @@
-# NailSeed v0.22 — Expression macro specification
+# NailSeed v0.23 — Inspect expansions and produce a guitar lesson
 
-## Syntax
+`--expand` prints the expanded core, without evaluating the program. Generated
+binders appear as `tmp@0` and free template references as `global[helper]`.
+The output is a diagnostic view of bindings and lowered expressions.
 
-- `macro name param ... = quote ( expression ) ;` defines an expression
-  transformer with zero or more distinct parameters.
-- `expand name arg ...` consumes the declared number of arguments, following
-  ordinary curried application's precedence and grouping. Any remaining
-  arguments apply to the resulting expression. Use parentheses for an argument
-  containing application or an infix operator.
-- `unquote param` is a hole in a template. Use parentheses when the hole
-  itself is an argument, for example `f ( unquote param )`. It takes a
-  parameter name, and can appear zero, one, or several times.
-- As elsewhere in NailSeed, punctuation must be separated by whitespace.
-  Quote groups follow ordinary expression parsing.
-- The four new keywords are reserved: `macro`, `quote`, `unquote`, `expand`.
+```sh
+haxe php.hxml
+php build/php/index.php --expand examples/lezione.nail
+php build/php/index.php --types examples/lezione.nail
+php build/php/index.php examples/lezione.nail | node examples/lesson-html.cjs > lezione.html
+haxe js.hxml
+node examples/verify-lesson.cjs
+```
 
-## Expansion
+In JavaScript, use `NailSeed.expand(source)`. The lesson includes an objective,
+two bending exercises, and measurable success criteria. The plain JavaScript
+baseline produces the same data and HTML (Nail's nominal records additionally
+serialize their `$type` field). The example is a draft for classroom use.
 
-A unit is one source buffer or parsed program. Macro declarations are
-visible in following forms of that unit and in their own template.
-Nested calls from a template see only macro declarations available at the
-definition site. Macro arguments are expanded in their original scope
-before substitution. A macro declaration has no runtime value and macro
-names occupy a separate namespace from ordinary definitions.
-
-Each template lambda receives a fresh internal binding. Template-bound
-occurrences use that binding and free template identifiers resolve in
-the top-level value namespace, which has no same-name redefinitions.
-Inserted argument trees keep the bindings of their original context.
-A macro can duplicate an argument or omit it, so runtime evaluation
-frequency depends on how the resulting tree uses each hole.
-
-Both parsers produce marked expression trees. A shared Haxe expansion
-pass handles them. The Nail-written compiler invokes that pass on
-`Syntax` via `macroExpandSyntax`. The source-free runtime uses its
-precompiled Nail parser and compiler and the same expansion primitive.
-The result is ordinary expression code consumed by the optional checker
-and both compilers. The VM resolves marked global references through
-its global environment using its existing variable-load instruction.
-
-Macro expansion has deterministic limits on nesting and work. Unknown
-macros, missing arguments, invalid holes, duplicate declarations and
-over-limit expansions fail at compile time. Optional checking sees
-expanded record projections and algebraic matches, including coverage
-errors.
-
-The scope of this release is hygienic expression templates. Arbitrary
-compile-time Nail functions, nested quotation levels, binding-name
-splicing, and macro-generated top-level declarations have no syntax
-in this version.
+A one-to-one macro around `Drill` gives no savings over the constructor.
+The example's value here is inspection and a controlled comparison before
+introducing shared macros.
