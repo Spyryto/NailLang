@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.40
+# Nail Language Tour — v0.41
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -47,3 +47,27 @@ Ogni immagine deve essere ammessa tramite digest atteso, ottenuto da una fonte i
 4. Confronta `src/nail/ModuleImageTrust.hx`, `src/nail/ModuleLinker.hx` e [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
 
 Le versioni precedenti restano consultabili tramite tag. L'API JS continua a esportare `NailSeed` per compatibilità.
+
+## Novità v0.41: revoca dei permessi da parte dell'host
+
+Non cambia la sintassi Nail. Il codice `readAsset key` oppure
+`writeAsset key contents` usa le funzioni che il processo host gli ha
+passato. Dopo la revoca, una chiamata restituisce `CoreErr " revoked "`
+(oppure `{ok:false, error:"revoked", value:""}` nell'API legacy).
+
+```haxe
+// Anche i moduli già inizializzati osservano questa revoca.
+grants.revokeWriteText('Saver');
+grants.revokeReadText('Viewer');
+
+// Per revocare un oggetto condiviso fra più moduli:
+writer.revoke();
+```
+
+Le funzioni scriventi già applicate al primo argomento non bypassano la
+revoca: il controllo si ripete al secondo argomento, prima della callback.
+L'operazione è irreversibile per quel grant/oggetto. Le chiamate già dentro
+una callback host sincrona non possono essere annullate retroattivamente.
+
+Esegui `haxe revocable-capabilities-test-interp.hxml` e i target JS/PHP
+descritti in [RUNNING.md](./RUNNING.md).

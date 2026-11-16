@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.40
+# Nail Cookbook — v0.41
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -70,3 +70,28 @@ va letto da un manifest di distribuzione protetto e indipendente.
 Prova a sostituire un'immagine senza cambiare il manifest: la verifica deve
 rifiutarla senza eseguire codice né effettuare I/O. Il test completo è in
 `src/TrustedModuleImagesTestMain.hx`.
+
+## Ricetta 6 — Revoca senza ricompilare un modulo
+
+Il codice Nail resta invariato:
+
+```nail
+def save key text =
+  match writeAsset key text with
+  | CoreOk saved -> saved
+  | CoreErr reason -> reason ;
+```
+
+L'host può revocare dopo il link:
+
+```haxe
+var app = nail.ModuleLinker.linkTrustedImages(images, pins, 25000000, grants);
+grants.revokeWriteText('Saver');
+```
+
+Le chiamate successive di `Saver` ricevono `CoreErr "revoked"` senza
+invocare il backend. La revoca di `Saver` non interrompe il permesso
+di `OtherSaver`, anche se l'host aveva condiviso lo stesso writer fra moduli.
+Se invece l'host chiama `writer.revoke()`, tutti i riferimenti a
+**quell'istanza** smettono di funzionare. Nessuna di queste operazioni
+ripristina una capability revocata.

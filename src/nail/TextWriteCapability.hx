@@ -20,6 +20,7 @@ class TextWriteCapability {
   final maxCommits:Int;
   var successful:Int = 0;
   var inCommit:Bool = false;
+  var revoked:Bool = false;
 
   public function new(names:Array<String>, replaceAtomically:String->String->Bool,
       maxScalars:Int = 65536, maxCommits:Int = 128) {
@@ -38,6 +39,11 @@ class TextWriteCapability {
     this.maxScalars = maxScalars;
     this.maxCommits = maxCommits;
   }
+
+  /** Permanently revoke this instance, including any previously acquired
+      partially applied write functions. No in-flight synchronous host callback
+      can be retroactively rolled back. */
+  public function revoke():Void revoked = true;
 
   /** A curried, closed, canonical cross-module signature. */
   public static function signature():NType
@@ -61,6 +67,7 @@ class TextWriteCapability {
       case Text(value): value;
       case _: throw 'Text write capability requires Text content';
     };
+    if (revoked) return error('revoked');
     if (!allowed.exists(key)) return error('denied');
     // Reentrant callbacks must not mutate a shared resource store recursively.
     if (inCommit) return error('busy');
