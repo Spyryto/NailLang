@@ -101,13 +101,15 @@ class BytecodeCompiler {
     for (form in forms) switch (form) {
       case RecordType(name, fields):
         for (definition in RecordLowering.definitions(name, fields)) expanded.push(definition);
+      case SumType(name, _, constructors):
+        for (definition in SumLowering.definitions(name, constructors)) expanded.push(definition);
       case _: expanded.push(form);
     }
     for (form in expanded) {
       result.push(switch (form) {
         case Define(name, body): instruction2('DEFINE', leaf('Name', name), code(emit(body, true)));
         case Evaluate(body): instruction1('EVAL', code(emit(body, true)));
-        case RecordType(_, _): throw 'Unexpanded record type';
+        case RecordType(_, _) | SumType(_, _, _): throw 'Unexpanded type declaration';
       });
     }
     return node('Bytecode', result);

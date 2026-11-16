@@ -6,6 +6,7 @@ enum NType {
   TBoolean;
   TText;
   TRecord(name:String);
+  TSum(name:String, parameters:Array<NType>);
   TSyntax;
   TList(element:NType);
   TFunction(argument:NType, result:NType);

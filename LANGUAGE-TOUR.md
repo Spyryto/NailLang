@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.17.2
+# Nail Language Tour — v0.18
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Getter interni qualificati**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Tipi somma algebrici**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.17.1/LANGUAGE-TOUR.md) → **v0.17.2** → [versione successiva](../v0.18/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.17.2/LANGUAGE-TOUR.md) → **v0.18** → [versione successiva](../v0.19/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-La sintassi esterna rimane `mario . name`; i getter generati internamente portano un nome qualificato come `Person.name`.
+Costruttori curried, varianti nominali e pattern matching sul tipo somma.
 
 ```nail
-type Person { name Text age Number } ;
-def mario = Person " Mario " 34 ;
-mario . name ;
+type Option a = None | Some a ;
+def valueOrZero o = match o with | None -> 0 | Some n -> n ;
+valueOrZero ( Some 9 ) ;
 ```
 
 ## Primo programma
@@ -75,12 +75,24 @@ mario . name ;
 
 La struttura ha un'identità nominale; la proiezione `person . field` è disponibile da v0.17.1, mentre v0.17 usa getter espliciti.
 
+## Somme algebriche e `match` (v0.18+)
+
+```nail
+type Option a = None | Some a ;
+def valueOrZero o = match o with
+ | None -> 0
+ | Some x -> x ;
+valueOrZero ( Some 9 ) ;
+```
+
+I costruttori sono valori e si possono decostruire tramite pattern. Il checker verifica l'esaustività dei casi.
+
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.17.2 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.17.2) e cerca il test associato alla feature.
+4. Apri la [versione v0.18 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.18) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

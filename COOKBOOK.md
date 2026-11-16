@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.17.2
+# Nail Cookbook — v0.18
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Getter interni qualificati
+## Ricetta 3 — Tipi somma algebrici
 
 ```nail
-type Person { name Text age Number } ;
-def mario = Person " Mario " 34 ;
-mario . name ;
+type Option a = None | Some a ;
+def valueOrZero o = match o with | None -> 0 | Some n -> n ;
+valueOrZero ( Some 9 ) ;
 ```
 
-La sintassi esterna rimane `mario . name`; i getter generati internamente portano un nome qualificato come `Person.name`.
+Costruttori curried, varianti nominali e pattern matching sul tipo somma.
 
 ## Allenamento: studiare l'implementazione
 

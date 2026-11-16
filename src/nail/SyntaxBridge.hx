@@ -121,6 +121,19 @@ class SyntaxBridge {
             case SyntaxNode('Evaluate', _):
               var parts = children(form, 'Evaluate', 1);
               Evaluate(expr(parts[0]));
+            case SyntaxNode('SumType', _):
+              var parts = children(form, 'SumType', 3);
+              var typeName = label(parts[0], 'Name');
+              var params:Array<String> = [];
+              for (item in children(parts[1], 'Params', -1)) params.push(label(item, 'Name'));
+              var ctors:Array<nail.Ast.SumConstructor> = [];
+              for (node in children(parts[2], 'Constructors', -1)) {
+                var entry = children(node, 'Constructor', 2);
+                var fields:Array<String> = [];
+                for (field in children(entry[1], 'Args', -1)) fields.push(label(field, 'Type'));
+                ctors.push({name:label(entry[0], 'Name'), fieldTypes:fields});
+              }
+              SumType(typeName, params, ctors);
             case SyntaxNode('RecordType', _):
               var parts = children(form, 'RecordType', 2);
               var typeName = label(parts[0], 'Name');

@@ -3,6 +3,7 @@ package nail;
 import nail.Ast.Expr;
 import nail.Ast.Form;
 import nail.Value;
+import nail.SumLowering;
 
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
@@ -11,6 +12,7 @@ class Parser {
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
   static final recordTypePattern = ~/^[A-Z][A-Za-z_0-9]*$/;
+  static final typeParamPattern = ~/^[a-z][a-z0-9_]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
   static final spacePattern = ~/\s+/g;
 
@@ -111,6 +113,11 @@ class Parser {
   function parseMatch():Expr {
     var scrutinee = expression();
     expect('with');
+    if (peek() != '|') throw 'Expected | in match';
+    var first:Null<String> = at + 1 < tokens.length ? tokens[at + 1] : null;
+    var next:Null<String> = at + 2 < tokens.length ? tokens[at + 2] : null;
+    if (first != null && recordTypePattern.match(first) && next != '::')
+      return parseSumMatch(scrutinee);
     var emptyBranch:Null<Expr> = null;
     var pairBranch:Null<Expr> = null;
     var headName:Null<String> = null;
@@ -144,6 +151,61 @@ class Parser {
     var pair = Apply(Apply(Lambda(headName, Lambda(tailName, pairBranch)),
       call('#head', list)), call('#tail', list));
     return Apply(Lambda(listName, If(call('#isEmpty', list), emptyBranch, pair)), scrutinee);
+  }
+
+  function parseSumMatch(scrutinee:Expr):Expr {
+    var branches:Array<{name:String, params:Array<String>, body:Expr}> = [];
+    while (peek() == '|') {
+      take();
+      var ctor = take();
+      if (!isName(ctor) || !recordTypePattern.match(ctor)) throw 'Expected algebraic constructor';
+      var params:Array<String> = [];
+      while (peek() != '->') {
+        var param = take();
+        if (param == null || !isName(param)) throw 'Invalid variant binding';
+        if (params.indexOf(param) >= 0 && param != '_') throw 'Duplicate variant binding';
+        params.push(param);
+        if (params.length > 10) throw 'Too many variant bindings';
+      }
+      expect('->');
+      var body = expression();
+      for (branch in branches) if (branch.name == ctor) throw 'Duplicate variant branch';
+      branches.push({name:ctor, params:params, body:body});
+    }
+    return SumLowering.lowerMatch(scrutinee, branches);
+  }
+
+  function parseSumType(name:String):Form {
+    var params:Array<String> = [];
+    while (peek() != '=') {
+      var p = take();
+      if (!isName(p) || !typeParamPattern.match(p) || params.indexOf(p) >= 0)
+        throw 'Invalid algebraic type parameter';
+      params.push(p);
+      if (params.length > 16) throw 'Too many type parameters';
+    }
+    expect('=');
+    var ctors:Array<nail.Ast.SumConstructor> = [];
+    var first = true;
+    do {
+      if (!first) expect('|');
+      first = false;
+      var ctor = take();
+      if (!isName(ctor) || !recordTypePattern.match(ctor)) throw 'Expected algebraic constructor';
+      var payload:Array<String> = [];
+      while (peek() != '|' && peek() != ';') {
+        var ty = take();
+        if (!isName(ty)) throw 'Expected algebraic field type';
+        payload.push(ty);
+        if (payload.length > 10) throw 'Too many constructor fields';
+      }
+      for (previous in ctors) if (previous.name == ctor) throw 'Duplicate constructor';
+      ctors.push({name:ctor, fieldTypes:payload});
+      if (ctors.length > 32) throw 'Too many constructors';
+    } while (peek() == '|');
+    expect(';');
+    if (ctors.length == 0) throw 'Algebraic type needs constructors';
+    return SumType(name, params, ctors);
   }
 
   function atom():Expr {
@@ -230,8 +292,7 @@ class Parser {
   }
 
   /** Only simple named fields and previously declared record types in v0.17. */
-  function parseRecordType():Form {
-    var typeName = take();
+  function parseRecordType(typeName:String):Form {
     if (!isName(typeName) || !recordTypePattern.match(typeName))
       throw 'Expected uppercase record type name';
     expect('{');
@@ -256,7 +317,9 @@ class Parser {
     while (peek() != null) {
       if (peek() == 'type') {
         take();
-        forms.push(parseRecordType());
+        var typeName = take();
+        if (!isName(typeName) || !recordTypePattern.match(typeName)) throw 'Expected uppercase record type name or sum type';
+        forms.push(peek() == '{' ? parseRecordType(typeName) : parseSumType(typeName));
       } else if (peek() == 'def') {
         take();
         var name = take();

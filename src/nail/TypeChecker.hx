@@ -17,34 +17,38 @@ import nail.Value;
 class TypeChecker {
   var global:StringMap<TypeScheme>;
   var records:StringMap<Bool>;
+  var sums:StringMap<Int>;
   var nextId:Int;
 
   public function new() {
-    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>());
+    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>(), new StringMap<Int>());
     solver.installPrimitives();
     global = solver.globals;
     records = solver.records;
+    sums = solver.sums;
     nextId = solver.nextId;
   }
 
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String):Array<String> {
     var forms = new Parser(source).parse();
-    var solver = new Inference(nextId, global, records);
+    var solver = new Inference(nextId, global, records, sums);
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
     records = solver.records;
+    sums = solver.sums;
     nextId = solver.nextId;
     return inferred;
   }
 
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
-    var solver = new Inference(nextId, global, records);
+    var solver = new Inference(nextId, global, records, sums);
     var inferred = solver.run(SyntaxBridge.forms(tree));
     global = solver.globals;
     records = solver.records;
+    sums = solver.sums;
     nextId = solver.nextId;
     return inferred;
   }
@@ -58,13 +62,15 @@ class TypeChecker {
     for (name in global.keys()) instance.global.set(name, global.get(name));
     instance.records = new StringMap<Bool>();
     for (name in records.keys()) instance.records.set(name, true);
+    instance.sums = new StringMap<Int>();
+    for (name in sums.keys()) instance.sums.set(name, sums.get(name));
     instance.nextId = nextId;
     return instance;
   }
 
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
-    return new Inference(nextId, global, records).signature(name);
+    return new Inference(nextId, global, records, sums).signature(name);
   }
 
   public function names():Array<String> {
@@ -91,16 +97,19 @@ private class InferFrame {
 private class Inference {
   public var globals(default, null):StringMap<TypeScheme>;
   public var records(default, null):StringMap<Bool>;
+  public var sums(default, null):StringMap<Int>;
   public var nextId(default, null):Int;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
-  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>) {
+  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>, knownSums:StringMap<Int>) {
     nextId = start;
     globals = new StringMap<TypeScheme>();
     for (name in initial.keys()) globals.set(name, initial.get(name));
     records = new StringMap<Bool>();
     for (name in knownRecords.keys()) records.set(name, true);
+    sums = new StringMap<Int>();
+    for (name in knownSums.keys()) sums.set(name, knownSums.get(name));
   }
 
   function fresh():NType return TVariable(nextId++);
@@ -141,6 +150,8 @@ private class Inference {
     globals.set('isEmpty', poly(fun(list, b), [elem]));
     globals.set('#isEmpty', poly(fun(list, b), [elem]));
     globals.set('nil', poly(list, [elem]));
+    var x = nextId++, y = nextId++;
+    globals.set('#sumFail', poly(fun(TVariable(x), TVariable(y)), [x, y]));
   }
 
   function prune(t:NType):NType {
@@ -166,6 +177,7 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TVariable(other): if (id == other) return true;
         case TList(a): stack.push(a);
+        case TSum(_, items): for (item in items) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -179,6 +191,7 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TNumber | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a): stack.push(a);
+        case TSum(_, items): for (item in items) stack.push(item);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
       }
@@ -207,6 +220,8 @@ private class Inference {
         case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
         case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
         case [TList(x), TList(y)]: stack.push({a:x, b:y});
+        case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
+          for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
         case [TFunction(a1, b1), TFunction(a2, b2)]:
           stack.push({a:b1, b:b2});
           stack.push({a:a1, b:a2});
@@ -223,6 +238,11 @@ private class Inference {
       if (frame.finish) {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
+          case TSum(name, types):
+            var newArgs:Array<NType> = [];
+            for (i in 0...types.length) newArgs.push(results.pop());
+            newArgs.reverse();
+            results.push(TSum(name, newArgs));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -232,6 +252,10 @@ private class Inference {
         case TVariable(id):
           var current = mapping.get(id);
           results.push(current == null ? frame.type : current);
+        case TSum(_, types):
+          stack.push({type:frame.type, finish:true});
+          var i = types.length;
+          while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
         case TList(a):
           stack.push({type:frame.type, finish:true});
           stack.push({type:a, finish:false});
@@ -261,6 +285,7 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TVariable(id): result.set(id, true);
         case TList(item): stack.push(item);
+        case TSum(_, types): for (item in types) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -275,6 +300,11 @@ private class Inference {
       if (frame.finish) {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
+          case TSum(name, types):
+            var newArgs:Array<NType> = [];
+            for (i in 0...types.length) newArgs.push(results.pop());
+            newArgs.reverse();
+            results.push(TSum(name, newArgs));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -283,6 +313,10 @@ private class Inference {
       } else {
         var normalized = prune(frame.type);
         switch (normalized) {
+          case TSum(_, types):
+            stack.push({type:normalized, finish:true});
+            var i = types.length;
+            while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
           case TList(a):
             stack.push({type:normalized, finish:true});
             stack.push({type:a, finish:false});
@@ -447,11 +481,66 @@ private class Inference {
       TRecord(name);
   };
 
+  /** Atomic field type syntax. Generic recursive type applications follow later. */
+  function sumFieldType(name:String, self:String, parameterTypes:StringMap<NType>):NType {
+    var generic = parameterTypes.get(name);
+    if (generic != null) return generic;
+    return switch (name) {
+      case 'Number': TNumber;
+      case 'Bool': TBoolean;
+      case 'Text' | 'String': TText;
+      case _: if (name == self && !sums.exists(self)) TSum(self, [])
+        else if (records.exists(name)) TRecord(name)
+        else if (sums.exists(name) && sums.get(name) == 0) TSum(name, [])
+        else throw 'Type error: unknown or parameterized sum field type ' + name;
+    };
+  }
+
   public function run(forms:Array<Form>):Array<String> {
     var inferred:Array<NType> = [];
     for (form in forms) switch (form) {
+      case SumType(name, params, constructors):
+        if (globals.exists(name) || records.exists(name) || sums.exists(name))
+          throw 'Type error: already defined ' + name;
+        var polyArgs:Array<NType> = [];
+        var parameterTypes = new StringMap<NType>();
+        var quantified:Array<Int> = [];
+        for (param in params) {
+          if (parameterTypes.exists(param)) throw 'Type error: duplicate type parameter';
+          var id = nextId++;
+          quantified.push(id);
+          var variable = TVariable(id);
+          polyArgs.push(variable);
+          parameterTypes.set(param, variable);
+        }
+        var sumType:NType = TSum(name, polyArgs);
+        var proposed:Array<{name:String, signature:TypeScheme}> = [];
+        var used = new StringMap<Bool>();
+        for (ctor in constructors) {
+          if (used.exists(ctor.name) || globals.exists(ctor.name) || globals.exists(ctor.name + '?'))
+            throw 'Type error: duplicate algebraic constructor ' + ctor.name;
+          used.set(ctor.name, true);
+          var args:Array<NType> = [];
+          for (fieldName in ctor.fieldTypes) {
+            if (fieldName == name && params.length > 0)
+              throw 'Type error: parameterized recursive sum fields require explicit application';
+            args.push(sumFieldType(fieldName, name, parameterTypes));
+          }
+          var ctorType:NType = sumType;
+          var i = args.length;
+          while (i > 0) { i--; ctorType = fun(args[i], ctorType); }
+          proposed.push({name:ctor.name, signature:poly(ctorType, quantified)});
+          proposed.push({name:ctor.name + '?', signature:poly(fun(sumType, TBoolean), quantified)});
+          for (i in 0...args.length) proposed.push({name:ctor.name + '.' + i,
+            signature:poly(fun(sumType, args[i]), quantified)});
+        }
+        if (constructors.length == 0) throw 'Type error: empty algebraic sum';
+        for (entry in proposed) if (globals.exists(entry.name))
+          throw 'Type error: already defined ' + entry.name;
+        sums.set(name, params.length);
+        for (entry in proposed) globals.set(entry.name, entry.signature);
       case RecordType(name, fields):
-        if (globals.exists(name) || records.exists(name)) throw 'Type error: already defined ' + name;
+        if (globals.exists(name) || records.exists(name) || sums.exists(name)) throw 'Type error: already defined ' + name;
         if (fields.length == 0 || fields.length > 128) throw 'Type error: invalid record field count';
         var result:NType = TRecord(name);
         var accessors:Array<{name:String, ty:NType}> = [];
@@ -523,6 +612,17 @@ private class Inference {
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);
+        case TSum(name, args):
+          if (args.length == 0) output.add(name);
+          else {
+            stack.push({type:null, text:']', parens:false});
+            for (i in 0...args.length) {
+              var j = args.length - 1 - i;
+              stack.push({type:args[j], text:null, parens:false});
+              if (j > 0) stack.push({type:null, text:', ', parens:false});
+            }
+            stack.push({type:null, text:name + '[', parens:false});
+          }
         case TSyntax: output.add('Syntax');
         case TVariable(id): output.add(label(id));
         case TList(item):

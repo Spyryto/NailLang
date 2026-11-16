@@ -1,0 +1,3 @@
+-cp src
+-main SumTestMain
+-js build/tests/sums.js

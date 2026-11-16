@@ -26,6 +26,7 @@ class Vm {
       root.bind(name, Native(name, 2, []));
     for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
     root.bind('#recordMake', Native('#recordMake', 3, []));
+    root.bind('#sumFail', Native('#sumFail', 1, []));
     root.bind('nil', Nil);
   }
 
@@ -130,6 +131,7 @@ class Vm {
       case '>=': Boolean(number(a) >= number(b));
       case '==': Boolean(equal(a, b));
       case '!=': Boolean(!equal(a, b));
+      case '#sumFail': throw 'Non-exhaustive or mismatched variant pattern';
       case '#recordMake':
         var label = text(a);
         var names:Array<String> = [];
@@ -281,6 +283,13 @@ class Vm {
     var output:Array<Value> = [];
     for (form in forms) {
       switch (form) {
+        case SumType(name, _, constructors):
+          for (definition in SumLowering.definitions(name, constructors)) switch (definition) {
+            case Define(generatedName, body):
+              if (root.hasHere(generatedName)) throw 'Already defined: ' + generatedName;
+              root.bind(generatedName, evaluate(body, root));
+            case _: throw 'Invalid sum lowering';
+          }
         case RecordType(name, fields):
           for (definition in RecordLowering.definitions(name, fields)) switch (definition) {
             case Define(generatedName, body):

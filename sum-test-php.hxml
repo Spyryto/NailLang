@@ -1,0 +1,3 @@
+-cp src
+-main SumTestMain
+-php build/tests/php-sums

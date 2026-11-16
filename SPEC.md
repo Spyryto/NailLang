@@ -1,14 +1,11 @@
-# NailSeed v0.17.2 — Internal qualified record names
+# v0.18 — Parametric sum data types
 
-- `type Person { name Text age Number } ;` generates the constructor `Person` plus internal getters `Person.name` and `Person.age`.
-- Type checker signatures: `Person.name : Person -> Text` and `Person.age : Person -> Number`.
-- The Haxe lowering uses `Define(typeName + "." + fieldName, accessor)`; the Nail-written lowering uses `textConcat ( textConcat name " . " ) fname`.
-- Surface `person . name` is unchanged; both parsers lower it to `Apply(Apply(Var("#recordGet"), person), Literal(Text("name")))`. Static checking uses the resolved nominal receiver type and looks up `Type.field`.
-- Qualified getters are internal AST/bytecode identifiers; their dotted strings are not new user source tokens. Thus `Person.name person` is **not** accepted source syntax in this version.
-- No new core expression form, opcode or primitive. Accessors remain one-argument functions.
-- Older underscore-generated aliases are intentionally not emitted in v0.17.2; previous folders retain their original behavior.
-- Tests include direct internal AST invocation, signatures, nominal inference, ambiguous fields, bytecode identity and collision freedom with names like `Bag_name`.
+**Syntax:** `type T a b = CtorOne a | CtorTwo b ;`. Every payload field type is one token. A constructor with no payload evaluates to a value; otherwise it is curried.
 
-Possible future work: once types are inferred, an optimizer can rewrite `person . name` to an internal `Person.name` invocation; this version keeps the existing dynamic `#recordGet` execution path.
+**Representation:** reuse `Record(typeName, fields)` with hidden fields `#tag` and `#0`, `#1`, etc. Generated constructor predicates and getters are named `Ctor?` and `Ctor.0` internally. No new expression or bytecode case.
 
-The self-hosted Pratt parser examines the token **tag** before handling `.` as field projection; a quoted literal `" . "` remains a text value, not punctuation. Dedicated regression tests cover this distinction.
+**Matching:** `match expr with | Ctor x -> first | Other -> second` lowers to a once-bound receiver and nested `If` expressions. A private `#sumFail` handles uncovered cases. The pattern payload projections check the constructor tag. Nested matches should be parenthesized in this version.
+
+**Types:** `TSum(name, params)` is nominal. Hindley–Milner quantified schemes are generated for constructors, testers and accessors. Eq for type arguments is checked recursively, while the existing record equality compares the actual immutable fields. Nested applied type syntax and compile-time exhaustiveness checking are postponed.
+
+**Bootstrap:** v0.18 keeps the v0.17.2 Nail-written standard-library parser/compiler unchanged, and thus tests new ADT forms through the Haxe source compiler. Full self-hosting of this new syntax is the next step.

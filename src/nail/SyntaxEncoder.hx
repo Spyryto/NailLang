@@ -76,6 +76,16 @@ class SyntaxEncoder {
           var nodes:Array<Value> = [];
           for (field in fields) nodes.push(node('Field', [leaf('Name', field.name), leaf('Type', field.typeName)]));
           node('RecordType', [leaf('Name', name), node('Fields', nodes)]);
+        case SumType(name, params, constructors):
+          var variants:Array<Value> = [];
+          for (ctor in constructors) {
+            var payload:Array<Value> = [];
+            for (ty in ctor.fieldTypes) payload.push(leaf('Type', ty));
+            variants.push(node('Constructor', [leaf('Name', ctor.name), node('Args', payload)]));
+          }
+          var parameterNodes:Array<Value> = [];
+          for (p in params) parameterNodes.push(leaf('Name', p));
+          node('SumType', [leaf('Name', name), node('Params', parameterNodes), node('Constructors', variants)]);
       });
     }
     return node('Program', encoded);

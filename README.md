@@ -1,29 +1,35 @@
-# NailSeed v0.17.2 — Qualified internal record accessors
+# NailSeed v0.18 — Algebraic data types (Haxe-first experiment)
 
-A naming follow-up to [v0.17.1](../v0.17.1/). User-facing syntax remains `person . name`; internally, record declarations now generate **`Person.name`** and **`Person.age`** instead of underscore names.
+The next data-model step after [v0.17.2](../v0.17.2/) adds **nominal parameterized sum types**, curried constructors and constructor pattern matching:
 
 ```nail
-type Person { name Text age Number } ;
-def mario = Person " Mario " 34 ;
-mario . name ;   # "Mario"
-mario . age ;    # 34
+type Option a = None | Some a ;
+def valueOrZero o = match o with | None -> 0 | Some n -> n ;
+valueOrZero ( Some 9 ) ;
+
+type Result a e = Ok a | Error e ;
 ```
 
-The Haxe reference compiler, Nail-written compiler and Hindley–Milner checker use the same `Type.field` key. The source-level dot remains an independent whitespace-separated token; the qualified internal name `Person.name` cannot be used as a source-level identifier. It is generated during lowering and exposed to tooling via e.g. `typeChecker.signature("Person.name")`.
+A non-generic recursive type is also possible:
 
-`person . name` still lowers to the existing private `#recordGet` call and the type checker uses `Person.name`'s signature to validate it. No new AST variant, bytecode opcode, macro, or VM primitive is needed.
+```nail
+type Tree = Leaf Number | Branch Tree Tree ;
+```
 
-**Compatibility:** `Person_name` and `Person_age` are no longer auto-generated in this experimental version. The previous versions remain preserved. Names like `Person_name` can now be used independently without conflicting with field accessors.
+The five core AST expressions and bytecode instruction set remain unchanged. Variants reuse the immutable nominal Record value representation with private `#tag` and positional keys. The only new primitive is the private `#sumFail`, used for unmatched cases.
 
-The v0.16 exact-numbers laboratory remains separate.
+**Scope boundary:** The Haxe reference parser/compiler, AST VM, bytecode VM and Hindley–Milner checker implement this feature on the JS and PHP targets. The **self-hosted Nail parser/compiler is not yet updated for sum declarations**, so the precompiled bootstrap in this iteration only supports the preceding language subset. This is a deliberately staged extension, *not* full self-hosted ADTs.
 
-## Tests
+The checker infers `Some : a -> Option[a]`, `None : Option[a]`, `Ok : a -> Result[a,b]`, and validates bindings in match arms. **Exhaustiveness is not yet statically enforced**; unmatched variants throw. Constructor field types are atomic names; parameterized recursive ADTs and nested applied field types await a richer grammar. Constructors have globally unique names.
+
+User-facing record access remains `person . name`, internally `Person.name`. Exact rational numbers remain a separate v0.16 lab.
+
+## Test all three targets
 
 ```sh
-haxe seed-image.hxml
-haxe record-test-interp.hxml
-haxe record-test-js.hxml && node build/tests/records.js
-haxe record-test-php.hxml && php build/tests/php-records/index.php
+haxe sum-test-interp.hxml
+haxe sum-test-js.hxml && node build/tests/sums.js
+haxe sum-test-php.hxml && php build/tests/php-sums/index.php
 ```
 
-CI also runs all inherited suites and verifies the bytecode produced by both compilers on Haxe, Node.js and PHP.
+The workflow also runs all inherited regressions and the existing Nail bootstrap checks.
