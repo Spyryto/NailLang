@@ -21,6 +21,7 @@ class TypeChecker {
   var sumCases:StringMap<Array<{name:String, arity:Int}>>;
   var constructorOwners:StringMap<String>;
   var nextId:Int;
+  var relationByName:haxe.ds.StringMap<String>;
 
   public function new() {
     var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Int>(), new StringMap<Int>(),
@@ -32,12 +33,17 @@ class TypeChecker {
     sumCases = solver.sumCases;
     constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
+    relationByName = new haxe.ds.StringMap<String>();
   }
 
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String, ?modules:String->Null<String>):Array<String> {
-    var forms = new Parser(source).parse(modules);
-    var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
+
+    var parser = new Parser(source);
+    var forms = parser.parse(modules);
+    var solver = new Inference(nextId, global, records, sums, sumCases,
+      constructorOwners, relationByName);
+    solver.declarations = parser.declaredRelations;
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
@@ -46,12 +52,14 @@ class TypeChecker {
     sumCases = solver.sumCases;
     constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
+    relationByName = solver.relations;
     return inferred;
   }
 
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
-    var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
+    var solver = new Inference(nextId, global, records, sums, sumCases,
+      constructorOwners, relationByName);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
@@ -273,6 +281,8 @@ class TypeChecker {
       Eq constraints, without changing the inference environment. */
   public function publicScheme(name:String,
       allowQualifiedRecords:Bool = false):TypeScheme {
+    if (relationByName.exists(name))
+      throw 'Public interface: constrained numeric exports require a relation-aware ABI';
     var found = global.get(name);
     if (found == null) throw 'Public interface: unknown export ' + name;
     return validatePublicScheme(found, allowQualifiedRecords);
@@ -322,12 +332,16 @@ class TypeChecker {
     instance.constructorOwners = new StringMap<String>();
     for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
+    instance.relationByName = new haxe.ds.StringMap<String>();
+    for (name in relationByName.keys())
+      instance.relationByName.set(name, relationByName.get(name));
     return instance;
   }
 
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
-    return new Inference(nextId, global, records, sums, sumCases, constructorOwners).signature(name);
+    return new Inference(nextId, global, records, sums, sumCases, constructorOwners,
+      relationByName).signature(name);
   }
 
   public function names():Array<String> {
@@ -361,13 +375,19 @@ private class Inference {
   public var sumCases(default, null):StringMap<Array<{name:String, arity:Int}>>;
   public var constructorOwners(default, null):StringMap<String>;
   public var nextId(default, null):Int;
+  public final relations:haxe.ds.StringMap<String>;
+  public var declarations:haxe.ds.StringMap<String>;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
   public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
-      knownOwners:StringMap<String>) {
+      knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>) {
     nextId = start;
+    relations = new haxe.ds.StringMap<String>();
+    if (knownRelations != null)
+      for (name in knownRelations.keys()) relations.set(name, knownRelations.get(name));
+    declarations = new haxe.ds.StringMap<String>();
     globals = new StringMap<TypeScheme>();
     for (name in initial.keys()) globals.set(name, initial.get(name));
     records = new StringMap<Int>();
@@ -381,6 +401,15 @@ private class Inference {
   }
 
   function fresh():NType return TVariable(nextId++);
+
+  /** A hygienic macro global reference cannot bypass a constrained call. */
+  function constrainedName(name:String, scope:StringMap<TypeScheme>):Null<String> {
+    var base = MacroExpander.globalName(name);
+    if (!relations.exists(base)) return null;
+    if (StringTools.startsWith(name, MacroExpander.GLOBAL) ||
+        scope.get(base) == globals.get(base)) return base;
+    return null;
+  }
 
   static function fun(a:NType, b:NType):NType return TFunction(a, b);
   static function mono(t:NType):TypeScheme return {term:t, quantified:[], comparable:[]};
@@ -775,6 +804,8 @@ private class Inference {
         case Literal(Nil): results.push(TList(fresh())); work.pop();
         case Literal(_): throw 'Type error: unsupported literal';
         case Var(name):
+          if (constrainedName(name, frame.scope) != null)
+            throw 'Type error: constrained function requires two directly applied arguments: ' + name;
           var scheme:TypeScheme;
           if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
             var globalName = name.substr(MacroExpander.GLOBAL.length);
@@ -793,6 +824,26 @@ private class Inference {
           } else {
             var bodyType = results.pop();
             results.push(fun(frame.saved, bodyType));
+            work.pop();
+          }
+
+        // Closed, explicit overload set; never infer overloaded operators
+        // implicitly. Fully applied calls resolve on both argument types.
+        case Apply(Apply(Var(name), firstArg), secondArg)
+          if (constrainedName(name, frame.scope) != null):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(firstArg, frame.scope));
+          } else if (frame.phase == 1) {
+            frame.saved = results.pop();
+            frame.phase = 2;
+            work.push(new InferFrame(secondArg, frame.scope));
+          } else {
+            var other = results.pop();
+            var ret = numeric.NumericRelation.result(
+              relations.get(MacroExpander.globalName(name)),
+              normalize(frame.saved), normalize(other));
+            results.push(ret);
             work.pop();
           }
         case Apply(Apply(Var(get), receiver), Literal(Text(field))) if (MacroExpander.globalName(get) == '#recordGet'):
@@ -1186,6 +1237,28 @@ private class Inference {
         records.set(name, params.length);
       case Define(name, expr):
         if (globals.exists(name)) throw 'Type error: already defined ' + name;
+        var constrained = declarations.get(name);
+        if (constrained != null) {
+          // Each admitted signature is checked against the SAME body.
+          // This is a finite overload contract, not inferred Num polymorphism.
+          for (row in numeric.NumericRelation.rows(constrained)) {
+            var validator = new Inference(nextId, globals, records, sums,
+              sumCases, constructorOwners, relations);
+            var expected = fun(row.left, fun(row.right, row.result));
+            validator.globals.set('/', mono(expected));
+            validator.globals.set(name, mono(expected));
+            validator.validateMatches(expr);
+            var inferredType = validator.infer(expr, validator.globals,
+              {name:name, scheme:mono(expected)});
+            validator.unify(inferredType, expected);
+          }
+          // The underlying closure is dynamically dispatched by the slash
+          // primitive. Public ABI export is deferred until its serialized
+          // type relation can be represented without losing constraints.
+          globals.set(name, mono(fun(fresh(), fun(fresh(), fresh()))));
+          relations.set(name, constrained);
+          continue;
+        }
         // Recursive name is monomorphic during inference; generalized afterwards.
         var provisional = fresh();
         var env = scopeCopy(globals);
@@ -1202,6 +1275,8 @@ private class Inference {
   }
 
   public function signature(name:String):String {
+    if (relations.exists(name))
+      return numeric.NumericRelation.signature(relations.get(name));
     var scheme = globals.get(name);
     if (scheme == null) throw 'Type error: unknown name ' + name;
     return describe(instantiate(scheme));

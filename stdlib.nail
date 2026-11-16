@@ -562,19 +562,45 @@ def parseSuffix recur minimum parsed =
 def parseAt minimum tokens =
   parseSuffix parseAt minimum ( parsePrefix parseAt tokens ) ;
 
+
+# The source-level : Div is a static constraint. The compiler erases it
+# before bytecode generation; the Haxe TypeChecker validates the declaration.
+def hasConstraintBeforeEquals tokens =
+  if isEmpty tokens then false
+  else if parsePeek tokens == " = " then false
+  else if parsePeek tokens == " : " then true
+  else hasConstraintBeforeEquals ( tail tokens ) ;
+
+def parseNamedBody prefix name params tokens =
+  let body = parseAt 0 tokens in
+    if parseFailed body then body
+    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
+    else parsePair
+      ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
+      ( tail ( parseRest body ) ) ;
+
 def parseNamedDefinition prefix tokens =
   if isEmpty tokens then parseError " Expected definition name "
   else let name = parsePeek tokens in
     if isIdentifier name then
-      let params = parseParams " = " ( tail tokens ) [] in
+      let annotated = hasConstraintBeforeEquals ( tail tokens ) in
+      let params = parseParams ( if annotated then " : " else " = " ) ( tail tokens ) [] in
       if parseFailed params then params
-      else let body = parseAt 0 ( parseRest params ) in
-        if parseFailed body then body
-        else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
-        else parsePair
-          ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ] )
-          ( tail ( parseRest body ) )
+      else let afterParams = parseRest params in
+        let startBody = if annotated then tail ( tail afterParams ) else afterParams in
+          if annotated then
+            if prefix != " " then parseError " Macro relations are not supported "
+            else if length ( syntaxChildren ( parseTree params ) ) != 2 then
+              parseError " Div requires two parameters "
+            else if parsePeek afterParams != " Div " then
+              parseError " Unsupported type relation "
+            else if parsePeek ( tail afterParams ) != " = " then
+              parseError " Expected = after relation "
+            else parseNamedBody prefix name ( parseTree params ) startBody
+          else parseNamedBody prefix name ( parseTree params ) startBody
     else parseError " Expected definition name " ;
+
+
 
 # v0.17: record declarations are type-aware syntax sugar. Parser and compiler
 # live in Nail: RecordType becomes ordinary DEFINE forms, not an opcode.

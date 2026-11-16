@@ -21,9 +21,13 @@ class Parser {
   static final spacePattern = ~/\s+/g;
 
   final exactMode:Bool;
+  /** Opt-in type relation declarations; erased before bytecode generation. */
+  public final declaredRelations:haxe.ds.StringMap<String>;
+
 
   public function new(source:String) {
     exactMode = numeric.NumericDialect.isExact(source);
+    declaredRelations = new haxe.ds.StringMap<String>();
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
@@ -479,12 +483,23 @@ class Parser {
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
         var positions:Array<Int> = [];
-        while (peek() != '=') {
+
+        while (peek() != '=' && peek() != ':') {
           var atParameter = at;
           var p = take();
-          if (!isName(p) || params.indexOf(p) >= 0) throw 'Invalid or duplicate definition parameter';
+          if (!isName(p) || params.indexOf(p) >= 0)
+            throw 'Invalid or duplicate definition parameter';
           params.push(p);
           positions.push(atParameter);
+        }
+        if (peek() == ':') {
+          take();
+          var relation = take();
+          if (macroDeclaration || relation != 'Div' || params.length != 2)
+            throw 'Type relation: only binary Div declarations are supported';
+          if (exactMode)
+            throw 'Type relation: exact source dialect is not supported yet';
+          declaredRelations.set(name, relation);
         }
         expect('=');
         var body = lambdas(params, expression(), positions);

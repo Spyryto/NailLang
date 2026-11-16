@@ -70,6 +70,11 @@ jobs:
           node build/tests/exact-rounding.js
           haxe exact-rounding-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-exact-rounding/index.php
+          haxe explicit-relations-test-interp.hxml
+          haxe explicit-relations-test-js.hxml
+          node build/tests/explicit-relations.js
+          haxe explicit-relations-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml
