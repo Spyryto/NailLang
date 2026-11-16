@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.10
+# Nail Cookbook — v0.11
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Compilazione in bytecode strutturato
+## Ricetta 3 — Tail-call optimization
 
 ```nail
-def twice x = x * 2 ;
-twice 7 ;
+def loop n acc = if n == 0 then acc else loop ( n - 1 ) ( acc + 1 ) ;
+loop 30000 0 ;
 ```
 
-Un compilatore scritto in Nail genera bytecode; un compilatore Haxe indipendente funge da oracolo di confronto.
+Le chiamate in posizione di coda riusano il frame nella ByteVM. Non significa che ogni chiamata ricorsiva sia automaticamente tail-recursive.
 
 ## Allenamento: studiare l'implementazione
 

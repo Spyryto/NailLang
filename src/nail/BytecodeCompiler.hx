@@ -36,23 +36,31 @@ class BytecodeCompiler {
     return node('Literal', [primitive]);
   }
 
-  static function emit(expr:Expr):Array<Value> {
-    return switch (expr) {
+  /** Tail positions use a terminal TAIL_CALL rather than CALL/RETURN.
+      Non-tail branches remain ordinary expression blocks. */
+  static function emit(expr:Expr, tail:Bool):Array<Value> {
+    var instructions = switch (expr) {
       case Literal(value): [instruction1('CONST', literal(value))];
       case Var(name): [instruction1('LOAD', leaf('Var', name))];
-      case Lambda(param, body): [instruction2('CLOSURE', leaf('Name', param), code(emit(body).concat([instruction0('RETURN')])) )];
-      case Apply(fn, arg): emit(fn).concat(emit(arg)).concat([instruction0('CALL')]);
+      case Lambda(param, body): [instruction2('CLOSURE', leaf('Name', param), code(emit(body, true)))];
+      case Apply(fn, arg): emit(fn, false).concat(emit(arg, false)).concat([instruction0(tail ? 'TAIL_CALL' : 'CALL')]);
       case If(condition, yes, no):
-        emit(condition).concat([instruction2('BRANCH', code(emit(yes)), code(emit(no)))]);
+        emit(condition, false).concat([instruction2('BRANCH', code(emit(yes, tail)), code(emit(no, tail)))]);
     };
+    // A tail BRANCH delegates termination to the chosen branch. A tail
+    // application terminates via TAIL_CALL. Values terminate via RETURN.
+    return if (tail) switch (expr) {
+      case Apply(_, _) | If(_, _, _): instructions;
+      case _: instructions.concat([instruction0('RETURN')]);
+    } else instructions;
   }
 
   public static function compile(forms:Array<Form>):Value {
     var result:Array<Value> = [];
     for (form in forms) {
       result.push(switch (form) {
-        case Define(name, body): instruction2('DEFINE', leaf('Name', name), code(emit(body).concat([instruction0('RETURN')])));
-        case Evaluate(body): instruction1('EVAL', code(emit(body).concat([instruction0('RETURN')])));
+        case Define(name, body): instruction2('DEFINE', leaf('Name', name), code(emit(body, true)));
+        case Evaluate(body): instruction1('EVAL', code(emit(body, true)));
       });
     }
     return node('Bytecode', result);

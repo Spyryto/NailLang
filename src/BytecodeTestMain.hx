@@ -14,7 +14,11 @@ import nail.Parser;
 class BytecodeTestMain {
   static function compare(vm:Vm, source:String, expected:String):Void {
     var syntax = vm.parseWithNail(source);
-    var fromNail = vm.compileWithNail(source);
+    // The Nail tokenizer still uses host-recursive character scanning;
+    // large test inputs use the Haxe bootstrap parser and Nail's compiler.
+    var fromNail = source.length > 110
+      ? vm.compileSyntaxWithNail(SyntaxEncoder.program(new Parser(source).parse()))
+      : vm.compileWithNail(source);
     var fromHaxe = BytecodeCompiler.compileSyntax(syntax);
     var got = Json.stringify(Vm.toPlain(fromNail));
     var ref = Json.stringify(Vm.toPlain(fromHaxe));
@@ -72,7 +76,11 @@ class BytecodeTestMain {
       {code: 'let f = fun xs -> match xs with | [] -> false | h :: t -> h in f [ true ] ;', expected: '[true]'},
       {code: 'def f x = if x then " yes " else " no " ; f false ;', expected: '["no"]'},
       {code: '1 ; 2 ; 3 ;', expected: '[1,2,3]'},
-      {code: 'def f x = let y = x + 1 in y * y ; f 4 ;', expected: '[25]'}
+      {code: 'def f x = let y = x + 1 in y * y ; f 4 ;', expected: '[25]'},
+      {code: 'def loop n acc = if n == 0 then acc else loop ( n - 1 ) ( acc + 1 ) ; loop 6 0 ;', expected: '[6]'},
+      {code: 'def tailLet x = let y = x + 1 in y ; tailLet 5 ;', expected: '[6]'},
+      {code: 'def outer x = let f = fun y -> y + x in f 3 ; outer 7 ;', expected: '[10]'},
+      {code: 'def tricky n = 10 + ( if n == 0 then 2 else 3 ) ; tricky 1 ;', expected: '[13]'}
     ];
     for (item in examples) compare(compiler, item.code, item.expected);
 
@@ -82,18 +90,20 @@ class BytecodeTestMain {
       {value: node('Bytecode', [node('EVAL', [node('Code', [node('CALL', [])])])]), message: 'underflow'},
       {value: node('Bytecode', [node('EVAL', [node('Code', [node('CONST', [])])])]), message: 'arity'},
       {value: node('Bytecode', [node('EVAL', [node('Code', [node('NONSENSE', [])])])]), message: 'Unknown opcode'},
-      {value: node('Bytecode', [node('EVAL', [node('Code', [node('CONST', [node('Literal', [leaf('Bool','true')])])])])]), message: 'missing RETURN'}
+      {value: node('Bytecode', [node('EVAL', [node('Code', [node('CONST', [node('Literal', [leaf('Bool','true')])])])])]), message: 'missing RETURN'},
+      {value: node('Bytecode', [node('EVAL', [node('Code', [node('TAIL_CALL', []), node('RETURN', [])])])]), message: 'TAIL_CALL outside tail position'},
+      {value: node('Bytecode', [node('EVAL', [node('Code', [node('CONST', [node('Literal', [leaf('Bool','true')])]), node('RETURN', []), node('RETURN', [])])])]), message: 'instructions after RETURN'}
     ];
     for (item in invalid) badBytecode(item.value, item.message);
 
-    // Limited compiler bootstrap: compile the 11 compiler definitions
+    // Limited compiler bootstrap: compile the 14 compiler definitions
     // (including compileExpr itself) to bytecode using Nail, load them
     // in ByteVm, then have that compiled compiler generate another program.
     // Haxe supplies the initial Syntax AST, not the emitted instructions.
     var libraryText = Resource.getString('stdlib');
     var compilerNames = [
       'append', 'bcCode', 'bcInstruction0', 'bcInstruction1',
-      'bcInstruction2', 'bcReturn', 'bcCall', 'compileExpr',
+      'bcInstruction2', 'bcReturn', 'bcCall', 'bcTailCall', 'compileGo', 'compileExpr', 'compileTail',
       'compileForm', 'compileForms', 'compileSyntax'
     ];
     var boot = new ByteVm(15000000);
@@ -116,6 +126,34 @@ class BytecodeTestMain {
     if (Json.stringify((new ByteVm(100000)).runPlain(compilerOutput)) != '[14]')
       throw 'Bootstrapped compiler result incorrect';
 
+    // Deep tail recursion is the regression that v0.10 could not survive.
+    // Deliberately avoid recursively interpreting the source with Vm: the
+    // optimization belongs to ByteVm, not the AST interpreter yet.
+    var deepSource = 'def loop n acc = if n == 0 then acc else loop ( n - 1 ) ( acc + 1 ) ; loop 30000 0 ;';
+    var deepNail = compiler.compileWithNail(deepSource);
+    var deepHaxe = BytecodeCompiler.compileSource(deepSource);
+    if (Json.stringify(Vm.toPlain(deepNail)) != Json.stringify(Vm.toPlain(deepHaxe)))
+      throw 'Deep recursion program bytecode mismatch';
+    var bytecodeJson = Json.stringify(Vm.toPlain(deepNail));
+    if (bytecodeJson.indexOf('TAIL_CALL') < 0) throw 'Missing TAIL_CALL opcode';
+    if (Json.stringify(new ByteVm(5000000).runPlain(deepNail)) != '[30000]')
+      throw 'Tail-call trampoline failed at depth 30000';
+
+    // Tail position is preserved across mutually recursive definitions.
+    var mutualSource = 'def even n = if n == 0 then true else odd ( n - 1 ) ; '
+      + 'def odd n = if n == 0 then false else even ( n - 1 ) ; even 20000 ;';
+    var mutual = BytecodeCompiler.compileSource(mutualSource);
+    if (Json.stringify(new ByteVm(3000000).runPlain(mutual)) != '[true]')
+      throw 'Mutual tail recursion failed at depth 20000';
+
+    try {
+      new ByteVm(200).run(deepNail);
+      throw 'Execution budget wrongly allowed unbounded tail recursion';
+    } catch (e:Dynamic) {
+      if (Std.string(e).indexOf('execution budget exceeded') < 0)
+        throw 'Unexpected execution-budget result: ' + Std.string(e);
+    }
+
     var fail = compiler.compileWithNail('if ;');
     try {
       new ByteVm().run(fail);
@@ -123,6 +161,6 @@ class BytecodeTestMain {
     } catch (e:Dynamic) {
       if (Std.string(e) == 'Parser error accepted as bytecode') throw e;
     }
-    trace('NailSeed v0.10: ' + (examples.length + invalid.length + 3) + ' bytecode tests passed');
+    trace('NailSeed v0.11: ' + (examples.length + invalid.length + 6) + ' bytecode/TCO tests passed');
   }
 }

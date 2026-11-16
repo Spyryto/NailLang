@@ -1,57 +1,42 @@
-# NailSeed v0.10 — Structured bytecode specification (experimental)
+# NailSeed v0.11 — Tail-aware structured bytecode
 
-## Goals and invariants
+## Invariants
 
-1. Nail source remains functional and never exposes its execution stack.
-2. `Expr` still has exactly five constructors (`Literal`, `Var`, `Lambda`, `Apply`, `If`).
-3. The compiler is written in Nail, and emits structured instructions as first-class immutable `Syntax` values.
-4. Haxe implements the executor and a separate reference compiler, **not** the production source-to-bytecode translator.
-5. The compiled backend shares primitive arithmetic, text, Syntax and list implementations with `Vm.primitive`, to avoid semantic drift between AST and bytecode execution.
+- Nail source syntax and five forms of core expression AST are unchanged from v0.10.
+- The structured code format is still first-class `Syntax` values.
+- `TAIL_CALL` is the only new opcode; non-tail `CALL` remains.
+- Type inference, string and pattern parsing are unchanged.
 
-## Serialized representation
+## Tail positions
 
-The object graph is `SyntaxNode(tag, List<Syntax>)` / `SyntaxLeaf(tag, Text)`. A complete program is
+`emit(expr, tail)` generates one of the following:
 
-```text
-Bytecode [ Define(Name, Code) | Eval(Code) ... ]
-Code     [ Instruction ... ]
-```
+- `Literal`, `Var`, or `Lambda` in tail position: evaluate and end in `RETURN`.
+- `Apply(f, x)` in tail position: evaluate `f`, then `x`, then `TAIL_CALL`. No subsequent `RETURN`.
+- `If(c, y, n)` in tail position: evaluate `c`, then `BRANCH` with both blocks recursively generated in tail position. The `BRANCH` terminates the enclosing block.
+- Other expressions (including arguments to a tail call) compile in non-tail position.
 
-The instruction set is:
+Lambda bodies, `DEFINE` value bodies and top-level `EVAL` bodies are generated in tail position. A top-level tail invocation is completed through the same call trampoline.
 
-```text
-CONST(Literal)              // push literal (number, bool, text, nil)
-LOAD(Var)                   // push lexically resolved name
-CLOSURE(Name, Code)         // push closure with captured lexical environment
-CALL                        // pop arg, pop fn, push fn(arg)
-BRANCH(Code, Code)          // pop Bool, evaluate selected branch, push its value
-RETURN                      // return exactly one stack value
-```
+## VM execution contract
 
-`DEFINE(Name, Code)` installs a global name; `EVAL(Code)` evaluates a top-level expression. Both top-level blocks and closure bodies end in `RETURN`. Branch blocks produce a single value at fallthrough and do not need `RETURN`. `CALL` is eager, and partial application of built-in functions is supported. Global definitions are sequential, with recursive definitions resolved through the shared mutable root environment; local captures remain lexical.
+A code block produces either `Done(value)` or `TailInvoke(function, argument)`. The latter is internal executor control flow, **not a Nail value** and never escapes the public API.
 
-All instructions are stack-safe for compiler output. The executor rejects stack underflow, invalid opcode names, malformed operands, non-Bool branch conditions and invalid return stack depths; it is **not** a security-hardened sandbox for arbitrary untrusted bytecode.
+`ByteVm.call` maintains an iterative `(fn, arg)` pair. When a closure body emits a tail request, it updates the pair and continues. This discards the previous closure activation before entering the next one, preserving lexical captures and the global environment.
 
-## Compilation rules
+A terminal `BRANCH` in a tail block propagates either outcome directly; a non-tail branch evaluates to a normal value that is pushed on the operand stack.
 
-```text
-compile(Literal v)     = [CONST v]
-compile(Var name)      = [LOAD name]
-compile(Lambda x e)    = [CLOSURE x (Code(compile(e) ++ [RETURN]))]
-compile(Apply f x)     = compile(f) ++ compile(x) ++ [CALL]
-compile(If test y n)   = compile(test) ++ [BRANCH(Code(compile(y)), Code(compile(n)))]
-```
+Validation rules:
 
-No jump-offset calculations or separate label relocation are required. Each expression emits exactly one value, provided it terminates normally. `++` is implemented with the Nail `append` function on immutable lists.
+- `TAIL_CALL` takes zero encoded operands, consumes exactly one function and argument, and must be the last instruction of a tail-enabled block with an otherwise empty stack.
+- `RETURN` must be the last instruction of a tail-enabled block and leave exactly one value.
+- A branch may be terminal in a tail block; branch blocks inherit that context.
+- The step budget still applies on every instruction and every call iteration, preventing a tail loop from bypassing limits.
 
-## Validation approach
+## Tests
 
-- The Nail compiler's output is compared structurally to a distinct Haxe reference compiler over the AST reconstructed by `SyntaxBridge`. Because both consume the *same* parser-produced Syntax tree, hidden names generated for `match` are identical.
-- Execution of compiled code is compared to AST execution for arithmetic, closures, application, recursion, lists, strings, `match`, `if` and local `let`.
-- Invalid instruction trees are explicitly rejected.
-- The suite bootstraps the 11 core compiler definitions, not the entire standard library: Haxe parses them into five-node AST forms, `SyntaxEncoder` makes first-class Syntax values, the Nail compiler compiles these definitions into bytecode, and `ByteVm` invokes the resulting `compileSyntax` on another small AST. Parser/lexer bytecode bootstrap is intentionally deferred due to recursion depth. No Haxe code emits instructions on this production compilation path.
-- The existing runtime/parser/Hindley–Milner regression suites still run on Haxe `--interp`, JS and PHP.
+The Nail compiler (`compileGo` / `compileTail` in `stdlib.nail`) and Haxe reference compiler (`BytecodeCompiler.emit(expr, tail)`) must produce structurally equal instruction trees.
 
-## Limitations
+Regression tests include normal arithmetic, higher-order functions, closures, conditional execution, factorial (non-tail), recursive list operations, explicit tail calls, mutual tail recursion, malformed opcode placement, bounded execution, and compiler bootstrap.
 
-This format is a **structured intermediate bytecode**, not a compact binary file. It is intentionally easy to emit and inspect in Nail. The next steps are a bytecode verifier, a flattened indexed instruction stream, tail calls, and reducing the Haxe bootstrap. Numbers remain IEEE-754 finite floats; exact rational arithmetic has not been included. For the PHP `--bytecode` CLI, the *standard library bootstrap* currently uses `BytecodeCompiler` in Haxe; user input is compiled by `compileWithNail`. No changes are made to the previous historical NailVM ISA.
+A 30,000-iteration tail-recursive numeric loop and a 20,000-call mutual recursion are run in the ByteVM on Haxe, JS, PHP. These tests intentionally do not run through the recursive AST interpreter.

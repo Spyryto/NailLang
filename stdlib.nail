@@ -447,38 +447,50 @@ def bcInstruction1 tag a = syntaxNode tag [ a ] ;
 def bcInstruction2 tag a b = syntaxNode tag [ a , b ] ;
 def bcReturn = bcInstruction0 " RETURN " ;
 def bcCall = bcInstruction0 " CALL " ;
+def bcTailCall = bcInstruction0 " TAIL_CALL " ;
 
-def compileExpr tree =
+# A single recursive implementation prevents forward type references: Haxe's
+# HM checker can infer compileGo without mutually recursive top-level defs.
+def compileGo tree tailMode =
   let tag = syntaxTag tree in
-  if tag == " Literal " then [ bcInstruction1 " CONST " tree ]
-  else if tag == " Var " then [ bcInstruction1 " LOAD " tree ]
+  if tag == " Literal " then
+    append [ bcInstruction1 " CONST " tree ] ( if tailMode then [ bcReturn ] else [] )
+  else if tag == " Var " then
+    append [ bcInstruction1 " LOAD " tree ] ( if tailMode then [ bcReturn ] else [] )
   else if tag == " Lambda " then
     let children = syntaxChildren tree in
     let param = head children in
     let body = head ( tail children ) in
-    [ bcInstruction2 " CLOSURE " param ( bcCode ( append ( compileExpr body ) [ bcReturn ] ) ) ]
+    append [ bcInstruction2 " CLOSURE " param ( bcCode ( compileGo body true ) ) ]
+      ( if tailMode then [ bcReturn ] else [] )
   else if tag == " Apply " then
     let children = syntaxChildren tree in
     let fn = head children in
     let arg = head ( tail children ) in
-    append ( compileExpr fn ) ( append ( compileExpr arg ) [ bcCall ] )
+    append ( compileGo fn false )
+      ( append ( compileGo arg false ) [ if tailMode then bcTailCall else bcCall ] )
   else if tag == " If " then
     let children = syntaxChildren tree in
     let condition = head children in
     let yes = head ( tail children ) in
     let no = head ( tail ( tail children ) ) in
-    append ( compileExpr condition )
-      [ bcInstruction2 " BRANCH " ( bcCode ( compileExpr yes ) ) ( bcCode ( compileExpr no ) ) ]
+    append ( compileGo condition false )
+      [ bcInstruction2 " BRANCH "
+          ( bcCode ( compileGo yes tailMode ) )
+          ( bcCode ( compileGo no tailMode ) ) ]
   else [] ;
+
+def compileExpr tree = compileGo tree false ;
+def compileTail tree = compileGo tree true ;
 
 def compileForm form =
   let parts = syntaxChildren form in
   if syntaxTag form == " Define " then
     let name = head parts in
     let body = head ( tail parts ) in
-    bcInstruction2 " DEFINE " name ( bcCode ( append ( compileExpr body ) [ bcReturn ] ) )
+    bcInstruction2 " DEFINE " name ( bcCode ( compileTail body ) )
   else if syntaxTag form == " Evaluate " then
-    bcInstruction1 " EVAL " ( bcCode ( append ( compileExpr ( head parts ) ) [ bcReturn ] ) )
+    bcInstruction1 " EVAL " ( bcCode ( compileTail ( head parts ) ) )
   else bcInstruction0 " INVALID_FORM " ;
 
 def compileForms forms =
