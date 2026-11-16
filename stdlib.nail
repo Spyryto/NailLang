@@ -1191,7 +1191,8 @@ def modernOperator name =
 def modernRewrite tree =
   let tag = syntaxTag tree in
   if tag == " Number " then
-    if textContainsAt ( syntaxText tree ) " . " 0 then tree
+    if textContainsAt ( syntaxText tree ) " . " 0 then
+      syntaxLeaf " Number " ( canonicalFloat ( syntaxText tree ) )
     else syntaxLeaf " Int " ( exactEncode ( syntaxText tree ) )
   else if tag == " Var " then syntaxVar ( modernOperator ( syntaxText tree ) )
   else if tag == " Name " then tree

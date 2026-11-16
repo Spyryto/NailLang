@@ -42,6 +42,7 @@ class Vm {
       root.bind('#exact' + name, Native('#exact' + name, 2, []));
     root.bind('#exactEncode', Native('#exactEncode', 1, []));
     root.bind('exactEncode', Native('exactEncode', 1, []));
+    root.bind('canonicalFloat', Native('canonicalFloat', 1, []));
     for (name in ['exactFloor', 'exactCeil', 'exactTruncate',
         'exactRoundEven', 'exactIsInteger'])
       root.bind(name, Native(name, 1, []));
@@ -282,6 +283,11 @@ class Vm {
         if (!Math.isFinite(numerator) || !Math.isFinite(denominator))
           throw 'Exact number too large to convert to Float';
         finite((value.negative ? -numerator : numerator) / denominator);
+      case 'canonicalFloat':
+        var raw = text(a);
+        var num = Std.parseFloat(raw);
+        if (!Math.isFinite(num)) throw 'Invalid Float literal';
+        Text(Std.string(num));
       case '#exactEncode' | 'exactEncode':
         var raw = text(a);
         if (StringTools.startsWith(raw, '.')) raw = '0' + raw;

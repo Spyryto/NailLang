@@ -462,6 +462,7 @@ private class Inference {
     for (name in ['<', '<=', '>', '>=']) globals.set('#exact' + name, mono(fun(e, fun(e, b))));
     globals.set('#exactEncode', mono(fun(s, s)));
     globals.set('exactEncode', mono(fun(s, s)));
+    globals.set('canonicalFloat', mono(fun(s, s)));
     globals.set('exactFromText', mono(fun(s, e)));
     globals.set('exactToFloat', mono(fun(e, n)));
     for (name in ['exactFloor', 'exactCeil', 'exactTruncate', 'exactRoundEven'])
