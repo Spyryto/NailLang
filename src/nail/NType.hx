@@ -8,7 +8,9 @@ enum NType {
   TRecord(name:String);
   TSum(name:String, parameters:Array<NType>);
   TSyntax;
+  TVector(element:NType);
   TList(element:NType);
   TFunction(argument:NType, result:NType);
   TVariable(id:Int);
 }
+

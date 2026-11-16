@@ -7,6 +7,7 @@ enum Value {
   Number(value:Float);
   Boolean(value:Bool);
   Text(value:String);
+  Vector(items:Array<Value>);
   Nil;
   Cons(head:Value, tail:Value);
   /** Nominal immutable record. The map is constructed once and never exposed
@@ -20,3 +21,4 @@ enum Value {
   ByteClosure(param:String, code:Value, captured:Env);
   Native(name:String, arity:Int, applied:Array<Value>);
 }
+

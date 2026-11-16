@@ -25,6 +25,10 @@ class Vm {
     for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', '#recordGet', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
       root.bind(name, Native(name, 2, []));
     for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
+    root.bind('vector', Native('vector', 1, []));
+    root.bind('vectorLength', Native('vectorLength', 1, []));
+    root.bind('vectorGet', Native('vectorGet', 2, []));
+    root.bind('vectorSet', Native('vectorSet', 3, []));
     root.bind('#recordMake', Native('#recordMake', 3, []));
     root.bind('#sumFail', Native('#sumFail', 1, []));
     root.bind('nil', Nil);
@@ -78,6 +82,14 @@ class Vm {
       case [Text(x), Text(y)]: x == y;
       case [SyntaxLeaf(tx, x), SyntaxLeaf(ty, y)]: tx == ty && x == y;
       case [SyntaxNode(tx, xs), SyntaxNode(ty, ys)]: tx == ty && equal(xs, ys);
+      case [Vector(xs), Vector(ys)]:
+        var same = xs.length == ys.length;
+        var i = 0;
+        while (same && i < xs.length) {
+          same = equal(xs[i], ys[i]);
+          i++;
+        }
+        same;
       case [Nil, Nil]: true;
       case [Record(nx, xs), Record(ny, ys)]:
         if (nx != ny) false;
@@ -114,6 +126,17 @@ class Vm {
     return v;
   }
 
+  static function vectorItems(value:Value):Array<Value> return switch (value) {
+    case Vector(items): items;
+    case _: throw 'Expected vector';
+  };
+
+  static function vectorIndex(value:Value, size:Int):Int {
+    var index = number(value);
+    if (index < 0 || index >= size || index != Math.floor(index)) throw 'Vector index out of range';
+    return Std.int(index);
+  }
+
   public static function primitive(name:String, args:Array<Value>):Value {
     var a = args[0];
     var b = args.length > 1 ? args[1] : Nil;
@@ -131,6 +154,25 @@ class Vm {
       case '>=': Boolean(number(a) >= number(b));
       case '==': Boolean(equal(a, b));
       case '!=': Boolean(!equal(a, b));
+      case 'vector':
+        var items:Array<Value> = [];
+        var rest = a;
+        while (true) switch (rest) {
+          case Nil: break;
+          case Cons(item, tail): items.push(item); rest = tail;
+          case _: throw 'Expected list';
+        }
+        Vector(items);
+      case 'vectorLength': Number(vectorItems(a).length);
+      case 'vectorGet':
+        var items = vectorItems(a);
+        items[vectorIndex(b, items.length)];
+      case 'vectorSet':
+        var items = vectorItems(a);
+        var index = vectorIndex(b, items.length);
+        var copy = items.copy();
+        copy[index] = args[2];
+        Vector(copy);
       case '#sumFail': throw 'Non-exhaustive or mismatched variant pattern';
       case '#recordMake':
         var label = text(a);
@@ -368,6 +410,7 @@ class Vm {
       case Number(n): n;
       case Boolean(b): b;
       case Text(s): s;
+      case Vector(items): items.map(toPlain);
       case Record(typeName, fields):
         var data:Dynamic = {};
         Reflect.setField(data, "$type", typeName);
@@ -399,3 +442,4 @@ class Vm {
     return [for (v in values) toPlain(v)];
   }
 }
+

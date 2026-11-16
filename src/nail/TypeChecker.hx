@@ -170,6 +170,11 @@ private class Inference {
     globals.set('#tail', poly(fun(list, list), [elem]));
     globals.set('isEmpty', poly(fun(list, b), [elem]));
     globals.set('#isEmpty', poly(fun(list, b), [elem]));
+    var vector = TVector(a);
+    globals.set('vector', poly(fun(list, vector), [elem]));
+    globals.set('vectorLength', poly(fun(vector, n), [elem]));
+    globals.set('vectorGet', poly(fun(vector, fun(n, a)), [elem]));
+    globals.set('vectorSet', poly(fun(vector, fun(n, fun(a, vector))), [elem]));
     globals.set('nil', poly(list, [elem]));
     var x = nextId++, y = nextId++;
     globals.set('#sumFail', poly(fun(TVariable(x), TVariable(y)), [x, y]));
@@ -197,7 +202,7 @@ private class Inference {
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
         case TVariable(other): if (id == other) return true;
-        case TList(a): stack.push(a);
+        case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items): for (item in items) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
@@ -211,7 +216,7 @@ private class Inference {
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
         case TNumber | TBoolean | TText | TSyntax | TRecord(_):
-        case TList(a): stack.push(a);
+        case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items): for (item in items) stack.push(item);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
@@ -240,7 +245,7 @@ private class Inference {
         case [_, TVariable(j)]: bindVariable(j, a);
         case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
         case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
-        case [TList(x), TList(y)]: stack.push({a:x, b:y});
+        case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
         case [TFunction(a1, b1), TFunction(a2, b2)]:
@@ -259,6 +264,7 @@ private class Inference {
       if (frame.finish) {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
+          case TVector(_): results.push(TVector(results.pop()));
           case TSum(name, types):
             var newArgs:Array<NType> = [];
             for (i in 0...types.length) newArgs.push(results.pop());
@@ -277,7 +283,7 @@ private class Inference {
           stack.push({type:frame.type, finish:true});
           var i = types.length;
           while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
-        case TList(a):
+        case TList(a) | TVector(a):
           stack.push({type:frame.type, finish:true});
           stack.push({type:a, finish:false});
         case TFunction(a, b):
@@ -305,7 +311,7 @@ private class Inference {
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
         case TVariable(id): result.set(id, true);
-        case TList(item): stack.push(item);
+        case TList(item) | TVector(item): stack.push(item);
         case TSum(_, types): for (item in types) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
@@ -321,6 +327,7 @@ private class Inference {
       if (frame.finish) {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
+          case TVector(_): results.push(TVector(results.pop()));
           case TSum(name, types):
             var newArgs:Array<NType> = [];
             for (i in 0...types.length) newArgs.push(results.pop());
@@ -338,7 +345,7 @@ private class Inference {
             stack.push({type:normalized, finish:true});
             var i = types.length;
             while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
-          case TList(a):
+          case TList(a) | TVector(a):
             stack.push({type:normalized, finish:true});
             stack.push({type:a, finish:false});
           case TFunction(a, b):
@@ -721,6 +728,10 @@ private class Inference {
           }
         case TSyntax: output.add('Syntax');
         case TVariable(id): output.add(label(id));
+        case TVector(item):
+          stack.push({type:null, text:']', parens:false});
+          stack.push({type:item, text:null, parens:false});
+          stack.push({type:null, text:'Vector[', parens:false});
         case TList(item):
           stack.push({type:null, text:']', parens:false});
           stack.push({type:item, text:null, parens:false});
@@ -737,3 +748,4 @@ private class Inference {
     return eq.length == 0 ? result : 'Eq ' + eq.join(', ') + ' => ' + result;
   }
 }
+

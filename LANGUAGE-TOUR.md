@@ -1,19 +1,20 @@
-# Nail Language Tour — v0.20
+# Nail Language Tour — v0.21
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **AST espresso in Nail**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Vettori immutabili**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.19/LANGUAGE-TOUR.md) → **v0.20** → [versione successiva](../v0.21/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.20/LANGUAGE-TOUR.md) → **v0.21** → [versione successiva](../v0.22/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Le espressioni del compilatore sono rappresentate come normali ADT Nail; il compilatore legge ADT della libreria standard (già dichiarati in stdlib.nail); l'esempio costruisce un piccolo AST ed emette istruzioni.
+Indicizzazione zero-based e aggiornamento persistente: `vectorSet` restituisce un nuovo vettore.
 
 ```nail
-def identityAst = CoreLambda " x " ( CoreVar " x " ) ;
-def answerAst = CoreApply identityAst ( CoreLit ( CoreNumber " 42 " ) ) ;
-coreCompileTail answerAst ;
+def a = vector [ 10 , 20 , 30 ] ;
+def b = vectorSet a 1 99 ;
+vectorGet a 1 ;
+vectorGet b 1 ;
 ```
 
 ## Primo programma
@@ -92,7 +93,7 @@ I costruttori sono valori e si possono decostruire tramite pattern. Il checker v
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.20 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.20) e cerca il test associato alla feature.
+4. Apri la [versione v0.21 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.21) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

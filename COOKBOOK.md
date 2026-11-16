@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.20
+# Nail Cookbook — v0.21
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,16 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — AST espresso in Nail
+## Ricetta 3 — Vettori immutabili
 
 ```nail
-def identityAst = CoreLambda " x " ( CoreVar " x " ) ;
-def answerAst = CoreApply identityAst ( CoreLit ( CoreNumber " 42 " ) ) ;
-coreCompileTail answerAst ;
+def a = vector [ 10 , 20 , 30 ] ;
+def b = vectorSet a 1 99 ;
+vectorGet a 1 ;
+vectorGet b 1 ;
 ```
 
-Le espressioni del compilatore sono rappresentate come normali ADT Nail; il compilatore legge ADT della libreria standard (già dichiarati in stdlib.nail); l'esempio costruisce un piccolo AST ed emette istruzioni.
+Indicizzazione zero-based e aggiornamento persistente: `vectorSet` restituisce un nuovo vettore.
 
 ## Allenamento: studiare l'implementazione
 
