@@ -35,7 +35,7 @@ class RecordLowering {
     for (field in fields) {
       var accessor:Expr = Lambda('#rec', call(call(Var('#recordGet'),
         Var('#rec')), Literal(Text(field.name))));
-      definitions.push(Define(name + '_' + field.name, accessor));
+      definitions.push(Define(name + '.' + field.name, accessor));
     }
     return definitions;
   }

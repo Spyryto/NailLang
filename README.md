@@ -1,21 +1,21 @@
-# NailSeed v0.17.1 — Explicit record-field projection
+# NailSeed v0.17.2 — Qualified internal record accessors
 
-A syntax-focused follow-up to [v0.17](../v0.17/). The runtime retains the **same five expression AST forms**, nominal records, and the same bytecode.
+A naming follow-up to [v0.17.1](../v0.17.1/). User-facing syntax remains `person . name`; internally, record declarations now generate **`Person.name`** and **`Person.age`** instead of underscore names.
 
 ```nail
 type Person { name Text age Number } ;
 def mario = Person " Mario " 34 ;
-mario . name ;       # "Mario"
-mario . age + 1 ;    # 35
+mario . name ;   # "Mario"
+mario . age ;    # 34
 ```
 
-Nested access is also supported, e.g. `person . address . city`. The dot is a separate whitespace-delimited token. It binds **tighter than application**: `f p . name` parses as `f ( p . name )`, so use `( f p ) . name` to access the result of `f`.
+The Haxe reference compiler, Nail-written compiler and Hindley–Milner checker use the same `Type.field` key. The source-level dot remains an independent whitespace-separated token; the qualified internal name `Person.name` cannot be used as a source-level identifier. It is generated during lowering and exposed to tooling via e.g. `typeChecker.signature("Person.name")`.
 
-Both the Haxe and Nail-written parsers lower projection to `#recordGet`, a pre-existing primitive. No new core AST variant or bytecode instruction is introduced. The generated `Person_name` accessors still exist for compatibility.
+`person . name` still lowers to the existing private `#recordGet` call and the type checker uses `Person.name`'s signature to validate it. No new AST variant, bytecode opcode, macro, or VM primitive is needed.
 
-## Type inference
+**Compatibility:** `Person_name` and `Person_age` are no longer auto-generated in this experimental version. The previous versions remain preserved. Names like `Person_name` can now be used independently without conflicting with field accessors.
 
-For a receiver statically known to have nominal type `Person`, the inference is **just as precise** as `Person_name person`. For an unconstrained parameter, a uniquely named field determines the nominal record type; when several record types share a field name, the checker reports an ambiguity rather than choosing one. Row polymorphism and structural subtyping are not supported yet.
+The v0.16 exact-numbers laboratory remains separate.
 
 ## Tests
 
@@ -26,4 +26,4 @@ haxe record-test-js.hxml && node build/tests/records.js
 haxe record-test-php.hxml && php build/tests/php-records/index.php
 ```
 
-CI exercises Haxe, Node and PHP together with previous regressions. Rational numbers remain a separate v0.16 experiment.
+CI also runs all inherited suites and verifies the bytecode produced by both compilers on Haxe, Node.js and PHP.

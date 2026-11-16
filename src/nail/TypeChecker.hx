@@ -334,7 +334,7 @@ private class Inference {
       case TRecord(name): recordName = name;
       case TVariable(_):
         var matches:Array<String> = [];
-        for (name in records.keys()) if (globals.exists(name + '_' + field)) matches.push(name);
+        for (name in records.keys()) if (globals.exists(name + '.' + field)) matches.push(name);
         if (matches.length == 0) throw 'Type error: unknown record field ' + field;
         if (matches.length > 1) {
           matches.sort(Reflect.compare);
@@ -345,7 +345,7 @@ private class Inference {
       case _: throw 'Type error: expected record before . ' + field;
     }
     var name:String = recordName;
-    var accessor = globals.get(name + '_' + field);
+    var accessor = globals.get(name + '.' + field);
     if (accessor == null) throw 'Type error: record ' + name + ' has no field ' + field;
     var result = fresh();
     unify(instantiate(accessor), fun(TRecord(name), result));
@@ -461,7 +461,7 @@ private class Inference {
         for (field in fields) {
           if (used.exists(field.name)) throw 'Type error: duplicate record field ' + field.name;
           used.set(field.name, true);
-          var getter = name + '_' + field.name;
+          var getter = name + '.' + field.name;
           if (globals.exists(getter)) throw 'Type error: already defined ' + getter;
           var ty = fieldType(field.typeName);
           accessors.push({name:getter, ty:fun(result, ty)});

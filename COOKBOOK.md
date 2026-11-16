@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.17.1
+# Nail Cookbook — v0.17.2
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Proiezione dei campi
+## Ricetta 3 — Getter interni qualificati
 
 ```nail
 type Person { name Text age Number } ;
 def mario = Person " Mario " 34 ;
-mario . age ;
+mario . name ;
 ```
 
-`persona . campo` ha un controllo statico nominale e fa uso della stessa rappresentazione runtime.
+La sintassi esterna rimane `mario . name`; i getter generati internamente portano un nome qualificato come `Person.name`.
 
 ## Allenamento: studiare l'implementazione
 

@@ -326,12 +326,19 @@ def parsePrefix recur tokens =
     else if isIdentifier word then parsePair ( syntaxVar word ) remaining
     else parseError ( textConcat " Unexpected token: " word ) ;
 
+# Distinguish a punctuation token from a quoted string containing ".".
+# parsePeek returns only text, so examining the token tag is essential.
+def isDotOperator tokens =
+  if isEmpty tokens then false
+  else if syntaxTag ( head tokens ) == " Token " then parsePeek tokens == " . "
+  else false ;
+
 # Pratt suffix step handles application at 70 and left-associative operators.
 def parseSuffix recur minimum parsed =
   if parseFailed parsed then parsed
   else let rest = parseRest parsed in
     let next = parsePeek rest in
-    if next == " . " then
+    if isDotOperator rest then
       if minimum > 80 then parsed
       else let fields = tail rest in
         if isEmpty fields then parseError " Expected field name after . "
@@ -570,7 +577,7 @@ def recordConstructor name fields =
 
 def recordAccessor name field =
   let fname = recordFieldName field in
-  let getter = textConcat ( textConcat name " _ " ) fname in
+  let getter = textConcat ( textConcat name " . " ) fname in
   let body = syntaxLambda " #rec "
     ( syntaxApply
       ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar " #rec " ) )
