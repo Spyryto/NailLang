@@ -1,0 +1,6 @@
+-cp src
+-main RebootstrapTestMain
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource stdlib.nail@stdlib_source
+-D nail_seed_only
+--interp

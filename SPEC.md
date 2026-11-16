@@ -1,38 +1,60 @@
-# NailSeed v0.14 — Bootstrap image specification
+# NailSeed v0.15 — Bootstrap image reproducibility
 
-The **semantic core and ISA are exactly v0.13**. This release adds a deterministic build-time image format and a source-free runtime entrypoint; it does not assert full self-hosting.
+## Scope
 
-## Postorder image
+No new syntax, opcodes or primitives; the entire v0.14 runtime is retained.
 
-A JSON object with fields:
+The `stdlib.nail` source includes the tokenizer, parser and compiler written
+in Nail. The stage-zero Haxe compiler creates a bytecode image. A source-free
+`BootRuntime` can execute the compiler in that image to produce a new bytecode
+image from the exact same source text. Running the compiler from the newly
+produced image must repeat the result.
 
-- `format`: the exact string `nailseed.postfix-image.v1`.
-- `records`: an array of records, each exactly three elements.
-  - `["L", tag, text]`: a `SyntaxLeaf(tag,text)`.
-  - `["N", tag, arity]`: a `SyntaxNode(tag, children)` consuming the most recent `arity` complete nodes, preserving left-to-right child order.
+## Contract
 
-The final record stack must contain exactly one `SyntaxNode("Bytecode",...)`. The decoder checks the format tag, row shapes, arities, stack balance and the final root. It does not trust the image to be a safe executable: normal ByteVM validation, instruction budgets and host security constraints still apply.
+Let `H(S)` denote the reference Haxe compilation of standard-library source S,
+`N(I,S)` denote the Nail compiler's image generated while booted from image I,
+and `tape(I)` the sequence of postfix records in the image.
 
-This is a **transport representation** for the already-existing `Syntax`-encoded structured bytecode, not a replacement ISA. It deliberately avoids a recursive JSON tree and supports an iterative loader on Haxe, JS and PHP.
+The v0.15 fixed-point checks require:
 
-## Two-stage bootstrap
+```
+tape(H(S)) = tape(N(H(S), S)) = tape(N(N(H(S), S), S))
+```
 
-**Stage 0 / build:** `BootstrapImageMain` uses the reference `nail.Parser` and `nail.BytecodeCompiler` to compile the full `stdlib.nail`, writes `build/bootstrap/stdlib-image.json`, and checks the encode/decode roundtrip.
+No normalization that silently removes bytecode differences is used. Only
+JSON object member ordering is excluded from equality checks. `tape` is a
+JSON array of `['L', tag, text]` and `['N', tag, childCount]` records. It is
+hashed using SHA-256 for human-readable cross-target verification.
 
-**Stage 1 / packaged runtime:** `BootRuntime` reads the image compiled into its resources, decodes it and executes it with `ByteVm`. Thus `parseSource`, `compileSource`, `compileSyntax`, the standard library and their Nail dependencies are installed as compiled bytecode closures in one run.
+If the first mismatch occurs, the new command reports the first differing
+record-tape character offset and local text excerpts.
 
-**Stage 2 / user code:** `BootRuntime.compile(source)` calls the compiled **Nail** `compileSource` function, and `BootRuntime.run(source)` executes that bytecode using the same `ByteVm`. The host Haxe parser is not called for user code.
+## Implementation
 
-The boot-only target defines `nail_seed_only`. The old `Vm.run(source)` method then deliberately throws instead of invoking Haxe `Parser`, to ensure that the old entrypoint cannot accidentally become an implicit runtime bootstrap.
+- `src/nail/Rebootstrap.hx`: fixed-point verification, portable tape comparison.
+- `src/RebootstrapImageMain.hx`: source-free image regenerator on Haxe CLI.
+- `src/RebootstrapTestMain.hx`: rebuild stage 1 and stage 2 on Haxe, JS, PHP;
+  run smoke programs from a newly-generated image.
+- `rebootstrap-*.hxml`: build targets with `-D nail_seed_only`.
+- `.github/workflows/nailseed-v015.yml`: checks and publishes both reference
+  and Nail-generated images.
 
-## Testing invariants
+## Limitations
 
-- Existing runtime, type, parser, compiler and structural tests remain in place.
-- New `BootTestMain` tests source execution from only the packaged image across all three targets, errors, currying, higher-order functions, `match`, user-defined recursion and compiled bytecode roundtrips.
-- Image-specific tests cover noncanonical/malformed headers, arities, roots and thousands of levels of nesting without native recursion.
-- GitHub Actions creates image before compiling/running boot tests and packaging new JS/PHP boot distributions.
-- Integration tests use the public Node `NailSeedBoot.create()` API and PHP CLI without first loading `stdlib.nail` or running the Haxe source parser.
+A reference stage-zero image is still required: this checks **rebootstrap
+reproducibility**, not an image-free self-hosting process, proof of compiler
+correctness, or complete elimination of the Haxe toolchain.
 
-## Known limits
+As in v0.14, the ByteVM is not a sandbox for untrusted user programs.
 
-The initial image depends on **Haxe at build time**. The Nail-written parser/compiler are still subject to the existing restricted whitespace tokenization, ASCII-related text limitations, and resource budgets. Runtime type checking is not included in the minimal boot target; it remains available in the historical full distribution. Source-to-bytecode execution is not a hardened sandbox.
+The boot distribution HXML targets embed the stage-one `self-image.json`,
+ensuring the shipped runtime starts from a Nail-generated image.
+
+## CI cost tradeoff
+
+Haxe and JavaScript repeat both full self-compilation stages. PHP loads the
+verified `self-image.json`, compares the canonical tape/fingerprint, and runs
+real Nail programs via its compiler. Full PHP regeneration remains available
+with the extra Haxe define `full_rebootstrap`; it is intentionally not on the
+regular CI critical path due to performance.

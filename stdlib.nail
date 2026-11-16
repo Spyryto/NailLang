@@ -390,10 +390,24 @@ def lexQuoted source i n current escaped pending reversed normal =
   if i == n then [ syntaxLeaf " LexError " " Unterminated string " ]
   else let ch = textAt source i in
     if escaped then
-      let decoded = lexEscape ch in
-      if decoded == " " then [ syntaxLeaf " LexError " " Unsupported string escape " ]
-      else let prefix = if pending then textConcat current " \u0020 " else current in
-        lexQuoted source ( i + 1 ) n ( textConcat prefix decoded ) false false reversed normal
+      if ch == " u " then
+        if i + 4 < n then
+          if textAt source ( i + 1 ) == " 0 " then
+            if textAt source ( i + 2 ) == " 0 " then
+              if textAt source ( i + 3 ) == " 2 " then
+                if textAt source ( i + 4 ) == " 0 " then
+                  let prefix = if pending then textConcat current " \u0020 " else current in
+                    lexQuoted source ( i + 5 ) n ( textConcat prefix " \u0020 " ) false false reversed normal
+                else [ syntaxLeaf " LexError " " Unsupported unicode escape " ]
+              else [ syntaxLeaf " LexError " " Unsupported unicode escape " ]
+            else [ syntaxLeaf " LexError " " Unsupported unicode escape " ]
+          else [ syntaxLeaf " LexError " " Unsupported unicode escape " ]
+        else [ syntaxLeaf " LexError " " Incomplete unicode escape " ]
+      else
+        let decoded = lexEscape ch in
+        if decoded == " " then [ syntaxLeaf " LexError " " Unsupported string escape " ]
+        else let prefix = if pending then textConcat current " \u0020 " else current in
+          lexQuoted source ( i + 1 ) n ( textConcat prefix decoded ) false false reversed normal
     else if ch == " \\ " then
       lexQuoted source ( i + 1 ) n current true pending reversed normal
     else if ch == " \" " then

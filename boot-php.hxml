@@ -1,6 +1,6 @@
 -cp src
 -main BootMain
 -php build/boot/php
--resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource build/bootstrap/self-image.json@bootstrap_image
 -D nail_seed_only
 -dce full

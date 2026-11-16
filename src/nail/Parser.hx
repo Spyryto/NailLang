@@ -8,7 +8,6 @@ import nail.Value;
 class Parser {
   final tokens:Array<String>;
   var at:Int = 0;
-  var generated:Int = 0;
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
@@ -90,8 +89,10 @@ class Parser {
     return result;
   }
 
-  /** Internal names cannot be expressed as user tokens, preventing variable capture. */
-  function hidden(label:String):String return '#nail_' + label + '_' + (generated++);
+  /** Internal names cannot be written in source. Fixed names are safe here:
+      each lowered list match introduces its own lexical lambda scope. This
+      matches the pure Nail-written lowering and makes bytecode reproducible. */
+  function hidden(label:String):String return '#nail_' + label + '_0';
 
   /** Surface let: ( fun name -> body ) value. A non-recursive, eager binding. */
   function parseLet():Expr {

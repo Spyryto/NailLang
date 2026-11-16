@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.14
+# Nail Cookbook — v0.15
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Bootstrap senza parser Haxe a runtime
+## Ricetta 3 — Self-rebootstrap deterministico
 
 ```nail
 def twice x = x * 2 ;
 twice 21 ;
 ```
 
-Un'immagine bytecode precompilata carica parser/compilatore Nail nella ByteVM; il parser Haxe resta nello step di produzione dell'immagine.
+Il compilatore Nail rigenera la propria immagine bytecode; l'invariante testato riguarda l'equivalenza dei record emessi.
 
 ## Allenamento: studiare l'implementazione
 

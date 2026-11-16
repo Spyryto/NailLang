@@ -1,14 +1,14 @@
-# Nail Language Tour — v0.14
+# Nail Language Tour — v0.15
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Bootstrap senza parser Haxe a runtime**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Self-rebootstrap deterministico**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.13/LANGUAGE-TOUR.md) → **v0.14** → [versione successiva](../v0.15/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.14/LANGUAGE-TOUR.md) → **v0.15** → [versione successiva](../v0.16/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Un'immagine bytecode precompilata carica parser/compilatore Nail nella ByteVM; il parser Haxe resta nello step di produzione dell'immagine.
+Il compilatore Nail rigenera la propria immagine bytecode; l'invariante testato riguarda l'equivalenza dei record emessi.
 
 ```nail
 def twice x = x * 2 ;
@@ -69,7 +69,7 @@ Il `match` sulle liste richiede entrambi i casi. `let name = expression in expre
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.14 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.14) e cerca il test associato alla feature.
+4. Apri la [versione v0.15 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.15) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

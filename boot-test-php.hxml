@@ -1,5 +1,5 @@
 -cp src
 -main BootTestMain
 -php build/tests/php-boot
--resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource build/bootstrap/self-image.json@bootstrap_image
 -D nail_seed_only
