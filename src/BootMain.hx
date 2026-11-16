@@ -9,11 +9,13 @@ class BootMain {
   static function main():Void {
     #if php
     // php build/boot/php/index.php program.nail [another.nail ...]
-    for (path in Sys.args()) {
+    var options = nail.CliMacroModules.read(Sys.args());
+    for (path in options.paths) {
       var vm = create();
-      for (result in vm.runPlain(sys.io.File.getContent(path)))
+      for (result in vm.runPlain(sys.io.File.getContent(path), options.modules))
         Sys.println(Json.stringify(result));
     }
     #end
   }
 }
+

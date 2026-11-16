@@ -14,14 +14,16 @@ class Main {
   /** Execute structured Nail bytecode with the shared primitive runtime. */
   public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
 
-  public static function expand(source:String):String
-    return nail.ExpansionView.render(new nail.Parser(source).parse());
+  public static function expand(source:String, ?modules:String->Null<String>):String
+    return nail.ExpansionView.render(new nail.Parser(source).parse(modules));
 
   static function main():Void {
     #if php
     // php build/php/index.php example.nail
     // php build/php/index.php --types example.nail
-    var paths = Sys.args();
+    var options = nail.CliMacroModules.read(Sys.args());
+    var paths = options.paths;
+    var modules = options.modules;
     var typeMode = paths.length > 0 && paths[0] == '--types';
     var selfMode = paths.length > 0 && paths[0] == '--selfparse';
     var byteMode = paths.length > 0 && paths[0] == '--bytecode';
@@ -29,20 +31,20 @@ class Main {
     if (typeMode || selfMode || byteMode || expandMode) paths.shift();
     if (paths.length == 0) return;
     if (expandMode) {
-      for (path in paths) Sys.println(expand(sys.io.File.getContent(path)));
+      for (path in paths) Sys.println(expand(sys.io.File.getContent(path), modules));
     } else if (typeMode) {
       var types = createTypeChecker();
       types.check(haxe.Resource.getString('stdlib'));
-      for (path in paths) for (type in types.check(sys.io.File.getContent(path))) Sys.println(type);
+      for (path in paths) for (type in types.check(sys.io.File.getContent(path), modules)) Sys.println(type);
     } else {
-      var vm = create();
+      var vm = selfMode || byteMode ? create(25000000) : create();
       vm.loadStdlib();
       var byteVm = byteMode ? createByteVm() : null;
       if (byteMode) byteVm.run(BytecodeCompiler.compileSource(haxe.Resource.getString('stdlib')));
       for (path in paths) {
         var code = sys.io.File.getContent(path);
-        var results = byteMode ? byteVm.runPlain(vm.compileWithNail(code))
-          : selfMode ? vm.runPlainWithNail(code) : vm.runPlain(code);
+        var results = byteMode ? byteVm.runPlain(vm.compileWithNail(code, modules))
+          : selfMode ? vm.runPlainWithNail(code, modules) : vm.runPlain(code, modules);
         for (v in results) Sys.println(haxe.Json.stringify(v));
       }
     }

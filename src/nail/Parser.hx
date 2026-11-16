@@ -55,7 +55,7 @@ class Parser {
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
-      case 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
+      case 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
     };
   }
@@ -318,7 +318,14 @@ class Parser {
     return RecordType(typeName, fields);
   }
 
-  public function parse():Array<Form> return MacroExpander.forms(parseRaw());
+  public function parse(?modules:String->Null<String>):Array<Form> {
+    var forms = parseRaw();
+    if (modules == null) return MacroExpander.forms(forms);
+    return SyntaxBridge.forms(MacroExpander.syntax(SyntaxEncoder.program(forms), name -> {
+      var source = modules(name);
+      return source == null ? null : SyntaxEncoder.program(new Parser(source).parseRaw());
+    }));
+  }
 
   public function parseRaw():Array<Form> {
     var forms:Array<Form> = [];
@@ -328,6 +335,19 @@ class Parser {
         var typeName = take();
         if (!isName(typeName) || !recordTypePattern.match(typeName)) throw 'Expected uppercase record type name or sum type';
         forms.push(peek() == '{' ? parseRecordType(typeName) : parseSumType(typeName));
+      } else if (peek() == 'import' || peek() == 'export') {
+        var importing = take() == 'import';
+        var name = take();
+        if (!isName(name)) throw 'Expected macro name';
+        var module:Expr = Literal(Nil);
+        if (importing) {
+          expect('from');
+          var label = take();
+          if (!isName(label)) throw 'Expected macro module name';
+          module = Var(label);
+        }
+        expect(';');
+        forms.push(Define((importing ? MacroExpander.IMPORT : MacroExpander.EXPORT) + name, module));
       } else if (peek() == 'def' || peek() == 'macro') {
         var macroDeclaration = take() == 'macro';
         var name = take();

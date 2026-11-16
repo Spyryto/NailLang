@@ -1,15 +1,15 @@
-# Come eseguire NailSeed — v0.23
+# Come eseguire NailSeed — v0.24
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.23/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.24/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
 ## Compilare e usare JS e PHP dalla CLI
 
 Prérequisiti: Haxe 4.3.x, Node.js, PHP 8. I target JS e PHP sono **compilazioni dell'interprete Haxe** (non traduzioni del file `.nail` in JS/PHP). Nella cartella della versione:
 
 ```sh
-cd v0.23
+cd v0.24
 haxe js.hxml
 haxe php.hxml
 node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
@@ -44,4 +44,8 @@ document.getElementById('go').addEventListener('click', () => {
 ```
 
 Apri con un browser moderno. Per risorse caricate con `fetch` (es. moduli o sorgenti esterni) usa un server HTTP statico anziché il protocollo `file://`; ad esempio `php -S localhost:8000` dalla cartella della versione. Per v0.38, le capability host non vengono concesse automaticamente dal browser.
+
+## Macro e moduli
+
+Le macro importate da file richiedono che il modulo sia risolvibile dall'host/CLI; vedi `src/Main.hx` e gli esempi in `examples/`. I moduli runtime compilati separatamente (da v0.31) richiedono invece l'API Haxe del linker: non basta includere più script `.nail` nel browser.
 

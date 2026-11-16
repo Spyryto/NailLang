@@ -1,23 +1,30 @@
-# NailSeed v0.23 — Inspect expansions and produce a guitar lesson
+# NailSeed v0.24 — Macro modules
 
-`--expand` prints the expanded core, without evaluating the program. Generated
-binders appear as `tmp@0` and free template references as `global[helper]`.
-The output is a diagnostic view of bindings and lowered expressions.
+Macro expansion still follows the [0.22 template rules](../v0.22/SPEC.md).
+This release adds two top-level directives.
 
-```sh
-haxe php.hxml
-php build/php/index.php --expand examples/lezione.nail
-php build/php/index.php --types examples/lezione.nail
-php build/php/index.php examples/lezione.nail | node examples/lesson-html.cjs > lezione.html
-haxe js.hxml
-node examples/verify-lesson.cjs
+```nail
+import macroName from moduleName ;
+export macroName ;
 ```
 
-In JavaScript, use `NailSeed.expand(source)`. The lesson includes an objective,
-two bending exercises, and measurable success criteria. The plain JavaScript
-baseline produces the same data and HTML (Nail's nominal records additionally
-serialize their `$type` field). The example is a draft for classroom use.
+- Module names are identifiers. The resolver maps an identifier to source
+  text. PHP's `--macro-dir DIR` option maps it to `DIR/moduleName.nail`.
+  The resolver is explicit. There is no automatic working-directory lookup.
+- A macro module contains macro declarations, imports, and exports. An export
+  names a local macro already declared. Other macros are private. Runtime
+  declarations and re-exports are rejected.
+- Imports are ordered. An imported macro keeps the macro scope it had at
+  declaration, including private macros and imports. The consumer's lexical
+  bindings do not affect generated binders or free global references.
+- Runtime names referenced by a template must be available in the consumer's
+  global environment. Import only brings in macro definitions.
+- Resolution is cached for a compilation and rejects cycles, missing modules,
+  unavailable exports and duplicate imports. The same resolver can serve a
+  host parser, the Nail parser and the bytecode-only bootstrap. Directives
+  are removed before checking or bytecode generation.
 
-A one-to-one macro around `Drill` gives no savings over the constructor.
-The example's value here is inspection and a controlled comparison before
-introducing shared macros.
+The standard JavaScript API takes the optional resolver as its second argument
+to `expand`, `runPlain`, `runPlainWithNail`, `check`, and `preview`.
+The bootstrap runtime accepts it on `compile`, `run`, and `runPlain`.
+The PHP bootstrap CLI also accepts `--macro-dir DIR`.

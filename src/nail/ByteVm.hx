@@ -229,9 +229,15 @@ class ByteVm {
     return call(globals.lookup('compileSyntax'), tree);
   }
 
-  public function compileSource(source:String):Value {
+  public function compileSource(source:String, ?modules:String->Null<String>):Value {
     steps = 0;
-    return call(globals.lookup('compileSource'), Text(source));
+    if (modules == null) return call(globals.lookup('compileSource'), Text(source));
+    var parse = globals.lookup('parseSource');
+    var expanded = MacroExpander.syntax(call(parse, Text(source)), name -> {
+      var moduleSource = modules(name);
+      return moduleSource == null ? null : call(parse, Text(moduleSource));
+    });
+    return compileSyntax(expanded);
   }
 
   public function names():Array<String> return globals.keys();

@@ -35,8 +35,8 @@ class TypeChecker {
   }
 
   /** Return the types of top-level expressions; definitions also get inferred. */
-  public function check(source:String):Array<String> {
-    var forms = new Parser(source).parse();
+  public function check(source:String, ?modules:String->Null<String>):Array<String> {
+    var forms = new Parser(source).parse(modules);
     var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
@@ -63,7 +63,8 @@ class TypeChecker {
   }
 
   /** No mutation of this checker: useful for IDEs and preflight checks. */
-  public function preview(source:String):Array<String> return copy().check(source);
+  public function preview(source:String, ?modules:String->Null<String>):Array<String>
+    return copy().check(source, modules);
 
   public function copy():TypeChecker {
     var instance = new TypeChecker();

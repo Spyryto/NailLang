@@ -1,0 +1,4 @@
+type Drill { name Text target Text success Text } ;
+import timedDrill from guitar ;
+expand timedDrill " Vibrato regolare " " 60 " " Fai quattro oscillazioni per battito "
+  " 4 battiti regolari su 5 " ;

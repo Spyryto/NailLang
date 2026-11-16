@@ -1,0 +1,9 @@
+macro timed bpm instruction = quote (
+  textConcat ( unquote instruction ) ( textConcat " \u0020a\u0020 " ( textConcat ( unquote bpm ) " \u0020BPM " ) )
+) ;
+macro timedDrill name bpm instruction score = quote (
+  Drill ( unquote name )
+    ( expand timed ( unquote bpm ) ( unquote instruction ) )
+    ( textConcat ( unquote score ) " \u0020senza perdere il tempo " )
+) ;
+export timedDrill ;

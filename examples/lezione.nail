@@ -1,12 +1,10 @@
 type Drill { name Text target Text success Text } ;
 type Lesson { title Text goal Text first Drill second Drill } ;
 
-macro drill name target success = quote (
-  Drill ( unquote name ) ( unquote target ) ( unquote success )
-) ;
+import timedDrill from guitar ;
 
 Lesson " Bending intonato " " Arrivare alla nota bersaglio senza superarla "
-  ( expand drill " Ascolta e ripeti " " Suona prima la nota bersaglio, poi fai il bending "
+  ( Drill " Ascolta e ripeti " " Suona prima la nota bersaglio, poi fai il bending "
     " 4 arrivi intonati su 5 " )
-  ( expand drill " Ripeti a tempo " " Fai un bending ogni due battiti a 60 BPM "
-    " 4 arrivi intonati su 5 senza perdere il tempo " ) ;
+  ( expand timedDrill " Ripeti a tempo " " 60 " " Fai un bending ogni due battiti "
+    " 4 arrivi intonati su 5 " ) ;

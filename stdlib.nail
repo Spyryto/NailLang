@@ -115,6 +115,9 @@ def isMacroKeyword word =
 def isReserved word =
   if isMacroKeyword word then true
   else if word == " macro " then true
+  else if word == " import " then true
+  else if word == " from " then true
+  else if word == " export " then true
   else if word == " type " then true
   else if word == " def " then true
   else if word == " let " then true
@@ -546,10 +549,32 @@ def parseTypeDefinition tokens =
 def isFormKeyword tokens word =
   if syntaxTag ( head tokens ) == " Token " then parsePeek tokens == word else false ;
 
+def macroDirective prefix label payload rest =
+  parsePair ( syntaxNode " Define " [ syntaxName ( textConcat prefix label ) , payload ] ) rest ;
+
+def parseMacroDirective importing tokens =
+  let label = parsePeek tokens in
+  if isIdentifier label then
+    let rest = tail tokens in
+    if importing then
+      if parsePeek rest != " from " then parseError " Expected from "
+      else let source = tail rest in
+        let moduleName = parsePeek source in
+        if isIdentifier moduleName then
+          if parsePeek ( tail source ) == " ; " then
+            macroDirective " #macro_import_ " label ( syntaxVar moduleName ) ( tail ( tail source ) )
+          else parseError " Expected ; "
+        else parseError " Expected macro module name "
+    else if parsePeek rest == " ; " then macroDirective " #macro_export_ " label syntaxNil ( tail rest )
+    else parseError " Expected ; "
+  else parseError " Expected macro name " ;
+
 def parseForm tokens =
   if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
   else if isFormKeyword tokens " def " then parseNamedDefinition " " ( tail tokens )
   else if isFormKeyword tokens " macro " then parseNamedDefinition " #macro_decl_ " ( tail tokens )
+  else if isFormKeyword tokens " import " then parseMacroDirective true ( tail tokens )
+  else if isFormKeyword tokens " export " then parseMacroDirective false ( tail tokens )
   else let expression = parseAt 0 tokens in
     if parseFailed expression then expression
     else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "

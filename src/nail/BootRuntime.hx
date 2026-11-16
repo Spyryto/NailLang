@@ -19,14 +19,14 @@ class BootRuntime {
 
   /** Compilation is performed by compileSource, a Nail function in bytecode. */
   @:keep
-  public function compile(source:String):Value return machine.compileSource(source);
+  public function compile(source:String, ?modules:String->Null<String>):Value return machine.compileSource(source, modules);
 
   /** Execute a program compiled by the bootstrapped Nail compiler. */
   @:keep
-  public function run(source:String):Array<Value> return machine.run(compile(source));
+  public function run(source:String, ?modules:String->Null<String>):Array<Value> return machine.run(compile(source, modules));
 
   @:keep
-  public function runPlain(source:String):Array<Dynamic> return Vm.plainResults(run(source));
+  public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return Vm.plainResults(run(source, modules));
 
   /** Expose the lower-level structural API for inspection and subsequent stages. */
   @:keep
@@ -35,3 +35,4 @@ class BootRuntime {
   @:keep
   public function names():Array<String> return machine.names();
 }
+

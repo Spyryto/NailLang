@@ -15,6 +15,8 @@ private typedef MacroDefinition = {
     parsing and expansion and never become bytecode instructions. */
 class MacroExpander {
   public static inline var DECL = '#macro_decl_';
+  public static inline var IMPORT = '#macro_import_';
+  public static inline var EXPORT = '#macro_export_';
   public static inline var GLOBAL = '#macro_global_';
   static inline var QUOTE = '#macro_quote';
   static inline var UNQUOTE = '#macro_unquote';
@@ -25,16 +27,39 @@ class MacroExpander {
 
   var serial = 0;
   var visited = 0;
+  final resolve:Null<String->Value>;
+  final loaded = new StringMap<StringMap<MacroDefinition>>();
+  final loading:Array<String> = [];
 
   public static function globalName(name:String):String {
     return StringTools.startsWith(name, GLOBAL) ? name.substr(GLOBAL.length) : name;
   }
 
   public static function forms(input:Array<Form>):Array<Form> {
-    var worker = new MacroExpander();
+    return new MacroExpander(null).unit(input, null);
+  }
+
+  function unit(input:Array<Form>, exports:Null<StringMap<MacroDefinition>>):Array<Form> {
     var scope = new StringMap<MacroDefinition>();
+    var own = new StringMap<Bool>();
     var output:Array<Form> = [];
     for (form in input) switch (form) {
+      case Define(name, body) if (StringTools.startsWith(name, IMPORT)):
+        var label = name.substr(IMPORT.length);
+        if (scope.exists(label)) fail('duplicate macro ' + label);
+        switch (body) {
+          case Var(moduleName):
+            var definition = moduleExports(moduleName).get(label);
+            if (definition == null) fail('macro ' + label + ' is not exported by ' + moduleName);
+            scope.set(label, definition);
+          case _: fail('invalid macro import ' + label);
+        }
+      case Define(name, _) if (StringTools.startsWith(name, EXPORT)):
+        var label = name.substr(EXPORT.length);
+        if (exports == null) fail('export is only allowed in a macro module');
+        if (!own.exists(label)) fail('export requires a local macro already declared: ' + label);
+        if (exports.exists(label)) fail('duplicate export ' + label);
+        exports.set(label, scope.get(label));
       case Define(name, body) if (StringTools.startsWith(name, DECL)):
         var label = name.substr(DECL.length);
         if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(label)) fail('invalid macro name ' + label);
@@ -54,13 +79,16 @@ class MacroExpander {
         };
         var lexical = scope.copy();
         var definition = {name:label, params:parameters, template:template, scope:lexical};
-        worker.validate(template, definition, 0);
+        validate(template, definition, 0);
+        own.set(label, true);
         scope.set(label, definition);
         lexical.set(label, definition);
+      case _ if (exports != null):
+        fail('only macro declarations, imports and exports are allowed in a macro module');
       case Define(name, body):
-        output.push(Define(name, worker.expand(body, scope)));
+        output.push(Define(name, expand(body, scope)));
       case Evaluate(body):
-        output.push(Evaluate(worker.expand(body, scope)));
+        output.push(Evaluate(expand(body, scope)));
       case _:
         output.push(form);
     }
@@ -69,16 +97,16 @@ class MacroExpander {
 
   /** Return the original nodes for marker-free programs so literal spellings
       survive bootstrap. Only the forms that contain macros are re-encoded. */
-  public static function syntax(tree:Value):Value {
+  public static function syntax(tree:Value, ?resolve:String->Value):Value {
     switch (tree) {
-      case SyntaxLeaf('MacroError', message): fail(message);
+      case SyntaxLeaf('MacroError', _): return tree;
       case SyntaxNode('Program', _):
       case _: return tree;
     }
     if (!hasSyntaxMarkers(tree)) return tree;
     try {
       var input = SyntaxBridge.forms(tree);
-      var expanded = forms(input);
+      var expanded = new MacroExpander(resolve).unit(input, null);
       var output:Array<Value> = [];
       var index = 0;
       var outputIndex = 0;
@@ -90,7 +118,7 @@ class MacroExpander {
         case Cons(raw, tail):
           rest = tail;
           switch (input[index++]) {
-            case Define(name, _) if (StringTools.startsWith(name, DECL)):
+            case Define(name, _) if (directive(name)):
             case form:
               var normalized = expanded[outputIndex++];
               output.push(form == normalized ? raw : SyntaxEncoder.form(normalized));
@@ -110,7 +138,7 @@ class MacroExpander {
   static function hasSyntaxMarkers(tree:Value):Bool {
     var stack = [tree];
     while (stack.length > 0) switch (stack.pop()) {
-      case SyntaxLeaf('Name', name) if (StringTools.startsWith(name, DECL)): return true;
+      case SyntaxLeaf('Name', name) if (directive(name)): return true;
       case SyntaxLeaf('Var', name) if (marker(name)): return true;
       case SyntaxNode(_, items): stack.push(items);
       case Cons(a, b): stack.push(a); stack.push(b);
@@ -119,11 +147,32 @@ class MacroExpander {
     return false;
   }
 
+  static function directive(name:String):Bool {
+    return StringTools.startsWith(name, DECL) || StringTools.startsWith(name, IMPORT)
+      || StringTools.startsWith(name, EXPORT);
+  }
+
+  function moduleExports(name:String):StringMap<MacroDefinition> {
+    if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(name)) return fail('invalid macro module name ' + name);
+    if (resolve == null) return fail('macro module ' + name + ' requires a module resolver');
+    if (loaded.exists(name)) return loaded.get(name);
+    if (loading.indexOf(name) >= 0) return fail('cyclic macro imports: ' + loading.concat([name]).join(' -> '));
+    if (loading.length >= MAX_DEPTH) return fail('macro import nesting limit exceeded');
+    var source = resolve(name);
+    if (source == null) return fail('missing macro module ' + name);
+    loading.push(name);
+    var exports = new StringMap<MacroDefinition>();
+    unit(SyntaxBridge.forms(source), exports);
+    loading.pop();
+    loaded.set(name, exports);
+    return exports;
+  }
+
   static function marker(name:String):Bool return name == QUOTE || name == UNQUOTE || name == EXPAND;
 
   static function fail(message:String):Dynamic throw new MacroExpansionError(message);
 
-  function new() {}
+  function new(resolve:Null<String->Value>) this.resolve = resolve;
 
   function tick(depth:Int):Void {
     if (depth > MAX_DEPTH) fail('expansion nesting limit exceeded');

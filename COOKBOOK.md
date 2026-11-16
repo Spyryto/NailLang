@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.23
+# Nail Cookbook — v0.24
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Ispezione dell'espansione macro
+## Ricetta 3 — Moduli di macro riutilizzabili
 
 ```nail
-macro unless condition action = quote (
-  if unquote condition then 0 else unquote action
-) ;
-expand unless false 42 ;
+import timedDrill from guitar ;
+expand timedDrill " Ripeti a tempo " " 60 " " Esegui il bending " " 4 su 5 " ;
 ```
 
-`--expand` mostra le trasformazioni e i binding; sono presenti esempi relativi a lezioni di chitarra.
+Import nominale di macro da un modulo e caricamento esplicito del modulo nell'host/CLI.
 
 Per le macro modulari, riusa le sorgenti e gli script reali in [`examples/`](./examples/) invece di inventare un loader. Alcuni esempi richiedono `--macro-module nome=percorso`.
 

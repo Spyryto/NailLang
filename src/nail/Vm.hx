@@ -351,13 +351,13 @@ class Vm {
     return output;
   }
 
-  public function run(source:String):Array<Value> {
+  public function run(source:String, ?modules:String->Null<String>):Array<Value> {
     #if nail_seed_only
     // A bootstrap-only build cannot even use the host parser accidentally.
     throw 'Host source parser disabled in bootstrap-only build';
     #else
     steps = 0;
-    return executeForms(new Parser(source).parse());
+    return executeForms(new Parser(source).parse(modules));
     #end
   }
 
@@ -368,25 +368,32 @@ class Vm {
   }
 
   /** Parse source with the tokenizer and Pratt parser written in Nail. */
-  public function parseWithNail(source:String):Value {
+  public function parseWithNail(source:String, ?modules:String->Null<String>):Value {
     steps = 0;
-    return MacroExpander.syntax(call(root.lookup('parseSource'), Text(source)));
+    var parse = root.lookup('parseSource');
+    var resolve = modules == null ? null : (name:String) -> {
+      var moduleSource = modules(name);
+      return moduleSource == null ? null : call(parse, Text(moduleSource));
+    };
+    return MacroExpander.syntax(call(parse, Text(source)), resolve);
   }
 
   /** Use Nail's own parseSource function, then execute its output.
       The bootstrap Haxe parser is used only to load stdlib.nail. */
-  public function runWithNail(source:String):Array<Value> {
-    var tree = parseWithNail(source);
+  public function runWithNail(source:String, ?modules:String->Null<String>):Array<Value> {
+    var tree = parseWithNail(source, modules);
     return executeForms(SyntaxBridge.forms(MacroExpander.syntax(tree)));
   }
 
-  public function runPlainWithNail(source:String):Array<Dynamic> return plainResults(runWithNail(source));
+  public function runPlainWithNail(source:String, ?modules:String->Null<String>):Array<Dynamic>
+    return plainResults(runWithNail(source, modules));
 
   /** Shared primitive environment for a bytecode executor; no source parsing. */
   public function bytecodeRoot():Env return root;
 
   /** Compile source using the compiler function written in Nail. */
-  public function compileWithNail(source:String):Value {
+  public function compileWithNail(source:String, ?modules:String->Null<String>):Value {
+    if (modules != null) return compileSyntaxWithNail(parseWithNail(source, modules));
     steps = 0;
     return call(root.lookup('compileSource'), Text(source));
   }
@@ -438,7 +445,7 @@ class Vm {
   }
 
   /** Public convenience API, usable from the generated JS runtime. */
-  public function runPlain(source:String):Array<Dynamic> return plainResults(run(source));
+  public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return plainResults(run(source, modules));
 
   public static function plainResults(values:Array<Value>):Array<Dynamic> {
     return [for (v in values) toPlain(v)];
