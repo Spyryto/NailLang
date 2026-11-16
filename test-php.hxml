@@ -1,0 +1,5 @@
+-cp src
+-main TestMain
+-php build/tests/php
+-resource stdlib.nail@stdlib
+-resource cases.json@cases

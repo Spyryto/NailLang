@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.3
+# Nail Cookbook — v0.4
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,17 +24,17 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Functional core in cinque forme
+## Ricetta 3 — Un’unica implementazione Haxe
 
 ```nail
 def twice x = x * 2 ;
 map twice [ 1 , 2 , 3 ] ;
 ```
 
-Cinque forme di espressione nel core; `map`, `filter` e `fold` sono implementate nella libreria Nail. Solo runtime JavaScript.
+Stessa semantica Haxe, JavaScript e PHP; il linguaggio è eseguito da un interprete compilato, non transpilato direttamente in JS/PHP.
 
 ## Allenamento: studiare l'implementazione
 
-- Trova il percorso dal sorgente al valore usando [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [stdlib.nail](./stdlib.nail).
+- Trova il percorso dal sorgente al valore usando [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail).
 - Riscrivi l'esempio usando una funzione ausiliaria, poi verifica un caso negativo (nome non definito, tipo incompatibile, pattern non esaustivo quando applicabile).
 - Nelle release Haxe, confronta `test-interp.hxml`, `test-js.hxml` e `test-php.hxml`; una build riuscita non prova automaticamente il funzionamento della demo browser.

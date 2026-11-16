@@ -1,14 +1,14 @@
-# Nail Language Tour — v0.3
+# Nail Language Tour — v0.4
 
-> interpreter JavaScript, senza target PHP · Argomento distintivo: **Functional core in cinque forme**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Un’unica implementazione Haxe**.
 
-[Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [stdlib.nail](./stdlib.nail)
+[Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.2/LANGUAGE-TOUR.md) → **v0.3** → [versione successiva](../v0.4/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.3/LANGUAGE-TOUR.md) → **v0.4** → [versione successiva](../v0.5/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Cinque forme di espressione nel core; `map`, `filter` e `fold` sono implementate nella libreria Nail. Solo runtime JavaScript.
+Stessa semantica Haxe, JavaScript e PHP; il linguaggio è eseguito da un interprete compilato, non transpilato direttamente in JS/PHP.
 
 ```nail
 def twice x = x * 2 ;
@@ -43,16 +43,12 @@ map twice [ 1 , 2 , 3 ] ;
 
 La `stdlib.nail` è caricata negli esempi host delle release Haxe via `vm.loadStdlib()`. In JS v0.3 va caricata esplicitamente. `map` non è necessariamente una primitiva della VM: verifica il suo codice in `stdlib.nail`.
 
-## Core AST
-
-Sotto la superficie restano cinque varianti: Literal, Var, Lambda, Apply, If. Le definizioni top-level e i costrutti di comodità si traducono in queste forme. Leggi `NailSeed.js` per il core e `stdlib.nail` per le funzioni di lista.
-
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.3 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.3) e cerca il test associato alla feature.
+4. Apri la [versione v0.4 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.4) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

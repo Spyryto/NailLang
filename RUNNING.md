@@ -1,30 +1,35 @@
-# Come eseguire NailSeed — v0.3
+# Come eseguire NailSeed — v0.4
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** interpreter JavaScript, senza target PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.3/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.4/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
-## Node.js (nessun target PHP in questa versione)
+## Compilare e usare JS e PHP dalla CLI
+
+Prérequisiti: Haxe 4.3.x, Node.js, PHP 8. I target JS e PHP sono **compilazioni dell'interprete Haxe** (non traduzioni del file `.nail` in JS/PHP). Nella cartella della versione:
 
 ```sh
-cd v0.3
-node test.js
-node -e 'const fs=require("node:fs"); const {NailSeed3}=require("./NailSeed.js"); const vm=NailSeed3.create(); vm.run(fs.readFileSync("stdlib.nail","utf8")); console.log(vm.run(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
+cd v0.4
+haxe js.hxml
+haxe php.hxml
+node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
+php build/php/index.php examples/cookbook-start.nail
 ```
 
-La `stdlib.nail` non viene caricata automaticamente dall'interprete JS v0.3. Qui **non** esiste un runtime PHP: passa alla v0.4 per i target generati da Haxe.
+`NailSeed.create()` crea un interprete; `loadStdlib()` carica il codice Nail incorporato come risorsa Haxe; `runPlain(source)` restituisce dati serializzabili. Il binario PHP `build/php/index.php` legge il/i file passati come argomenti ed emette una rappresentazione JSON per ogni risultato.
 
 ## Aprire il runtime in una pagina web
 
-Un esempio già pronto si trova in [`examples/browser.html`](./examples/browser.html). Non è richiesta una compilazione Haxe. Il bundle JS espone un API JavaScript, ma non crea pulsanti o input da solo: la pagina chiama esplicitamente `run` / `runPlain`.
+Un esempio già pronto si trova in [`examples/browser.html`](./examples/browser.html). **Prima esegui `haxe js.hxml`**, perché la pagina referenzia `build/js/nailseed.js`. Il bundle JS espone un API JavaScript, ma non crea pulsanti o input da solo: la pagina chiama esplicitamente `run` / `runPlain`.
 
 ```html
-<script src="NailSeed.js"></script>
+<script src="build/js/nailseed.js"></script>
 <button id="go">Esegui Nail</button><pre id="result"></pre>
 <script>
 document.getElementById('go').addEventListener('click', () => {
-  const vm = NailSeed3.create();
-  const output = vm.run('def twice x = x * 2 ; twice 21 ;');
+  const vm = NailSeed.create();
+  vm.loadStdlib();
+  const output = vm.runPlain('def twice x = x * 2 ; twice 21 ;');
   document.getElementById('result').textContent = JSON.stringify(output);
 });
 </script>

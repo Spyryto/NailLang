@@ -1,0 +1,4 @@
+-cp src
+-main Main
+-php build/php
+-resource stdlib.nail@stdlib

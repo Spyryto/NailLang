@@ -1,0 +1,6 @@
+-cp src
+-main TestMain
+-js build/tests/test.js
+-resource stdlib.nail@stdlib
+-resource cases.json@cases
+-D js-es=6
