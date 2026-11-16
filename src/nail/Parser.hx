@@ -22,21 +22,25 @@ class Parser {
 
   final exactMode:Bool;
   public final modernMode:Bool;
+  public final languageVersion:Null<String>;
   public final declaredDivRows:Array<{left:String, right:String, result:String}>;
+  public final declaredOperatorRows:haxe.ds.StringMap<Array<{left:String,right:String,result:String}>>;
   /** Opt-in type relation declarations; erased before bytecode generation. */
   public final declaredRelations:haxe.ds.StringMap<String>;
 
 
   public function new(source:String) {
-    modernMode = numeric.LanguageVersion.isModern(source);
+    languageVersion = numeric.LanguageVersion.declared(source);
+    modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
     declaredDivRows = [];
+    declaredOperatorRows = new haxe.ds.StringMap();
     if (modernMode && exactMode) throw 'Source cannot combine numeric dialects';
     declaredRelations = new haxe.ds.StringMap<String>();
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
-    if (modernMode) at = 3; // explicit "nail 0.45 ;" header
+    if (modernMode) at = 3; // explicit "nail 0.45 ;" or "nail 0.46 ;" header
   }
 
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
@@ -471,14 +475,21 @@ class Parser {
     while (peek() != null) {
       var first = at;
       // Row declarations are static type metadata, not runtime forms.
-      if (modernMode && peek() == 'Div' && at + 1 < tokens.length
-          && tokens[at + 1] == ':') {
-        take();
+      if (modernMode && ['Div','Add','Sub','Mul'].indexOf(peek()) >= 0
+          && at + 1 < tokens.length && tokens[at + 1] == ':') {
+        var relation = take();
+        if (relation != 'Div' && languageVersion != '0.46')
+          throw 'Type relation: ' + relation + ' requires Nail 0.46';
         expect(':');
         var left = take(), right = take(), output = take();
         expect(';');
-        numeric.NumericRelation.requireModernRow(left,right,output,declaredDivRows);
-        declaredDivRows.push({left:left,right:right,result:output});
+        var previous = relation == 'Div' ? declaredDivRows
+          : declaredOperatorRows.get(relation);
+        if (previous == null) previous = [];
+        numeric.NumericRelation.requireModernRow(
+          left,right,output,previous,relation);
+        previous.push({left:left,right:right,result:output});
+        if (relation != 'Div') declaredOperatorRows.set(relation,previous);
         continue;
       }
       if (peek() == 'type') {
@@ -521,11 +532,17 @@ class Parser {
         if (peek() == ':') {
           take();
           var relation = take();
-          if (macroDeclaration || relation != 'Div' || params.length != 2)
-            throw 'Type relation: only binary Div declarations are supported';
+          if (macroDeclaration || params.length != 2 ||
+              ['Div','Add','Sub','Mul'].indexOf(relation) < 0)
+            throw 'Type relation: only binary Div/Add/Sub/Mul declarations are supported';
+          if (!modernMode && relation != 'Div')
+            throw 'Type relation: ' + relation + ' requires Nail 0.46';
+          if (modernMode && relation != 'Div' && languageVersion != '0.46')
+            throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (exactMode)
             throw 'Type relation: exact source dialect is not supported yet';
-          declaredRelations.set(name, modernMode ? 'Div45' : relation);
+          declaredRelations.set(name, modernMode
+            ? numeric.NumericRelation.modernName(relation) : relation);
         }
         expect('=');
         var body = lambdas(params, expression(), positions);
