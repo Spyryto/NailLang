@@ -20,6 +20,13 @@ jobs:
           node-version: '22'
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
+      - name: Verify v0.45 Int / Ratio / Float on Haxe, Node and PHP
+        run: |
+          haxe modern-numbers-test-interp.hxml
+          haxe modern-numbers-test-js.hxml
+          node build/tests/modern-numbers.js
+          haxe modern-numbers-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-modern-numbers/index.php
       - name: Run text-write tests on Haxe, JS and PHP
         run: |
           haxe host-text-writes-test-interp.hxml

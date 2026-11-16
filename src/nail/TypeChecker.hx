@@ -21,6 +21,8 @@ class TypeChecker {
   var sumCases:StringMap<Array<{name:String, arity:Int}>>;
   var constructorOwners:StringMap<String>;
   var nextId:Int;
+  var modernRows:Array<numeric.NumericRelation.BinaryRelationRow> = [];
+  var lastModern:Bool = false;
   var relationByName:haxe.ds.StringMap<String>;
 
   public function new() {
@@ -41,8 +43,9 @@ class TypeChecker {
 
     var parser = new Parser(source);
     var forms = parser.parse(modules);
+    var rows = numeric.NumericRelation.decodeRows(parser.declaredDivRows);
     var solver = new Inference(nextId, global, records, sums, sumCases,
-      constructorOwners, relationByName);
+      constructorOwners, relationByName, parser.modernMode, rows);
     solver.declarations = parser.declaredRelations;
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
@@ -53,6 +56,8 @@ class TypeChecker {
     constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
     relationByName = solver.relations;
+    modernRows = solver.modernRows;
+    lastModern = parser.modernMode;
     return inferred;
   }
 
@@ -111,7 +116,7 @@ class TypeChecker {
       throw 'Module type error: duplicate or reserved import alias ' + name;
     var pending:Array<NType> = [type];
     while (pending.length > 0) switch (pending.pop()) {
-      case TNumber | TExact | TBoolean | TText | TSyntax:
+      case TNumber | TExact | TInt | TRatio | TFloat | TBoolean | TText | TSyntax:
       case TList(child) | TVector(child): pending.push(child);
       case TStructural(fields):
         if (!validStructural(fields))
@@ -139,7 +144,7 @@ class TypeChecker {
       throw 'Public interface: polymorphic export requires a quantified ABI: ' + name;
     var work:Array<NType> = [found.term];
     while (work.length > 0) switch (work.pop()) {
-      case TNumber | TExact | TBoolean | TText | TSyntax:
+      case TNumber | TExact | TInt | TRatio | TFloat | TBoolean | TText | TSyntax:
       case TList(item) | TVector(item): work.push(item);
       case TStructural(fields):
         if (!validStructural(fields))
@@ -185,7 +190,7 @@ class TypeChecker {
     while (pending.length > 0) {
       if (++nodes > 2048) throw 'Public interface: type scheme size limit exceeded';
       switch (pending.pop()) {
-        case TNumber | TExact | TBoolean | TText | TSyntax:
+        case TNumber | TExact | TInt | TRatio | TFloat | TBoolean | TText | TSyntax:
         case TList(t) | TVector(t): pending.push(t);
         case TStructural(fields):
           if (!validStructural(fields))
@@ -332,6 +337,8 @@ class TypeChecker {
     instance.constructorOwners = new StringMap<String>();
     for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
+    instance.modernRows = modernRows.copy();
+    instance.lastModern = lastModern;
     instance.relationByName = new haxe.ds.StringMap<String>();
     for (name in relationByName.keys())
       instance.relationByName.set(name, relationByName.get(name));
@@ -341,7 +348,7 @@ class TypeChecker {
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
     return new Inference(nextId, global, records, sums, sumCases, constructorOwners,
-      relationByName).signature(name);
+      relationByName, lastModern, modernRows).signature(name);
   }
 
   public function names():Array<String> {
@@ -377,13 +384,20 @@ private class Inference {
   public var nextId(default, null):Int;
   public final relations:haxe.ds.StringMap<String>;
   public var declarations:haxe.ds.StringMap<String>;
+  public final modernMode:Bool;
+  public var validatingConstraint:Bool = false;
+  public final modernRows:Array<numeric.NumericRelation.BinaryRelationRow>;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
   public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
-      knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>) {
+      knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>,
+      modernMode:Bool = false,
+      ?modernRows:Array<numeric.NumericRelation.BinaryRelationRow>) {
     nextId = start;
+    this.modernMode = modernMode;
+    this.modernRows = modernRows == null ? [] : modernRows.copy();
     relations = new haxe.ds.StringMap<String>();
     if (knownRelations != null)
       for (name in knownRelations.keys()) relations.set(name, knownRelations.get(name));
@@ -398,6 +412,26 @@ private class Inference {
     for (name in knownCases.keys()) sumCases.set(name, knownCases.get(name).copy());
     constructorOwners = new StringMap<String>();
     for (name in knownOwners.keys()) constructorOwners.set(name, knownOwners.get(name));
+    if (modernMode) installModernPrimitives();
+  }
+
+  /** Numeric builtins for a versioned program, independent of the legacy
+      compiler's bootstrap environment. Called when the inference session
+      is created, so it does not require an existing modern global table. */
+  function installModernPrimitives():Void {
+    var string = TText, bool = TBoolean;
+    globals.set('toRatio', mono(fun(TInt, TRatio)));
+    globals.set('ratioFromText', mono(fun(string, TRatio)));
+    globals.set('intFromText', mono(fun(string, TInt)));
+    globals.set('toFloat', mono(fun(fresh(), TFloat)));
+    for (op in ['+', '-', '*', '/', '<', '<=', '>', '>='])
+      globals.set('#modern' + op, mono(fun(fresh(), fun(fresh(), fresh()))));
+    globals.set('textLengthInt', mono(fun(string, TInt)));
+    globals.set('textAtInt', mono(fun(string, fun(TInt, string))));
+    var id = nextId++, x = TVariable(id);
+    globals.set('vectorLengthInt', poly(fun(TVector(x), TInt), [id]));
+    globals.set('vectorGetInt', poly(fun(TVector(x), fun(TInt, x)), [id]));
+    globals.set('vectorSetInt', poly(fun(TVector(x), fun(TInt, fun(x, TVector(x)))), [id]));
   }
 
   function fresh():NType return TVariable(nextId++);
@@ -418,11 +452,17 @@ private class Inference {
   }
 
   public function installPrimitives():Void {
-    var n = TNumber, e = TExact, b = TBoolean, s = TText;
+    var n = modernMode ? TInt : TNumber, e = TExact, b = TBoolean, s = TText;
+    if (modernMode) {
+      globals.set('toRatio', mono(fun(TInt, TRatio)));
+      globals.set('ratioFromText', mono(fun(s, TRatio)));
+      globals.set('intFromText', mono(fun(s, TInt)));
+    }
     for (name in ['+', '-', '*', '/']) globals.set('#exact' + name, mono(fun(e, fun(e, e))));
     for (name in ['<', '<=', '>', '>=']) globals.set('#exact' + name, mono(fun(e, fun(e, b))));
     globals.set('#exactEncode', mono(fun(s, s)));
     globals.set('exactEncode', mono(fun(s, s)));
+    globals.set('canonicalFloat', mono(fun(s, s)));
     globals.set('exactFromText', mono(fun(s, e)));
     globals.set('exactToFloat', mono(fun(e, n)));
     for (name in ['exactFloor', 'exactCeil', 'exactTruncate', 'exactRoundEven'])
@@ -432,6 +472,9 @@ private class Inference {
     globals.set('textAtExact', mono(fun(s, fun(e, s))));
     for (name in ['+', '-', '*', '/']) globals.set(name, mono(fun(n, fun(n, n))));
     for (name in ['<', '<=', '>', '>=']) globals.set(name, mono(fun(n, fun(n, b))));
+    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>='])
+      globals.set('#modern' + name, mono(fun(fresh(), fun(fresh(), fresh()))));
+    globals.set('toFloat', mono(fun(fresh(), TFloat)));
     globals.set('textLength', mono(fun(s, n)));
     globals.set('textAt', mono(fun(s, fun(n, s))));
     globals.set('textConcat', mono(fun(s, fun(s, s))));
@@ -524,7 +567,7 @@ private class Inference {
     var stack:Array<NType> = [ty];
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
-        case TNumber | TExact | TBoolean | TText | TSyntax | TRecord(_):
+        case TNumber | TExact | TInt | TRatio | TFloat | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TStructural(fields): for (field in fields) stack.push(field.type);
@@ -553,7 +596,9 @@ private class Inference {
       switch ([a, b]) {
         case [TVariable(i), _]: bindVariable(i, b);
         case [_, TVariable(j)]: bindVariable(j, a);
-        case [TNumber, TNumber] | [TExact, TExact] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
+        case [TNumber, TNumber] | [TExact, TExact] |
+             [TInt, TInt] | [TRatio, TRatio] | [TFloat, TFloat] |
+             [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
         case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
@@ -797,7 +842,9 @@ private class Inference {
     while (work.length > 0) {
       var frame = work[work.length - 1];
       switch (frame.source) {
-        case Literal(Number(_)): results.push(TNumber); work.pop();
+        case Literal(Number(_)): results.push(modernMode ? TFloat : TNumber); work.pop();
+        case Literal(IntNumber(_)): results.push(TInt); work.pop();
+        case Literal(RatioNumber(_)): results.push(TRatio); work.pop();
         case Literal(ExactNumber(_)): results.push(TExact); work.pop();
         case Literal(Boolean(_)): results.push(TBoolean); work.pop();
         case Literal(Text(_)): results.push(TText); work.pop();
@@ -842,8 +889,36 @@ private class Inference {
             var other = results.pop();
             var ret = numeric.NumericRelation.result(
               relations.get(MacroExpander.globalName(name)),
-              normalize(frame.saved), normalize(other));
+              normalize(frame.saved), normalize(other), modernRows);
             results.push(ret);
+            work.pop();
+          }
+        case Apply(Apply(Var(name), lhs), rhs)
+          if (modernMode && !validatingConstraint && StringTools.startsWith(
+            MacroExpander.globalName(name), '#modern')):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(lhs, frame.scope));
+          } else if (frame.phase == 1) {
+            frame.saved = results.pop();
+            frame.phase = 2;
+            work.push(new InferFrame(rhs, frame.scope));
+          } else {
+            var rhsType = results.pop();
+            var op = MacroExpander.globalName(name).substr('#modern'.length);
+            results.push(numeric.NumericRelation.operate(op,
+              normalize(frame.saved), normalize(rhsType)));
+            work.pop();
+          }
+        case Apply(Var(name), arg) if (modernMode && MacroExpander.globalName(name) == 'toFloat'):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(arg, frame.scope));
+          } else {
+            var ty = normalize(results.pop());
+            if (!Type.enumEq(ty,TInt) && !Type.enumEq(ty,TRatio))
+              throw 'Type error: toFloat requires Int or Ratio';
+            results.push(TFloat);
             work.pop();
           }
         case Apply(Apply(Var(get), receiver), Literal(Text(field))) if (MacroExpander.globalName(get) == '#recordGet'):
@@ -985,6 +1060,9 @@ private class Inference {
     if (variable != null) return variable;
     return switch (name) {
       case 'Number': TNumber;
+      case 'Int': TInt;
+      case 'Ratio': TRatio;
+      case 'Float': TFloat;
       case 'Exact': TExact;
       case 'Bool': TBoolean;
       case 'Text' | 'String': TText;
@@ -1004,6 +1082,9 @@ private class Inference {
     if (generic != null) return generic;
     return switch (name) {
       case 'Number': TNumber;
+      case 'Int': TInt;
+      case 'Ratio': TRatio;
+      case 'Float': TFloat;
     case 'Exact': TExact;
       case 'Bool': TBoolean;
       case 'Text' | 'String': TText;
@@ -1241,11 +1322,25 @@ private class Inference {
         if (constrained != null) {
           // Each admitted signature is checked against the SAME body.
           // This is a finite overload contract, not inferred Num polymorphism.
-          for (row in numeric.NumericRelation.rows(constrained)) {
+          for (row in numeric.NumericRelation.rows(constrained, modernRows)) {
             var validator = new Inference(nextId, globals, records, sums,
-              sumCases, constructorOwners, relations);
+              sumCases, constructorOwners, relations, modernMode, modernRows);
             var expected = fun(row.left, fun(row.right, row.result));
-            validator.globals.set('/', mono(expected));
+            if (constrained == 'Div45') {
+              // Infer the annotated body with concrete operator signatures.
+              // Its lambda parameters are unified by application before the
+              // result is checked, so a floating type variable cannot be
+              // mistaken for a type with a general Num instance.
+              validator.validatingConstraint = true;
+              for (op in ['+', '-', '*', '/', '<', '<=', '>', '>=']) {
+                var opResult:NType = null;
+                try opResult = numeric.NumericRelation.operate(
+                  op, row.left, row.right) catch (e:Dynamic) {}
+                validator.globals.remove('#modern' + op);
+                if (opResult != null) validator.globals.set('#modern' + op,
+                  mono(fun(row.left, fun(row.right, opResult))));
+              }
+            } else validator.globals.set('/', mono(expected));
             validator.globals.set(name, mono(expected));
             validator.validateMatches(expr);
             var inferredType = validator.infer(expr, validator.globals,
@@ -1306,6 +1401,9 @@ private class Inference {
       }
       switch (prune(frame.type)) {
         case TNumber: output.add('Number');
+        case TInt: output.add('Int');
+        case TRatio: output.add('Ratio');
+        case TFloat: output.add('Float');
         case TExact: output.add('Exact');
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');

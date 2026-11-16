@@ -245,7 +245,9 @@ class ByteVm {
   public function compileSource(source:String, ?modules:String->Null<String>):Value {
     steps = 0;
     if (modules == null) {
-      var compiler = numeric.NumericDialect.isExact(source) ? 'compileExactSource' : 'compileSource';
+
+      var compiler = numeric.LanguageVersion.isModern(source) ? 'compileModernSource'
+        : numeric.NumericDialect.isExact(source) ? 'compileExactSource' : 'compileSource';
       return call(globals.lookup(compiler), Text(source));
     }
     var parse = globals.lookup('parseSource');
@@ -256,7 +258,10 @@ class ByteVm {
         throw 'Imported macro module uses incompatible numeric dialect: ' + name;
       return call(parse, Text(moduleSource));
     });
-    var typed = numeric.NumericDialect.isExact(source)
+
+    var typed = numeric.LanguageVersion.isModern(source)
+      ? call(globals.lookup('modernRewrite'), expanded)
+      : numeric.NumericDialect.isExact(source)
       ? call(globals.lookup('exactRewrite'), expanded) : expanded;
     return compileSyntax(typed);
   }

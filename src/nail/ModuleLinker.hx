@@ -188,6 +188,9 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
+
+    if (numeric.LanguageVersion.isModern(spec.source))
+      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
     var checker = new TypeChecker();
     var aliases = new StringMap<Bool>();
     var imports:Array<LinkedModuleImport> = [];
@@ -271,6 +274,8 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
+    if (numeric.LanguageVersion.isModern(spec.source))
+      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
 
     var checker = new TypeChecker();
     for (item in spec.imports) {
@@ -303,6 +308,8 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
+    if (numeric.LanguageVersion.isModern(spec.source))
+      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
 
     var checker = new TypeChecker();
     var importedNames = new StringMap<Bool>();

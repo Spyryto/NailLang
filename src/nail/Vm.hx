@@ -42,6 +42,7 @@ class Vm {
       root.bind('#exact' + name, Native('#exact' + name, 2, []));
     root.bind('#exactEncode', Native('#exactEncode', 1, []));
     root.bind('exactEncode', Native('exactEncode', 1, []));
+    root.bind('canonicalFloat', Native('canonicalFloat', 1, []));
     for (name in ['exactFloor', 'exactCeil', 'exactTruncate',
         'exactRoundEven', 'exactIsInteger'])
       root.bind(name, Native(name, 1, []));
@@ -50,6 +51,15 @@ class Vm {
     for (name in ['textAtExact', 'vectorGetExact'])
       root.bind(name, Native(name, 2, []));
     root.bind('vectorSetExact', Native('vectorSetExact', 3, []));
+    for (name in ['textLengthInt','vectorLengthInt'])
+      root.bind(name, Native(name, 1, []));
+    for (name in ['textAtInt','vectorGetInt'])
+      root.bind(name, Native(name, 2, []));
+    root.bind('vectorSetInt', Native('vectorSetInt', 3, []));
+    for (name in ['+', '-', '*', '/', '<', '<=', '>', '>='])
+      root.bind('#modern' + name, Native('#modern' + name, 2, []));
+    for (name in ['toFloat','toRatio','ratioFromText','intFromText'])
+      root.bind(name, Native(name, 1, []));
   }
 
   inline function tick():Void {
@@ -83,6 +93,58 @@ class Vm {
     });
   }
 
+
+  static function modernArithmetic(op:String,a:Value,b:Value):Value {
+    switch ([a,b]) {
+      case [Number(x),Number(y)]:
+        if (op == '/' && y == 0) throw 'Division by zero';
+        return finite(switch (op) {
+          case '+': x+y;
+          case '-': x-y;
+          case '*': x*y;
+          case '/': x/y;
+          case _: throw 'Unknown numeric operation ' + op;
+        });
+      case [IntNumber(x),IntNumber(y)]:
+        var result = numeric.FastNumber.arithmetic(op,x,y);
+        return op == '/' ? RatioNumber(result) : IntNumber(result);
+      case [IntNumber(x),RatioNumber(y)] |
+           [RatioNumber(x),IntNumber(y)] |
+           [RatioNumber(x),RatioNumber(y)]:
+        return RatioNumber(numeric.FastNumber.arithmetic(op,x,y));
+      case _:
+        throw 'Mixed numeric domains: explicit conversion required';
+    }
+  }
+
+  static function modernCompare(op:String,a:Value,b:Value):Value {
+    var compared:Int = switch ([a,b]) {
+      case [Number(x),Number(y)]: x < y ? -1 : x > y ? 1 : 0;
+      case [IntNumber(x),IntNumber(y)] |
+           [IntNumber(x),RatioNumber(y)] |
+           [RatioNumber(x),IntNumber(y)] |
+           [RatioNumber(x),RatioNumber(y)]:
+        numeric.FastNumber.compare(x,y);
+      case _:
+        throw 'Mixed numeric domains: explicit conversion required';
+    };
+    return Boolean(switch (op) {
+      case '<': compared < 0;
+      case '<=': compared <= 0;
+      case '>': compared > 0;
+      case '>=': compared >= 0;
+      case _: throw 'Unknown numeric comparison ' + op;
+    });
+  }
+
+  static function floatFromExact(v:numeric.FastNumber.FastValue):Value {
+    var r = numeric.FastNumber.rational(v);
+    var n = Std.parseFloat(r.numerator), d = Std.parseFloat(r.denominator);
+    if (!Math.isFinite(n) || !Math.isFinite(d))
+      throw 'Exact number too large to convert to Float';
+    return finite((r.negative ? -n : n) / d);
+  }
+
   static function bool(v:Value):Bool {
     return switch (v) {
       case Boolean(b): b;
@@ -99,7 +161,7 @@ class Vm {
 
   static function index(v:Value, size:Int):Int {
     switch (v) {
-      case ExactNumber(x): return numeric.FastNumber.index(x, size);
+      case ExactNumber(x) | IntNumber(x): return numeric.FastNumber.index(x, size);
       case _:
     }
     var n = number(v);
@@ -115,7 +177,13 @@ class Vm {
   static function equal(a:Value, b:Value):Bool {
     return switch ([a, b]) {
       case [Number(x), Number(y)]: x == y;
+
       case [ExactNumber(x), ExactNumber(y)]: numeric.FastNumber.equal(x, y);
+      case [IntNumber(x), IntNumber(y)] |
+           [IntNumber(x), RatioNumber(y)] |
+           [RatioNumber(x), IntNumber(y)] |
+           [RatioNumber(x), RatioNumber(y)]:
+        numeric.FastNumber.equal(x,y);
       case [ExactNumber(_), Number(_)] | [Number(_), ExactNumber(_)]:
         throw 'Cannot compare exact and approximate numbers implicitly';
       case [Boolean(x), Boolean(y)]: x == y;
@@ -173,7 +241,7 @@ class Vm {
 
   static function vectorIndex(value:Value, size:Int):Int {
     switch (value) {
-      case ExactNumber(x): return numeric.FastNumber.index(x, size);
+      case ExactNumber(x) | IntNumber(x): return numeric.FastNumber.index(x, size);
       case _:
     }
     var index = number(value);
@@ -185,6 +253,28 @@ class Vm {
     var a = args[0];
     var b = args.length > 1 ? args[1] : Nil;
     return switch (name) {
+
+      case 'intFromText':
+        var v = numeric.FastNumber.exact(text(a));
+        if (!numeric.FastNumber.isInteger(v)) throw 'Int requires an integer';
+        IntNumber(v);
+      case 'ratioFromText': RatioNumber(numeric.FastNumber.exact(text(a)));
+      case 'toRatio': switch (a) {
+        case IntNumber(v): RatioNumber(v);
+        case _: throw 'toRatio requires Int';
+      };
+      case 'toFloat': switch (a) {
+        case IntNumber(v) | RatioNumber(v): floatFromExact(v);
+        case _: throw 'toFloat requires Int or Ratio';
+      };
+      case '#modern+': modernArithmetic('+',a,b);
+      case '#modern-': modernArithmetic('-',a,b);
+      case '#modern*': modernArithmetic('*',a,b);
+      case '#modern/': modernArithmetic('/',a,b);
+      case '#modern<': modernCompare('<',a,b);
+      case '#modern<=': modernCompare('<=',a,b);
+      case '#modern>': modernCompare('>',a,b);
+      case '#modern>=': modernCompare('>=',a,b);
       case 'exactFromText': ExactNumber(numeric.FastNumber.exact(text(a)));
       case 'exactFloor': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'floor'));
       case 'exactCeil': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'ceil'));
@@ -198,6 +288,11 @@ class Vm {
         if (!Math.isFinite(numerator) || !Math.isFinite(denominator))
           throw 'Exact number too large to convert to Float';
         finite((value.negative ? -numerator : numerator) / denominator);
+      case 'canonicalFloat':
+        var raw = text(a);
+        var num = Std.parseFloat(raw);
+        if (!Math.isFinite(num)) throw 'Invalid Float literal';
+        Text(Std.string(num));
       case '#exactEncode' | 'exactEncode':
         var raw = text(a);
         if (StringTools.startsWith(raw, '.')) raw = '0' + raw;
@@ -242,10 +337,11 @@ class Vm {
         Vector(items);
       case 'vectorLength': Number(vectorItems(a).length);
       case 'vectorLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(vectorItems(a).length)));
-      case 'vectorGet' | 'vectorGetExact':
+      case 'vectorLengthInt': IntNumber(numeric.FastNumber.exact(Std.string(vectorItems(a).length)));
+      case 'vectorGet' | 'vectorGetExact' | 'vectorGetInt':
         var items = vectorItems(a);
         items[vectorIndex(b, items.length)];
-      case 'vectorSet' | 'vectorSetExact':
+      case 'vectorSet' | 'vectorSetExact' | 'vectorSetInt':
         var items = vectorItems(a);
         var index = vectorIndex(b, items.length);
         var copy = items.copy();
@@ -294,7 +390,8 @@ class Vm {
         }
       case 'textLength': Number(UnicodeText.length(text(a)));
       case 'textLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(UnicodeText.length(text(a)))));
-      case 'textAt' | 'textAtExact':
+      case 'textLengthInt': IntNumber(numeric.FastNumber.exact(Std.string(UnicodeText.length(text(a)))));
+      case 'textAt' | 'textAtExact' | 'textAtInt':
         var source = text(a);
         Text(UnicodeText.at(source, index(b, UnicodeText.length(source))));
       case 'textConcat': Text(text(a) + text(b));
@@ -497,7 +594,10 @@ class Vm {
       return call(parse, Text(moduleSource));
     };
     var expanded = MacroExpander.syntax(call(parse, Text(source)), resolve);
-    return numeric.NumericDialect.isExact(source)
+
+    return numeric.LanguageVersion.isModern(source)
+      ? call(root.lookup('modernRewrite'), expanded)
+      : numeric.NumericDialect.isExact(source)
       ? call(root.lookup('exactRewrite'), expanded) : expanded;
   }
 
@@ -544,7 +644,9 @@ class Vm {
   public function compileWithNail(source:String, ?modules:String->Null<String>):Value {
     if (modules != null) return compileSyntaxWithNail(parseWithNail(source, modules));
     steps = 0;
-    var compiler = numeric.NumericDialect.isExact(source) ? 'compileExactSource' : 'compileSource';
+
+    var compiler = numeric.LanguageVersion.isModern(source) ? 'compileModernSource'
+      : numeric.NumericDialect.isExact(source) ? 'compileExactSource' : 'compileSource';
     return call(root.lookup(compiler), Text(source));
   }
 
@@ -566,7 +668,10 @@ class Vm {
   /** Values converted into JSON-compatible primitive data (functions intentionally excluded). */
   public static function toPlain(value:Value):Dynamic {
     return switch (value) {
+
       case Number(n): n;
+      case IntNumber(n): 'I:' + numeric.FastNumber.encodeExact(n).substr(2);
+      case RatioNumber(n): 'R:' + numeric.FastNumber.encodeExact(n).substr(2);
       case ExactNumber(n): numeric.FastNumber.encodeExact(n);
       case Boolean(b): b;
       case Text(s): s;

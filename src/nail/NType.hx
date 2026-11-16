@@ -9,6 +9,9 @@ typedef StructuralField = {
 /** Types of Nail expressions; independent from the five runtime AST constructors. */
 enum NType {
   TNumber;
+  TInt;
+  TRatio;
+  TFloat;
   /** Opt-in exact numeric type; separate from legacy floating Number. */
   TExact;
   TBoolean;
