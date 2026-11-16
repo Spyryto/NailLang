@@ -725,11 +725,17 @@ def parseDivRow tokens =
       parseError " Expected ; after Div row "
     else
       let valid =
-        if first == " Int " && second == " Int " then output == " Ratio "
-        else if first == " Ratio " && second == " Ratio " then output == " Ratio "
-        else if first == " Float " && second == " Float " then output == " Float "
-        else if first == " Int " && second == " Ratio " then output == " Ratio "
-        else if first == " Ratio " && second == " Int " then output == " Ratio "
+        if first == " Int " then
+          if second == " Int " then output == " Ratio "
+          else if second == " Ratio " then output == " Ratio "
+          else false
+        else if first == " Ratio " then
+          if second == " Ratio " then output == " Ratio "
+          else if second == " Int " then output == " Ratio "
+          else false
+        else if first == " Float " then
+          if second == " Float " then output == " Float "
+          else false
         else false in
         if valid then parsePair ( syntaxNode " RelationDecl " [] )
           ( tail ( tail ( tail ( tail args ) ) ) )
