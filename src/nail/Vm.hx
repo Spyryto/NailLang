@@ -155,7 +155,7 @@ class Vm {
 
   static function index(v:Value, size:Int):Int {
     switch (v) {
-      case ExactNumber(x): return numeric.FastNumber.index(x, size);
+      case ExactNumber(x) | IntNumber(x): return numeric.FastNumber.index(x, size);
       case _:
     }
     var n = number(v);
@@ -235,7 +235,7 @@ class Vm {
 
   static function vectorIndex(value:Value, size:Int):Int {
     switch (value) {
-      case ExactNumber(x): return numeric.FastNumber.index(x, size);
+      case ExactNumber(x) | IntNumber(x): return numeric.FastNumber.index(x, size);
       case _:
     }
     var index = number(value);

@@ -1,3 +1,61 @@
+# v0.45 — First-class numeric domains and source-version declaration
+
+The user-visible syntax is `nail 0.45 ;` at the start of a program.
+It is a declaration (not a comment). Unsupported language versions are
+rejected rather than reinterpreted as a numeric mode. In v0.45,
+the new syntax is selected only by that declaration; unversioned legacy
+bootstrap sources remain unaffected until the entire Nail-written stdlib
+can be moved.
+
+**Numerics:** integer tokens are `Int` (arbitrary precision via FastNumber),
+decimal tokens are `Float` (IEEE-754 binary64), division of two integers
+produces `Ratio` (arbitrary exact rational). Mixed Int/Ratio arithmetic
+uses Ratio; mixing Float with either exact domain is rejected at both
+type-check and primitive runtime level. Explicit conversions are `toRatio`,
+`toFloat`, `intFromText` and `ratioFromText`.
+
+The relation syntax (erased before bytecode execution) is:
+
+```nail
+Div : Int Int Ratio ;
+Div : Ratio Ratio Ratio ;
+Div : Float Float Float ;
+Div : Int Ratio Ratio ;
+Div : Ratio Int Ratio ;
+
+def divide x y : Div = x / y ;
+```
+
+The five listed rows are supported by the builtin VM arithmetic. The
+checker validates rows, rejects contradictory/duplicate combinations and
+allows a file to list a subset. If no row declarations are present,
+the five builtin rows are used. A declared function must statically type
+check under each allowed row; this is not a full typeclass system, and
+there are no user-defined runtime instances.
+
+**Choice B:** Numeric operator constraints are not generalized implicitly.
+A function that abstracts over unknown numeric input types must
+annotate `: Div`; otherwise the typechecker rejects the unresolved
+operator constraint. There are no implicit exact/Float conversions.
+
+**Runtime:** Separate literal tags `Int` and `Ratio` preserve the
+semantic distinction on both AST and structured bytecode. An Int remains
+an Int even when very large; an integral Ratio remains a Ratio. Both
+reuse FastNumber's small-int and reduced big-rational infrastructure.
+The compiler written in Nail recognizes `nail 0.45 ;`, erases type
+relations, and applies a first-class Syntax rewrite. Haxe reference
+compilation and source-free bootstrap must produce identical bytecode
+on all supported targets.
+
+**Current scope:** The old Number/Exact bootstrap semantics still exist
+internally; these are not exposed as the numeric defaults of 0.45
+source. This release does not introduce a full module ABI for the new
+types, generic constrained higher-order function passing, or
+backward-compatible source interpretation in a 0.45-only VM.
+Type checking is a separate opt-in host API before compile-only execution.
+
+---
+
 # v0.44 — Explicit, closed binary type relation prototype
 
 ## Decision

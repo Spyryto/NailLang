@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.44
+# Nail Language Tour — v0.45
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -187,3 +187,62 @@ haxe explicit-relations-test-interp.hxml
 haxe explicit-relations-test-js.hxml && node build/tests/explicit-relations.js
 haxe explicit-relations-test-php.hxml && php build/tests/php-explicit-relations/index.php
 ```
+
+## v0.45 — Int, Ratio e Float: linguaggio esplicitamente versionato
+
+Il nuovo sorgente dichiara **la versione del linguaggio**, non il suo
+sistema numerico, mediante una vera istruzione (i commenti sono commenti):
+
+```nail
+nail 0.45 ;
+
+Div : Int   Int   Ratio ;
+Div : Ratio Ratio Ratio ;
+Div : Float Float Float ;
+Div : Int   Ratio Ratio ;
+Div : Ratio Int   Ratio ;
+
+def divide x y : Div = x / y ;
+
+divide 9 2 ;             # Ratio, esatto 9/2
+divide 9.0 2.0 ;         # Float 4.5
+divide ( toRatio 9 ) 2 ; # Ratio 9/2
+1 / 3 + 1 / 6 ;         # Ratio 1/2
+0.1 + 0.2 ;             # Float approssimato
+```
+
+- `Int`: letterali **senza punto decimale**, interi con precisione
+  arbitraria fino al budget di cifre della VM.
+- `Ratio`: razionali esatti; `Int / Int` restituisce **sempre** Ratio,
+  anche quando il valore matematico è intero.
+- `Float`: letterali **con punto decimale**, in virgola mobile binaria.
+- `Int + Int`, `Int - Int`, `Int * Int` restituiscono Int.
+- `Int` e `Ratio` si possono combinare esattamente, restituendo Ratio.
+- `Float` si combina soltanto con `Float`. Nessuna conversione implicita
+  da `Int` o `Ratio` a `Float`.
+- Conversioni dichiarate: `toRatio : Int -> Ratio`,
+  `toFloat : Int|Ratio -> Float`, `ratioFromText : Text -> Ratio`,
+  `intFromText : Text -> Int`. `toFloat` può arrotondare.
+
+Le dichiarazioni `Div : T1 T2 TResult ;` sono **relazioni statiche**
+ammesse per un insieme chiuso di cinque firme. Sono validate, respingono
+duplicati, non creano implementazioni e non compaiono nel bytecode. Se il
+file ne dichiara soltanto alcune, il checker permette quelle righe nelle
+chiamate alle funzioni annotate `: Div`. Senza dichiarazioni vengono usate
+le cinque firme intrinseche.
+
+`def divide x y : Div = x / y ;` abilita il polimorfismo dell'operatore
+solo in quella funzione. Senza annotazione l'inferenza di operatori con
+argomenti sconosciuti viene rifiutata: **scelta B**, senza overload impliciti.
+
+L'esecuzione produce codifiche distinguibili nei test: `I:n/1` per Int
+e `R:n/d` per Ratio; `Float` produce un numero JSON. Queste stringhe
+sono l'output diagnostico dell'host, non la sintassi normale dei numeri.
+
+**Limiti di transizione:** le librerie bootstrap storiche senza header
+continuano nel vecchio dialetto per non modificare il compilatore scritto
+in Nail prima di migrare tutta la stdlib. La v0.45 nuova richiede
+`nail 0.45 ;`; non è ancora la modalità predefinita dei sorgenti senza
+header. Moduli runtime compilati separatamente e firme `: Div` come
+valori di prima classe non sono ancora supportati per il nuovo ABI.
+L'API di compilazione pura non sostituisce `TypeChecker.check`.

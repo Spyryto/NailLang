@@ -73,6 +73,13 @@ jobs:
           node build/tests/explicit-relations.js
           haxe explicit-relations-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
+      - name: Verify v0.45 Int / Ratio / Float on Haxe, Node and PHP
+        run: |
+          haxe modern-numbers-test-interp.hxml
+          haxe modern-numbers-test-js.hxml
+          node build/tests/modern-numbers.js
+          haxe modern-numbers-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-modern-numbers/index.php
       - name: Check Nail-written compiler fixed point
         run: haxe rebootstrap-image.hxml
       - name: Compile JavaScript and PHP distributions

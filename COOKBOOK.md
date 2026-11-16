@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.44
+# Nail Cookbook — v0.45
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -167,3 +167,30 @@ l'uso misto richiede conversione esplicita.
 Nota: queste firme usano ancora i due domini numerici esistenti,
 `Number` e `Exact`; `Int`, `Ratio`, `Float` e
 le dichiarazioni sorgente `Div : ...` sono da implementare.
+
+## Ricetta 10 — Battiti esatti e risultato Float esplicito
+
+```nail
+nail 0.45 ;
+
+def beatsPerBar = 4 ;
+def tempoBpm = 97 ;
+def secondsPerBeat = 60 / tempoBpm ;
+def secondsPerBar = beatsPerBar * secondsPerBeat ;
+
+secondsPerBar ;          # Ratio 240/97
+toFloat secondsPerBar ;  # Float, conversione esplicita
+```
+
+Per scrivere una funzione di divisione con cinque combinazioni esatte e
+floating point:
+
+```nail
+nail 0.45 ;
+Div : Int Int Ratio ;
+Div : Ratio Ratio Ratio ;
+Div : Float Float Float ;
+Div : Int Ratio Ratio ;
+Div : Ratio Int Ratio ;
+def divide x y : Div = x / y ;
+```

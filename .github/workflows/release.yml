@@ -75,6 +75,11 @@ jobs:
           node build/tests/explicit-relations.js
           haxe explicit-relations-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
+          haxe modern-numbers-test-interp.hxml
+          haxe modern-numbers-test-js.hxml
+          node build/tests/modern-numbers.js
+          haxe modern-numbers-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-modern-numbers/index.php
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml

@@ -431,7 +431,7 @@ private class Inference {
   }
 
   public function installPrimitives():Void {
-    var n = TNumber, e = TExact, b = TBoolean, s = TText;
+    var n = modernMode ? TInt : TNumber, e = TExact, b = TBoolean, s = TText;
     if (modernMode) {
       globals.set('toRatio', mono(fun(TInt, TRatio)));
       globals.set('ratioFromText', mono(fun(s, TRatio)));

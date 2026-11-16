@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.44
+# Eseguire NailLang — v0.45
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -117,3 +117,18 @@ compilatore dopo la verifica statica. Una compilazione pura tramite
 `BootRuntime.compile` **non** esegue il TypeChecker Haxe: come già
 per gli altri contratti, validare il codice con `TypeChecker.check`
 prima di distribuirlo o concedere capability.
+
+## Test v0.45 del nuovo dominio numerico
+
+```sh
+haxe seed-image.hxml
+haxe modern-numbers-test-interp.hxml
+haxe modern-numbers-test-js.hxml && node build/tests/modern-numbers.js
+haxe modern-numbers-test-php.hxml && php build/tests/php-modern-numbers/index.php
+```
+
+I programmi nuovi iniziano con `nail 0.45 ;`. La dichiarazione è
+linguaggio, non un commento; una VM che non supporta la versione del
+sorgente deve rifiutarla. Nelle distribuzioni odierne, l'API
+`BootRuntime.compile` verifica l'header prima di scegliere
+l'unico compilatore del dialetto moderno.
