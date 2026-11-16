@@ -1,2 +1,2 @@
-:square [ dup * ] def
-6 square
+def twice x = x * 2 ;
+twice 21 ;

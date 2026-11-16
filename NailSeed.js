@@ -1,197 +1,195 @@
-/* NailSeed 0.1 — tiny functional concatenative interpreter
- * Works in Scriptable (iOS) and Node.js; no dependencies or build step.
- * Whitespace always separates tokens. [ and ] must be separate tokens.
- * :name denotes a symbol; name executes a word.
- * Strings use s: followed by URI-encoded text (e.g. s:Ciao%20mondo).
- * # starts a line comment when it is the first token or preceded by whitespace.
- * Definitions are permitted only in top-level code.
+/* NailSeed 0.2 — experimental F#-style source language, JS edition.
+ * Whitespace separates EVERY token. For example: f ( x + 1 ) ;
+ * Definitions: def f x = x * 2 ;
+ * The source language exposes no stack manipulation.
+ * No dependencies; works in Scriptable, Node.js and browsers.
+ * Experimental AST interpreter: not yet a compiler to NailVM 0.1.
  */
-
-const NailSeed = (() => {
-  const quote = code => Object.freeze({ kind: 'quote', code: Object.freeze(code) });
-  const symbol = name => Object.freeze({ kind: 'symbol', name });
-  const word = name => Object.freeze({ kind: 'word', name });
-  const literal = value => Object.freeze({ kind: 'literal', value });
+const NailSeed2 = (() => {
+  const binaryPrecedence = { '|>': 10, '==': 30, '!=': 30, '<': 30, '<=': 30,
+    '>': 30, '>=': 30, '+': 40, '-': 40, '*': 50, '/': 50 };
+  const op = (kind, ...args) => ({ kind, args });
+  const isName = s => /^[A-Za-z_][A-Za-z_0-9]*$/.test(s) &&
+    !['def','if','then','else','fun','true','false'].includes(s);
+  const isNum = s => /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(s);
+  const isAtomStart = t => t === '(' || t === '[' || t === 'if' || t === 'fun' ||
+    t === 'true' || t === 'false' || t?.startsWith('s:') || isName(t) || isNum(t);
 
   function parse(source) {
-    const clean = source.split(/\r?\n/).map(line => line.replace(/(^|\s)#(?:\s|$).*$/, '$1')).join(' ');
-    const tokens = clean.match(/\S+/g) || [];
-    let index = 0;
+    const clean = source.split(/\r?\n/).map(x => x.replace(/(^|\s)#(?:\s|$).*$/, '$1')).join(' ');
+    const ts = clean.trim().match(/\S+/g) || [];
+    let i = 0;
+    const peek = () => ts[i];
+    const take = () => ts[i++];
+    const need = token => { if (take() !== token) throw Error(`Expected ${token} at token ${i}`); };
 
-    function sequence(nested) {
-      const result = [];
-      while (index < tokens.length) {
-        const t = tokens[index++];
-        if (t === ']') {
-          if (!nested) throw Error('Unexpected ]');
-          return result;
+    function expression(min = 0) {
+      let lhs;
+      const t = take();
+      if (t === undefined) throw Error('Unexpected end of input');
+      if (t === '(') { lhs = expression(); need(')'); }
+      else if (t === '[') {
+        const elements = [];
+        if (peek() !== ']') {
+          do { elements.push(expression()); if (peek() !== ',') break; take(); } while (true);
         }
-        if (t === '[') result.push(quote(sequence(true)));
-        else if (t === 'true') result.push(true);
-        else if (t === 'false') result.push(false);
-        else if (/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t)) result.push(Number(t));
-        else if (t.startsWith('s:')) result.push(decodeURIComponent(t.slice(2)));
-        else if (/^:[A-Za-z_][\w.-]*$/.test(t)) result.push(symbol(t.slice(1)));
-        else result.push(word(t));
+        need(']'); lhs = op('list', elements);
+      } else if (t === 'if') {
+        const test = expression(); need('then');
+        const yes = expression(); need('else');
+        lhs = op('if', test, yes, expression());
+      } else if (t === 'fun') {
+        const params = [];
+        while (peek() !== '->') {
+          const p = take(); if (!p || !isName(p)) throw Error('Expected function parameter');
+          params.push(p);
+        }
+        if (!params.length) throw Error('Function needs parameters');
+        need('->'); lhs = op('lambda', params, expression());
+      } else if (Object.hasOwn(binaryPrecedence, t) && t !== '|>' && t !== '==' && t !== '!=') {
+        // Optional F#-like operator section: * 2 means fun x -> x * 2.
+        lhs = op('section', t, expression(60));
+      } else if (isNum(t)) lhs = op('literal', Number(t));
+      else if (t === 'true' || t === 'false') lhs = op('literal', t === 'true');
+      else if (t.startsWith('s:')) lhs = op('literal', decodeURIComponent(t.slice(2)));
+      else if (isName(t)) lhs = op('name', t);
+      else throw Error(`Unexpected token ${t}`);
+      while (i < ts.length) {
+        const next = peek();
+        // Application binds tighter than multiplication (F# convention).
+        if (isAtomStart(next) && min <= 70) {
+          lhs = op('apply', lhs, expression(71)); continue;
+        }
+        const prec = binaryPrecedence[next];
+        if (prec === undefined || prec < min) break;
+        take();
+        lhs = next === '|>'
+          ? op('apply', expression(prec + 1), lhs)
+          : op('binary', next, lhs, expression(prec + 1));
       }
-      if (nested) throw Error('Unclosed [');
-      return result;
+      return lhs;
     }
-    return quote(sequence(false));
+    const forms = [];
+    while (i < ts.length) {
+      if (peek() === 'def') {
+        take(); const name = take();
+        if (!isName(name)) throw Error('Expected definition name');
+        const params = [];
+        while (peek() !== '=') {
+          if (i >= ts.length || !isName(peek())) throw Error('Expected parameter or =');
+          params.push(take());
+        }
+        need('='); const body = expression(); need(';');
+        forms.push(op('def', name, params, body));
+      } else {
+        const e = expression(); need(';'); forms.push(op('expr', e));
+      }
+    }
+    return forms;
   }
 
-  function create() {
-    const dict = new Map();
-    const pop = s => {
-      if (!s.length) throw Error('Stack underflow');
-      return s.pop();
-    };
-    const peek = s => {
-      if (!s.length) throw Error('Stack underflow');
-      return s[s.length - 1];
-    };
-    const getQuote = s => {
-      const v = pop(s);
-      if (!v || v.kind !== 'quote') throw Error('Expected quotation');
-      return v;
-    };
-    const getList = s => {
-      const v = pop(s);
-      if (!Array.isArray(v)) throw Error('Expected list');
-      return v;
-    };
-    const native = (name, fn) => dict.set(name, { native: fn });
-    const numeric = (name, fn) => native(name, s => {
-      const b = pop(s), a = pop(s);
-      if (typeof a !== 'number' || typeof b !== 'number') throw Error(name + ': numbers required');
-      s.push(fn(a, b));
-    });
-
-    function execute(q, s, ctx, topLevel = false) {
-      for (const node of q.code) {
-        if (++ctx.steps > ctx.maxSteps) throw Error('Execution budget exceeded');
-        if (node && node.kind === 'literal') {
-          s.push(node.value);
-        } else if (node && node.kind === 'word') {
-          const entry = dict.get(node.name);
-          if (!entry) throw Error('Unknown word: ' + node.name);
-          if (entry.native) entry.native(s, ctx, topLevel);
-          else execute(entry.quote, s, ctx, false);
-        } else {
-          s.push(node);
-        }
+  function create(options = {}) {
+    const globals = Object.create(null);
+    let steps = 0;
+    const limit = options.maxSteps || 100000;
+    function native(name, n, fn) {
+      globals[name] = { kind: 'native', name, n, fn, got: [] };
+    }
+    function lookup(env, name) {
+      if (name in env) return env[name];
+      if (name in globals) return globals[name];
+      throw Error('Unknown name: ' + name);
+    }
+    function apply(f, x) {
+      if (!f || (f.kind !== 'closure' && f.kind !== 'native')) throw Error('Value is not callable');
+      if (f.kind === 'native') {
+        const got = [...f.got, x];
+        return got.length === f.n ? f.fn(...got) : { ...f, got };
+      }
+      const local = Object.create(f.env);
+      local[f.params[0]] = x;
+      return f.params.length === 1
+        ? evalExpr(f.body, local)
+        : { ...f, params: f.params.slice(1), env: local };
+    }
+    function binary(symbol, a, b) {
+      switch (symbol) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return a / b;
+        case '<': return a < b;
+        case '<=': return a <= b;
+        case '>': return a > b;
+        case '>=': return a >= b;
+        case '==': return a === b;
+        case '!=': return a !== b;
+        default: throw Error(`Unknown operator ${symbol}`);
       }
     }
-    const apply = (q, inputs, ctx) => {
-      const s = inputs.slice();
-      execute(q, s, ctx, false);
-      if (s.length !== 1) throw Error('Quotation must produce exactly one value');
-      return s[0];
-    };
-
-    // Pure stack combinators
-    native('dup', s => s.push(peek(s)));
-    native('drop', s => { pop(s); });
-    native('swap', s => { const b = pop(s), a = pop(s); s.push(b, a); });
-    native('over', s => {
-      if (s.length < 2) throw Error('Stack underflow');
-      s.push(s[s.length - 2]);
-    });
-    numeric('+', (a, b) => a + b);
-    numeric('-', (a, b) => a - b);
-    numeric('*', (a, b) => a * b);
-    numeric('/', (a, b) => a / b);
-    numeric('<', (a, b) => a < b);
-    numeric('>', (a, b) => a > b);
-    native('=', s => {
-      const b = pop(s), a = pop(s);
-      if (typeof a === 'object' || typeof b === 'object') throw Error('=: scalar values only');
-      s.push(a === b);
-    });
-    native('not', s => { const v = pop(s); if (typeof v !== 'boolean') throw Error('not: boolean required'); s.push(!v); });
-    native('call', (s, ctx) => execute(getQuote(s), s, ctx));
-    native('dip', (s, ctx) => {
-      const q = getQuote(s), saved = pop(s);
-      execute(q, s, ctx);
-      s.push(saved);
-    });
-    native('curry', s => {
-      const q = getQuote(s), value = pop(s);
-      s.push(quote([literal(value), ...q.code]));
-    });
-    native('compose', s => {
-      const q2 = getQuote(s), q1 = getQuote(s);
-      s.push(quote([...q1.code, ...q2.code]));
-    });
-    native('if', (s, ctx) => {
-      const otherwise = getQuote(s), then = getQuote(s), condition = pop(s);
-      if (typeof condition !== 'boolean') throw Error('if: boolean required');
-      execute(condition ? then : otherwise, s, ctx);
-    });
-
-    // Immutable data and higher-order operations
-    native('pack', s => {
-      const n = pop(s);
-      if (!Number.isSafeInteger(n) || n < 0 || n > s.length) throw Error('pack: invalid length');
-      s.push(Object.freeze(s.splice(s.length - n, n)));
-    });
-    native('map', (s, ctx) => {
-      const q = getQuote(s), xs = getList(s);
-      s.push(Object.freeze(xs.map(x => apply(q, [x], ctx))));
-    });
-    native('fold', (s, ctx) => {
-      const q = getQuote(s), start = pop(s), xs = getList(s);
-      s.push(xs.reduce((acc, x) => apply(q, [acc, x], ctx), start));
-    });
-
-    // Only metaprogramming at top level mutates the dictionary.
-    native('def', (s, _ctx, topLevel) => {
-      if (!topLevel) throw Error('def is top-level only');
-      const q = getQuote(s), name = pop(s);
-      if (!name || name.kind !== 'symbol') throw Error('def: expected symbol');
-      if (dict.has(name.name)) throw Error('Already defined: ' + name.name);
-      dict.set(name.name, { quote: q });
-    });
-
-    function run(source, options = {}) {
-      const stack = [];
-      const ctx = { steps: 0, maxSteps: options.maxSteps || 100000 };
-      execute(parse(source), stack, ctx, true);
-      return stack;
+    function evalExpr(node, env) {
+      if (++steps > limit) throw Error('Execution budget exceeded');
+      const [a, b, c, d] = node.args;
+      switch (node.kind) {
+        case 'literal': return a;
+        case 'name': return lookup(env, a);
+        case 'binary': return binary(a, evalExpr(b, env), evalExpr(c, env));
+        case 'section': return { kind: 'native', name: `section ${a}`, n: 1,
+          got: [], fn: x => binary(a, x, evalExpr(b, env)) };
+        case 'if': return evalExpr(a, env) ? evalExpr(b, env) : evalExpr(c, env);
+        case 'lambda': return { kind: 'closure', params: a, body: b, env };
+        case 'apply': return apply(evalExpr(a, env), evalExpr(b, env));
+        case 'list': return Object.freeze(a.map(x => evalExpr(x, env)));
+        default: throw Error(`Unrecognized AST node ${node.kind}`);
+      }
     }
-    return Object.freeze({ run, parse, words: () => [...dict.keys()].sort() });
+    native('map', 2, (f, xs) => Object.freeze(xs.map(x => apply(f, x))));
+    native('filter', 2, (f, xs) => Object.freeze(xs.filter(x => apply(f, x))));
+    native('fold', 3, (f, init, xs) => xs.reduce((acc, x) => apply(apply(f, acc), x), init));
+    function run(source) {
+      const forms = parse(source), results = [];
+      steps = 0;
+      for (const form of forms) {
+        const [a, b, c] = form.args;
+        if (form.kind === 'def') {
+          if (a in globals) throw Error('Already defined: ' + a);
+          globals[a] = b.length
+            ? { kind: 'closure', params: b, body: c, env: Object.create(null) }
+            : evalExpr(c, Object.create(null));
+        } else results.push(evalExpr(a, Object.create(null)));
+      }
+      return results;
+    }
+    return Object.freeze({ run, parse, names: () => Object.keys(globals).sort() });
   }
   return Object.freeze({ create, parse });
 })();
 
-// Smoke tests. Only run when executed directly, not when imported.
-function nailSeedSelfTest() {
-const vm = NailSeed.create();
-const examples = [
-  [':square [ dup * ] def :inc [ 1 + ] def 5 inc square', '[36]'],
-  [':twice [ dup [ call ] dip call ] def 5 [ 1 + ] twice', '[7]'],
-  [':fact [ dup 2 < [ drop 1 ] [ dup 1 - fact * ] if ] def 5 fact', '[120]'],
-  [':sum [ 0 [ + ] fold ] def 4 5 6 3 pack sum', '[15]'],
-  ['1 2 3 3 pack [ dup * ] map', '[[1,4,9]]'],
-  ['1 2 3 3 pack 0 [ + ] fold', '[6]'],
-  ['true [ 42 ] [ 0 ] if', '[42]'],
-  ['5 [ 1 + ] [ 2 * ] compose call', '[12]'],
-  ['3 5 [ + ] curry call', '[8]'],
-  ['s:Ciao%20mondo', '["Ciao mondo"]'],
-  ['3 [ 5 ] dip', '[5,3]'],
-];
-for (const [source, expected] of examples) {
-  const actual = JSON.stringify(vm.run(source));
-  if (actual !== expected) throw Error(source + ' => ' + actual + ', expected ' + expected);
-  console.log('OK ' + source + ' => ' + actual);
+function nailSeed2SelfTest() {
+  const examples = [
+    ['def twice x = x * 2 ; twice 5 ;', '[10]'],
+    ['def square x = x * x ; square 7 ;', '[49]'],
+    ['def twice = * 2 ; twice 5 ;', '[10]'],
+    ['def sub a b = a - b ; sub 10 3 ;', '[7]'],
+    ['def add a b = a + b ; def add3 = add 3 ; add3 8 ;', '[11]'],
+    ['def fact n = if n < 2 then 1 else n * fact ( n - 1 ) ; fact 5 ;', '[120]'],
+    ['def inc = + 1 ; map inc [ 1 , 2 , 3 ] ;', '[[2,3,4]]'],
+    ['fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 ] ;', '[6]'],
+    ['def twice x = x * 2 ; [ 1 , 2 , 3 ] |> map twice ;', '[[2,4,6]]'],
+    ['def choose x = if x > 0 then x else 0 ; choose -4 ;', '[0]'],
+    ['def f x = x + 2 * 3 ; f 1 ;', '[7]'],
+    ['s:Ciao%20mondo ;', '["Ciao mondo"]'],
+    ['def makeAdder x = fun y -> x + y ; def add10 = makeAdder 10 ; add10 8 ;', '[18]'],
+    ['def halve = / 2 ; halve 9 ;', '[4.5]'],
+    ['def twice x = x * 2 ; 3 |> twice |> twice ;', '[12]'],
+  ];
+  for (const [code, expected] of examples) {
+    const actual = JSON.stringify(NailSeed2.create().run(code));
+    if (actual !== expected) throw Error(`FAIL ${code}\n${actual} != ${expected}`);
+  }
+  return `${examples.length} tests passed`;
 }
-console.log('NailSeed 0.1: ' + examples.length + ' tests passed');
-}
-
-if (typeof module !== 'undefined' && module.exports) module.exports = NailSeed;
-if (typeof Script !== 'undefined' && Script.complete) {
-  nailSeedSelfTest();
-  Script.complete();
-} else if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
-  nailSeedSelfTest();
+if (typeof module !== 'undefined') {
+  module.exports = { NailSeed2, nailSeed2SelfTest };
+  if (require.main === module) console.log(nailSeed2SelfTest());
 }

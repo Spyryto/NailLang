@@ -1,43 +1,40 @@
-# Nail Language Tour — v0.1
+# Nail Language Tour — v0.2
 
-> prototipo JavaScript + PHP indipendenti · Argomento distintivo: **Quotations e composizione su stack**.
+> prototipo JavaScript + PHP indipendenti · Argomento distintivo: **Funzioni, closure e pipeline**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [SPEC](./SPEC.md)
 
+**Percorso:** [versione precedente](../v0.1/LANGUAGE-TOUR.md) → **v0.2** → [versione successiva](../v0.3/LANGUAGE-TOUR.md).
+
 ## Che cosa imparo in questa versione?
 
-Il sorgente è concatenativo: ogni parola trasforma lo stack. `:square` è un simbolo, `[ ... ]` una quotation; `def` installa nuove parole al livello superiore.
+La superficie passa a `def`, applicazione curried, `fun`, `if` e `|>`; niente operazioni esplicite di stack.
 
 ```nail
-:square [ dup * ] def
-6 square
+def twice x = x * 2 ;
+[ 1 , 2 , 3 ] |> map twice ;
 ```
 
-## Lessico e valutazione
-
-- Ogni token è separato da whitespace; `[` e `]` devono essere token autonomi.
-- `:name` crea un simbolo; `name` esegue una parola; `[ ... ]` è una quotation immutabile.
-- `s:Ciao%20mondo` rappresenta il testo *Ciao mondo*. `#` commenta il resto della riga.
-- `dup`, `swap`, `call`, `curry`, `dip`, `map`, `fold` trasformano valori o programmi.
-
-### Composizione e liste
+## Dalla pila alle funzioni
 
 ```nail
-3 5 [ + ] curry call
-1 2 3 3 pack [ dup * ] map
-1 2 3 3 pack 0 [ + ] fold
+def inc = + 1 ;
+def makeAdder x = fun y -> x + y ;
+[ 1 , 2 , 3 ] |> map inc ;
 ```
+
+Le funzioni catturano l'ambiente lessicale e supportano l'applicazione parziale. `if ... then ... else ...`, operatori con precedenza e `|>` sono sintassi di superficie; `s:Ciao%20mondo` è la stringa codificata del prototipo.
 
 ## Implementazione
 
-Confronta `NailSeed.js` e `NailSeed.php`: tokenizer, stack, dizionario, valutazione, limiti di passi. Non esistono inferenza statica né AST a cinque forme.
+Confronta i due interpreti AST indipendenti in `NailSeed.js` e `NailSeed.php`. Non c'è ancora la VM Haxe, né un checker HM.
 
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.1 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.1) e cerca il test associato alla feature.
+4. Apri la [versione v0.2 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.2) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

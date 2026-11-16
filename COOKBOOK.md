@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.1
+# Nail Cookbook — v0.2
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -9,28 +9,29 @@ Ricette progressive per usare **questa** versione, non le feature delle release 
 File pronto: [`examples/cookbook-start.nail`](./examples/cookbook-start.nail).
 
 ```nail
-:square [ dup * ] def
-6 square
+def twice x = x * 2 ;
+twice 21 ;
 ```
 
-**Risultato atteso:** `36` in cima allo stack. Per usarlo da Node/PHP segui [RUNNING.md](./RUNNING.md).
+**Risultato atteso:** `42` come valore dell'espressione. Per usarlo da Node/PHP segui [RUNNING.md](./RUNNING.md).
 
-## Ricetta 2 — elaborare una lista
+## Ricetta 2 — trasformare una lista senza stack
 
 ```nail
-1 2 3 3 pack [ dup * ] map
+def twice x = x * 2 ;
+[ 1 , 2 , 3 ] |> map twice ;
 ```
 
-**Risultato atteso:** `[1, 4, 9]`. `pack` crea la lista, `map` esegue una quotation per elemento.
+**Risultato atteso:** `[2, 4, 6]`. `|>` rende leggibile la pipeline.
 
-## Ricetta 3 — Quotations e composizione su stack
+## Ricetta 3 — Funzioni, closure e pipeline
 
 ```nail
-:square [ dup * ] def
-6 square
+def twice x = x * 2 ;
+[ 1 , 2 , 3 ] |> map twice ;
 ```
 
-Il sorgente è concatenativo: ogni parola trasforma lo stack. `:square` è un simbolo, `[ ... ]` una quotation; `def` installa nuove parole al livello superiore.
+La superficie passa a `def`, applicazione curried, `fun`, `if` e `|>`; niente operazioni esplicite di stack.
 
 ## Allenamento: studiare l'implementazione
 

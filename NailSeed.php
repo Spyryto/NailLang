@@ -1,194 +1,212 @@
 <?php
-/** NailSeed 0.1 — PHP 8 reference interpreter.
- * Same source syntax and core semantics as NailSeed-0.1.js.
- * No dependencies. Run: php NailSeed-0.1.php
+/* NailSeed 0.2 — experimental F#-style source language, PHP 8 edition.
+ * ALL tokens must be separated by whitespace, including ( ) [ ] , ;
+ * Prototype AST interpreter, not yet a compiler to NailVM 0.1.
  */
-declare(strict_types=1);
-
-final class NailSeed {
-    private array $dict = [];
-
-    private static function quote(array $nodes): array { return ['t' => 'quote', 'code' => $nodes]; }
-    private static function symbol(string $name): array { return ['t' => 'symbol', 'name' => $name]; }
-    private static function word(string $name): array { return ['t' => 'word', 'name' => $name]; }
-    private static function literal(mixed $value): array { return ['t' => 'literal', 'value' => $value]; }
-
-    public static function parse(string $src): array {
-        $clean = preg_replace('/(^|\s)#(?:\s|$).*$/m', '$1', $src);
-        $tokens = preg_split('/\s+/', trim($clean), -1, PREG_SPLIT_NO_EMPTY);
-        $i = 0;
-        $sequence = function(bool $nested) use (&$sequence, &$i, $tokens): array {
-            $result = [];
-            while ($i < count($tokens)) {
-                $t = $tokens[$i++];
-                if ($t === ']') {
-                    if (!$nested) throw new RuntimeException('Unexpected ]');
-                    return $result;
-                }
-                if ($t === '[') $result[] = self::quote($sequence(true));
-                elseif ($t === 'true') $result[] = true;
-                elseif ($t === 'false') $result[] = false;
-                elseif (preg_match('/^-?(?:\d+(?:\.\d+)?|\.\d+)$/D', $t))
-                    $result[] = str_contains($t, '.') ? (float)$t : (int)$t;
-                elseif (str_starts_with($t, 's:')) $result[] = rawurldecode(substr($t, 2));
-                elseif (preg_match('/^:[A-Za-z_][\w.-]*$/D', $t)) $result[] = self::symbol(substr($t, 1));
-                else $result[] = self::word($t);
+final class NailSeed2 {
+    private array $tokens = [];
+    private int $i = 0;
+    private array $globals = [];
+    private int $steps = 0;
+    private int $maxSteps;
+    private const PRIORITY = [
+        '|>' => 10, '==' => 30, '!=' => 30, '<' => 30, '<=' => 30,
+        '>' => 30, '>=' => 30, '+' => 40, '-' => 40, '*' => 50, '/' => 50,
+    ];
+    public function __construct(int $maxSteps = 100000) {
+        $this->maxSteps = $maxSteps;
+        $this->native('map', 2, fn ($f, $xs) => array_map(fn ($x) => $this->apply($f, $x), $xs));
+        $this->native('filter', 2, fn ($f, $xs) => array_values(array_filter($xs, fn ($x) => $this->apply($f, $x))));
+        $this->native('fold', 3, fn ($f, $initial, $xs) => array_reduce($xs,
+            fn ($acc, $x) => $this->apply($this->apply($f, $acc), $x), $initial));
+    }
+    private static function ast(string $kind, mixed ...$args): array {
+        return ['kind' => $kind, 'args' => $args];
+    }
+    private static function isName(?string $t): bool {
+        return $t !== null && preg_match('/^[A-Za-z_][A-Za-z_0-9]*$/D', $t) === 1
+            && !in_array($t, ['def', 'if', 'then', 'else', 'fun', 'true', 'false'], true);
+    }
+    private static function isNumber(?string $t): bool {
+        return $t !== null && preg_match('/^-?(?:\d+(?:\.\d+)?|\.\d+)$/D', $t) === 1;
+    }
+    private static function isAtomStart(?string $t): bool {
+        return $t === '(' || $t === '[' || $t === 'if' || $t === 'fun'
+            || $t === 'true' || $t === 'false' || ($t !== null && str_starts_with($t, 's:'))
+            || self::isName($t) || self::isNumber($t);
+    }
+    private function peek(): ?string { return $this->tokens[$this->i] ?? null; }
+    private function take(): ?string { return $this->tokens[$this->i++] ?? null; }
+    private function need(string $token): void {
+        if ($this->take() !== $token) throw new RuntimeException("Expected $token at token {$this->i}");
+    }
+    private function expression(int $min = 0): array {
+        $t = $this->take();
+        if ($t === null) throw new RuntimeException('Unexpected end of input');
+        if ($t === '(') {
+            $lhs = $this->expression(); $this->need(')');
+        } elseif ($t === '[') {
+            $elements = [];
+            if ($this->peek() !== ']') {
+                do {
+                    $elements[] = $this->expression();
+                    if ($this->peek() !== ',') break;
+                    $this->take();
+                } while (true);
             }
-            if ($nested) throw new RuntimeException('Unclosed [');
-            return $result;
-        };
-        return self::quote($sequence(false));
-    }
-
-    private static function pop(array &$s): mixed {
-        if (!$s) throw new RuntimeException('Stack underflow');
-        return array_pop($s);
-    }
-    private static function peek(array $s): mixed {
-        if (!$s) throw new RuntimeException('Stack underflow');
-        return $s[count($s)-1];
-    }
-    private static function getQuote(array &$s): array {
-        $v = self::pop($s);
-        if (!is_array($v) || ($v['t'] ?? null) !== 'quote') throw new RuntimeException('Expected quotation');
-        return $v;
-    }
-    private static function getList(array &$s): array {
-        $v = self::pop($s);
-        if (!is_array($v) || array_key_exists('t', $v)) throw new RuntimeException('Expected list');
-        return $v;
-    }
-    private static function number(mixed $x): bool { return is_int($x) || is_float($x); }
-    private function native(string $name, Closure $fn): void { $this->dict[$name] = ['native' => $fn]; }
-    private function numeric(string $name, Closure $fn): void {
-        $this->native($name, function(array &$s) use ($name, $fn): void {
-            $b = self::pop($s); $a = self::pop($s);
-            if (!self::number($a) || !self::number($b)) throw new RuntimeException("$name: numbers required");
-            $s[] = $fn($a, $b);
-        });
-    }
-
-    private function execute(array $q, array &$s, array &$ctx, bool $topLevel = false): void {
-        foreach ($q['code'] as $node) {
-            if (++$ctx['steps'] > $ctx['maxSteps']) throw new RuntimeException('Execution budget exceeded');
-            if (is_array($node) && ($node['t'] ?? null) === 'literal') {
-                $s[] = $node['value'];
-            } elseif (is_array($node) && ($node['t'] ?? null) === 'word') {
-                $name = $node['name'];
-                if (!isset($this->dict[$name])) throw new RuntimeException('Unknown word: '.$name);
-                $entry = $this->dict[$name];
-                if (isset($entry['native'])) $entry['native']($s, $ctx, $topLevel);
-                else $this->execute($entry['quote'], $s, $ctx, false);
-            } else $s[] = $node;
+            $this->need(']'); $lhs = self::ast('list', $elements);
+        } elseif ($t === 'if') {
+            $test = $this->expression(); $this->need('then');
+            $yes = $this->expression(); $this->need('else');
+            $lhs = self::ast('if', $test, $yes, $this->expression());
+        } elseif ($t === 'fun') {
+            $params = [];
+            while ($this->peek() !== '->') {
+                $p = $this->take();
+                if (!self::isName($p)) throw new RuntimeException('Expected function parameter');
+                $params[] = $p;
+            }
+            if (!$params) throw new RuntimeException('Function needs parameters');
+            $this->need('->'); $lhs = self::ast('lambda', $params, $this->expression());
+        } elseif (isset(self::PRIORITY[$t]) && !in_array($t, ['|>', '==', '!='], true)) {
+            // Operator section: * 2 means fun x -> x * 2.
+            $lhs = self::ast('section', $t, $this->expression(60));
+        } elseif (self::isNumber($t)) {
+            $lhs = self::ast('literal', strpos($t, '.') !== false ? (float)$t : (int)$t);
+        } elseif ($t === 'true' || $t === 'false') {
+            $lhs = self::ast('literal', $t === 'true');
+        } elseif (str_starts_with($t, 's:')) {
+            $lhs = self::ast('literal', rawurldecode(substr($t, 2)));
+        } elseif (self::isName($t)) {
+            $lhs = self::ast('name', $t);
+        } else {
+            throw new RuntimeException("Unexpected token $t");
         }
+        while ($this->peek() !== null) {
+            $next = $this->peek();
+            if (self::isAtomStart($next) && $min <= 70) {
+                $lhs = self::ast('apply', $lhs, $this->expression(71));
+                continue;
+            }
+            $precedence = self::PRIORITY[$next] ?? null;
+            if ($precedence === null || $precedence < $min) break;
+            $this->take();
+            $lhs = $next === '|>'
+                ? self::ast('apply', $this->expression($precedence + 1), $lhs)
+                : self::ast('binary', $next, $lhs, $this->expression($precedence + 1));
+        }
+        return $lhs;
     }
-    private function apply(array $q, array $inputs, array &$ctx): mixed {
-        $s = $inputs;
-        $this->execute($q, $s, $ctx);
-        if (count($s) !== 1) throw new RuntimeException('Quotation must produce exactly one value');
-        return $s[0];
+    public function parse(string $source): array {
+        $source = preg_replace('/(^|\s)#(?=\s|$).*$/m', '$1', $source);
+        $this->tokens = preg_split('/\s+/', trim($source), -1, PREG_SPLIT_NO_EMPTY);
+        $this->i = 0;
+        $forms = [];
+        while ($this->peek() !== null) {
+            if ($this->peek() === 'def') {
+                $this->take(); $name = $this->take();
+                if (!self::isName($name)) throw new RuntimeException('Expected definition name');
+                $params = [];
+                while ($this->peek() !== '=') {
+                    if (!self::isName($this->peek())) throw new RuntimeException('Expected parameter or =');
+                    $params[] = $this->take();
+                }
+                $this->need('='); $body = $this->expression(); $this->need(';');
+                $forms[] = self::ast('def', $name, $params, $body);
+            } else {
+                $e = $this->expression(); $this->need(';');
+                $forms[] = self::ast('expr', $e);
+            }
+        }
+        return $forms;
     }
-
-    public function __construct() {
-        $this->native('dup', fn(array &$s) => $s[] = self::peek($s));
-        $this->native('drop', fn(array &$s) => self::pop($s));
-        $this->native('swap', function(array &$s): void {
-            $b = self::pop($s); $a = self::pop($s); $s[] = $b; $s[] = $a;
-        });
-        $this->native('over', function(array &$s): void {
-            if (count($s) < 2) throw new RuntimeException('Stack underflow');
-            $s[] = $s[count($s)-2];
-        });
-        $this->numeric('+', fn($a,$b) => $a+$b);
-        $this->numeric('-', fn($a,$b) => $a-$b);
-        $this->numeric('*', fn($a,$b) => $a*$b);
-        $this->numeric('/', fn($a,$b) => $a/$b);
-        $this->numeric('<', fn($a,$b) => $a<$b);
-        $this->numeric('>', fn($a,$b) => $a>$b);
-        $this->native('=', function(array &$s): void {
-            $b = self::pop($s); $a = self::pop($s);
-            if (!is_scalar($a) || !is_scalar($b)) throw new RuntimeException('=: scalar values only');
-            $s[] = self::number($a) && self::number($b) ? (float)$a === (float)$b : $a === $b;
-        });
-        $this->native('not', function(array &$s): void {
-            $x = self::pop($s);
-            if (!is_bool($x)) throw new RuntimeException('not: boolean required');
-            $s[] = !$x;
-        });
-        $this->native('call', function(array &$s, array &$ctx): void {
-            $this->execute(self::getQuote($s), $s, $ctx);
-        });
-        $this->native('dip', function(array &$s, array &$ctx): void {
-            $q = self::getQuote($s); $saved = self::pop($s);
-            $this->execute($q, $s, $ctx); $s[] = $saved;
-        });
-        $this->native('curry', function(array &$s): void {
-            $q = self::getQuote($s); $value = self::pop($s);
-            $s[] = self::quote([self::literal($value), ...$q['code']]);
-        });
-        $this->native('compose', function(array &$s): void {
-            $b = self::getQuote($s); $a = self::getQuote($s);
-            $s[] = self::quote([...$a['code'], ...$b['code']]);
-        });
-        $this->native('if', function(array &$s, array &$ctx): void {
-            $otherwise = self::getQuote($s); $then = self::getQuote($s); $condition = self::pop($s);
-            if (!is_bool($condition)) throw new RuntimeException('if: boolean required');
-            $this->execute($condition ? $then : $otherwise, $s, $ctx);
-        });
-        $this->native('pack', function(array &$s): void {
-            $n = self::pop($s);
-            if (!self::number($n) || !is_finite((float)$n) || floor((float)$n) !== (float)$n || $n < 0 || $n > count($s))
-                throw new RuntimeException('pack: invalid length');
-            $s[] = array_splice($s, count($s)-(int)$n, (int)$n);
-        });
-        $this->native('map', function(array &$s, array &$ctx): void {
-            $q = self::getQuote($s); $xs = self::getList($s); $out = [];
-            foreach ($xs as $x) $out[] = $this->apply($q, [$x], $ctx);
-            $s[] = $out;
-        });
-        $this->native('fold', function(array &$s, array &$ctx): void {
-            $q = self::getQuote($s); $acc = self::pop($s); $xs = self::getList($s);
-            foreach ($xs as $x) $acc = $this->apply($q, [$acc, $x], $ctx);
-            $s[] = $acc;
-        });
-        $this->native('def', function(array &$s, array &$ctx, bool $topLevel): void {
-            if (!$topLevel) throw new RuntimeException('def is top-level only');
-            $q = self::getQuote($s); $name = self::pop($s);
-            if (!is_array($name) || ($name['t'] ?? null) !== 'symbol')
-                throw new RuntimeException('def: expected symbol');
-            if (isset($this->dict[$name['name']])) throw new RuntimeException('Already defined: '.$name['name']);
-            $this->dict[$name['name']] = ['quote' => $q];
-        });
+    private function native(string $name, int $arity, Closure $fn): void {
+        $this->globals[$name] = ['kind' => 'native', 'arity' => $arity, 'fn' => $fn, 'got' => []];
     }
-
-    public function run(string $src, int $maxSteps = 100000): array {
-        $s = []; $ctx = ['steps' => 0, 'maxSteps' => $maxSteps];
-        $this->execute(self::parse($src), $s, $ctx, true);
-        return $s;
+    private function apply(mixed $f, mixed $x): mixed {
+        if (!is_array($f) || !in_array($f['kind'] ?? null, ['closure', 'native'], true))
+            throw new RuntimeException('Value is not callable');
+        if ($f['kind'] === 'native') {
+            $got = [...$f['got'], $x];
+            if (count($got) === $f['arity']) return ($f['fn'])(...$got);
+            $f['got'] = $got; return $f;
+        }
+        $local = $f['env'];
+        $local[$f['params'][0]] = $x;
+        if (count($f['params']) === 1) return $this->evalExpr($f['body'], $local);
+        $f['params'] = array_slice($f['params'], 1);
+        $f['env'] = $local;
+        return $f;
     }
-    public function words(): array { return array_keys($this->dict); }
+    private function binary(string $op, mixed $a, mixed $b): mixed {
+        return match ($op) {
+            '+' => $a + $b, '-' => $a - $b, '*' => $a * $b, '/' => $a / $b,
+            '<' => $a < $b, '<=' => $a <= $b, '>' => $a > $b, '>=' => $a >= $b,
+            '==' => $a === $b, '!=' => $a !== $b,
+            default => throw new RuntimeException("Unknown operator $op"),
+        };
+    }
+    private function evalExpr(array $node, array $env): mixed {
+        if (++$this->steps > $this->maxSteps) throw new RuntimeException('Execution budget exceeded');
+        $p = $node['args'];
+        return match ($node['kind']) {
+            'literal' => $p[0],
+            'name' => array_key_exists($p[0], $env) ? $env[$p[0]] :
+                ($this->globals[$p[0]] ?? throw new RuntimeException("Unknown name: {$p[0]}")),
+            'binary' => $this->binary($p[0], $this->evalExpr($p[1], $env), $this->evalExpr($p[2], $env)),
+            'section' => [ 'kind' => 'native', 'arity' => 1, 'got' => [],
+                'fn' => fn ($x) => $this->binary($p[0], $x, $this->evalExpr($p[1], $env)) ],
+            'if' => $this->evalExpr($p[0], $env) ? $this->evalExpr($p[1], $env) :
+                $this->evalExpr($p[2], $env),
+            'lambda' => ['kind' => 'closure', 'params' => $p[0], 'body' => $p[1], 'env' => $env],
+            'apply' => $this->apply($this->evalExpr($p[0], $env), $this->evalExpr($p[1], $env)),
+            'list' => array_map(fn ($x) => $this->evalExpr($x, $env), $p[0]),
+            default => throw new RuntimeException("Unknown AST node {$node['kind']}"),
+        };
+    }
+    public function run(string $source): array {
+        $forms = $this->parse($source);
+        $this->steps = 0;
+        $results = [];
+        foreach ($forms as $form) {
+            [$a, $b, $c] = array_pad($form['args'], 3, null);
+            if ($form['kind'] === 'def') {
+                if (array_key_exists($a, $this->globals)) throw new RuntimeException("Already defined: $a");
+                $this->globals[$a] = $b
+                    ? ['kind' => 'closure', 'params' => $b, 'body' => $c, 'env' => []]
+                    : $this->evalExpr($c, []);
+            } else {
+                $results[] = $this->evalExpr($a, []);
+            }
+        }
+        return $results;
+    }
 }
 
-// Run identical smoke tests only when invoked directly.
-if (isset($_SERVER['SCRIPT_FILENAME']) && realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__) {
-    $vm = new NailSeed();
-    $tests = [
-        [':square [ dup * ] def :inc [ 1 + ] def 5 inc square', '[36]'],
-        [':twice [ dup [ call ] dip call ] def 5 [ 1 + ] twice', '[7]'],
-        [':fact [ dup 2 < [ drop 1 ] [ dup 1 - fact * ] if ] def 5 fact', '[120]'],
-        [':sum [ 0 [ + ] fold ] def 4 5 6 3 pack sum', '[15]'],
-        ['1 2 3 3 pack [ dup * ] map', '[[1,4,9]]'],
-        ['1 2 3 3 pack 0 [ + ] fold', '[6]'],
-        ['true [ 42 ] [ 0 ] if', '[42]'],
-        ['5 [ 1 + ] [ 2 * ] compose call', '[12]'],
-        ['3 5 [ + ] curry call', '[8]'],
-        ['s:Ciao%20mondo', '["Ciao mondo"]'],
-        ['3 [ 5 ] dip', '[5,3]'],
+function nailSeed2SelfTest(): string {
+    $examples = [
+        ['def twice x = x * 2 ; twice 5 ;', '[10]'],
+        ['def square x = x * x ; square 7 ;', '[49]'],
+        ['def twice = * 2 ; twice 5 ;', '[10]'],
+        ['def sub a b = a - b ; sub 10 3 ;', '[7]'],
+        ['def add a b = a + b ; def add3 = add 3 ; add3 8 ;', '[11]'],
+        ['def fact n = if n < 2 then 1 else n * fact ( n - 1 ) ; fact 5 ;', '[120]'],
+        ['def inc = + 1 ; map inc [ 1 , 2 , 3 ] ;', '[[2,3,4]]'],
+        ['fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 ] ;', '[6]'],
+        ['def twice x = x * 2 ; [ 1 , 2 , 3 ] |> map twice ;', '[[2,4,6]]'],
+        ['def choose x = if x > 0 then x else 0 ; choose -4 ;', '[0]'],
+        ['def f x = x + 2 * 3 ; f 1 ;', '[7]'],
+        ['s:Ciao%20mondo ;', '["Ciao mondo"]'],
+        ['def makeAdder x = fun y -> x + y ; def add10 = makeAdder 10 ; add10 8 ;', '[18]'],
+        ['def halve = / 2 ; halve 9 ;', '[4.5]'],
+        ['def twice x = x * 2 ; 3 |> twice |> twice ;', '[12]'],
     ];
-    foreach ($tests as [$src, $expected]) {
-        $actual = json_encode($vm->run($src), JSON_UNESCAPED_UNICODE);
-        if ($actual !== $expected) throw new RuntimeException("$src => $actual, expected $expected");
-        echo "OK $src => $actual\n";
+    foreach ($examples as [$code, $expected]) {
+        $actual = json_encode((new NailSeed2())->run($code));
+        if ($actual !== $expected) throw new RuntimeException("FAIL $code\n$actual != $expected");
     }
-    echo 'NailSeed PHP 0.1: '.count($tests)." tests passed\n";
+    return count($examples) . ' tests passed';
+}
+if (isset($_SERVER['SCRIPT_FILENAME']) && realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__) {
+    echo nailSeed2SelfTest(), PHP_EOL;
 }

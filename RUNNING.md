@@ -1,20 +1,20 @@
-# Come eseguire NailSeed — v0.1
+# Come eseguire NailSeed — v0.2
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** prototipo JavaScript + PHP indipendenti. Tutti i comandi seguenti si eseguono nella cartella `v0.1/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** prototipo JavaScript + PHP indipendenti. Tutti i comandi seguenti si eseguono nella cartella `v0.2/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
 ## Node.js e PHP 8
 
 ```sh
-cd v0.1
-node NailSeed.js             # self-test JavaScript
+cd v0.2
+node NailSeed.js             # self-test JS
 php NailSeed.php             # self-test PHP
-node -e 'const fs=require("node:fs"); const N=require("./NailSeed.js"); console.log(N.create().run(fs.readFileSync("examples/cookbook-start.nail","utf8")))'
-php -r 'require "NailSeed.php"; echo json_encode((new NailSeed())->run(file_get_contents("examples/cookbook-start.nail")));'
+node -e 'const fs=require("node:fs"); const {NailSeed2}=require("./NailSeed.js"); console.log(NailSeed2.create().run(fs.readFileSync("examples/cookbook-start.nail","utf8")))'
+php -r 'require "NailSeed.php"; echo json_encode((new NailSeed2())->run(file_get_contents("examples/cookbook-start.nail")));'
 ```
 
-Il file CLI eseguito direttamente lancia i test; il proprio programma si passa all'API `create().run(source)` (JS) o `(new NailSeed())->run(source)` (PHP). `run` restituisce lo stack dei risultati.
+Sono due interpreti di riferimento indipendenti, non compilati Haxe. `run(source)` restituisce una lista di risultati.
 
 ## Aprire il runtime in una pagina web
 
@@ -25,8 +25,8 @@ Un esempio già pronto si trova in [`examples/browser.html`](./examples/browser.
 <button id="go">Esegui Nail</button><pre id="result"></pre>
 <script>
 document.getElementById('go').addEventListener('click', () => {
-  const vm = NailSeed.create();
-  const output = vm.run('3 4 +');
+  const vm = NailSeed2.create();
+  const output = vm.run('def twice x = x * 2 ; twice 21 ;');
   document.getElementById('result').textContent = JSON.stringify(output);
 });
 </script>

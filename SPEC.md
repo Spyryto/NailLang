@@ -1,89 +1,81 @@
-# NailSeed 0.1 — protocollo sperimentale
+# NailSeed 0.2 — Functional source syntax (experimental)
 
-NailSeed è un esperimento di nucleo concatenativo funzionale, ispirato ai principi di Joy e Forth. Questa non è ancora la specifica definitiva del linguaggio Nail né un sostituto per NailVM 0.1.
+## Design decision
 
-## Obiettivi
+Named parameters and ordinary functional expressions are the **only** user-facing model. There are no `dup`, `swap`, `rot`, or implicit stack effects to reason about. A stack may still implement an internal VM, but it is not a part of the language semantics.
 
-- Testo sorgente a token delimitati **sempre** da whitespace. Delimitatori `[` e `]` sono token separati.
-- Parser portabile e piccolo (tokenizer + lettura ricorsiva di quotations).
-- Composizione di programmi come operazione fondamentale.
-- Programmi come valori immutabili (quotations), con esecuzione, composizione e cattura di valori.
-- Funzioni ordinarie pure, con `def` consentita solo al livello superiore.
-- Test di conformità condivisi fra JavaScript e PHP.
+This is a proof-of-concept language and not a finished replacement for NailVM 0.1. The 0.2 prototypes directly evaluate an AST rather than compile to 0.1 bytecode.
 
-## Lessico minimo v0.1
+## Token rule
 
-| Sorgente | Semantica |
-|---|---|
-| `123` / `-2` / `3.14` | numero |
-| `true` / `false` | booleano |
-| `s:Ciao%20mondo` | stringa `Ciao mondo` (percent-encoding) |
-| `:square` | simbolo letterale `square` |
-| `square` | invoca la parola `square` |
-| `[ 1 + ]` | quotation (programma non eseguito) |
-| `# commento` | commento fino alla fine della riga, con `#` token separato |
+**Every token must be whitespace-delimited**, including punctuation:
 
-Non esistono precedenze di operatori, indentazione significativa, parentesi attaccate o stringhe con spazi non codificati.
+    def twice x = x * 2 ;
+    twice ( 5 + 1 ) ;
 
-## Effetti di stack (notazione descrittiva, non ancora verificata staticamente)
+In this version, `twice(5+1);` is deliberately invalid. The tokenizer is essentially `source.trim().split(/\s+/)` after stripping standalone `#` line comments. Each definition/expression is terminated by `;`; a newline alone does not end a definition. Strings with spaces are temporarily written as URI-encoded `s:Ciao%20mondo` (to be redesigned).
 
-- `dup`: `( ...S a -- ...S a a )`
-- `swap`: `( ...S a b -- ...S b a )`
-- `+`: `( ...S Number Number -- ...S Number )`
-- `call`: `( ...S Quote -- ...T )`, in base all'effetto della quotation
-- `dip`: `( ...S a Quote -- ...T a )`, eseguendo la quotation sullo stack senza `a`
-- `compose`: `( ...S Quote Quote -- ...S Quote )`
-- `curry`: `( ...S a Quote -- ...S Quote )`, cattura un valore immutabile
-- `if`: `( ...S Bool Quote Quote -- ...T )`, esegue il primo ramo se true
-- `pack`: `( ...S item1 ... itemN N -- ...S List )`
-- `map`: `( ...S List Quote -- ...S List )`, la quotation trasforma un elemento in uno
-- `fold`: `( ...S List init Quote -- ...S result )`, la quotation trasforma `(acc, x)` in `acc`
-- `def`: `( ...S Symbol Quote -- ...S )`, **solo top-level**, nome non già occupato
+## Surface examples
 
-Le parole degli utenti non possono ridefinire parole esistenti. I dati-lista sono consumati senza mutazioni del loro contenuto. La macchina, come ogni interprete a stack, usa uno stack mutabile internamente, ma le trasformazioni di programma sono pure tranne l'installazione di parole al top-level.
+    def twice x = x * 2 ;
+    def twice2 = * 2 ;         # operator section (shorthand)
+    def square x = x * x ;
 
-`=` in questa versione compara solo valori scalari, non liste o quotations.
+    def add a b = a + b ;
+    def add3 = add 3 ;         # partial application
 
-## Esempi validati in JS e PHP
+    def factorial n =
+      if n < 2 then 1 else n * factorial ( n - 1 ) ;
 
-```text
-:square [ dup * ] def
-:inc [ 1 + ] def
-5 inc square           # 36
+    def makeAdder x = fun y -> x + y ;
+    def add10 = makeAdder 10 ;
 
-:twice [ dup [ call ] dip call ] def
-5 [ 1 + ] twice        # 7
+    map square [ 1 , 2 , 3 ] ;
+    fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 ] ;
+    [ 1 , 2 , 3 ] |> map twice ;
 
-:fact [ dup 2 < [ drop 1 ] [ dup 1 - fact * ] if ] def
-5 fact                 # 120
+The section `* 2` means `fun x -> x * 2`. This convention also makes `/ 2` mean `fun x -> x / 2`. In particular it is **not** ordinary left currying of the binary operator: the surface syntax intentionally binds the implicit argument on the **left**. Named arguments remain canonical and are less surprising for noncommutative operators.
 
-1 2 3 3 pack [ dup * ] map     # [ 1 4 9 ]
-1 2 3 3 pack 0 [ + ] fold      # 6
-3 5 [ + ] curry call           # 8
-```
+## Grammar sketch
 
-## Esecuzione
+    program      = (definition | expression ';')*
+    definition   = 'def' name name* '=' expression ';'
+    expression   = atom (application-argument | infix-op expression)*
+    atom         = number | boolean | encoded-string | name
+                 | '(' expression ')'
+                 | '[' (expression (',' expression)*)? ']'
+                 | 'fun' name+ '->' expression
+                 | 'if' expression 'then' expression 'else' expression
+                 | binary-operator atom
 
-- Node.js: `node NailSeed-0.1.js`. Come libreria: `const NailSeed = require('./NailSeed-0.1.js'); const vm = NailSeed.create(); vm.run('3 4 +');`.
-- Scriptable: copiare il sorgente JS in uno script e avviarlo; usa soltanto JavaScript standard e `console.log`; la compatibilità reale con Scriptable non è ancora stata collaudata sul dispositivo.
-- PHP 8: `php NailSeed-0.1.php`. Da altro file: `require 'NailSeed-0.1.php'; $vm = new NailSeed(); $vm->run('3 4 +');`.
-- Entrambi gli script, eseguiti direttamente, eseguono **11 test** e mostrano un messaggio per ciascuno.
+The actual parser uses precedence climbing (Pratt-like), with function application > multiplication/division > addition/subtraction > comparison > pipeline. `|>` is left associative; ordinary operators are left associative. Explicit parentheses are separate tokens.
 
-## Cosa NON è ancora
+## Runtime prototype
 
-- Non c'è inferenza dei tipi, né un controllo statico degli effetti di stack.
-- Non ci sono ADT, pattern matching, moduli o codice macro interamente nel linguaggio.
-- Non è self-hosting: definisce nuove parole e combinatori, ma non interpreta autonomamente stringhe sorgente o compila autonomamente il proprio codice.
-- Non sono ancora disponibili host calls, gestione esplicita IO, isolamento dei permessi o sandbox di produzione.
-- L'esecuzione è ricorsiva sull'host, quindi non dispone ancora di trampoline o tail-call garantito; è presente un limite di passi per chiamata.
-- La semantica deve essere ulteriormente testata sui casi-limite di numeri e Unicode, prima di considerare i due backend del tutto equivalenti.
+- Pure first-class functions, closure capture, single-argument currying, recursive global definitions.
+- Host `map`, `filter`, `fold`; immutable list values in JS.
+- Small arithmetic/comparison vocabulary and `if then else`.
+- No `dup`, `rot`, `swap` or other stack operations in source code.
+- Runs under Node.js and PHP 8. JS code targets Scriptable too, but was only tested in Node.js.
+- 15 identical smoke tests passed in Node.js and PHP 8 in the authoring environment.
+- Has a simple step budget but is **not** hardened to run arbitrary untrusted programs.
 
-## Prossimo incremento architetturale suggerito
+## Unimplemented / intentionally postponed
 
-1. Congelare una piccola suite di test condivisa con casi normali e negativi.
-2. Aggiungere valori algebrici `tag` / `record`, operazioni primitive su liste e quotations come dati e una forma di `match`.
-3. Spostare `map`, `fold`, controllo di flusso e libreria standard da primitive native a definizioni Nail, dove possibile.
-4. Scrivere in Nail un tokenizer/parser di Nail (self-hosting dello strato sintattico), poi il compilatore verso un bytecode astratto.
-5. Studiare la compatibilità fra la rappresentazione di quotations e la precedente ISA NailVM 0.1 (`CLOS/CALL`, `REC/GET`, `TAG/CASE`, `PRIM/HOST`), senza rompere la VM esistente.
-6. Aggiungere type inference con variabili di riga di stack, tipi algebraici e distinzione degli effetti di IO; mantenere il core puro.
-7. Solo dopo la stabilizzazione valutare Haxe come singola implementazione sorgente compilabile in JS/PHP, conservando gli stessi test di conformità.
+- Static type inference, user-defined algebraic data types and pattern matching.
+- Module system and error spans.
+- Natural quoted strings, Unicode syntax, tail-call optimization.
+- Effect handling; PHP persistent immutable data representation.
+- Compilation of source AST to the earlier NailVM bytecode.
+- A self-hosting parser/compiler written in Nail itself.
+
+## Architectural direction
+
+    source language (named parameters, pure expressions)
+        -> whitespace tokens
+        -> tiny precedence parser
+        -> small lambda/closure-based core AST
+        -> [next] NailVM 0.1 compatible bytecode compiler
+        -> JavaScript / PHP runtimes
+
+Keep syntax sugar (`def`, `if`, infix operators, `|>`, operator sections) out of the semantic core. Core operations need only literals, variable lookup, lambda/closure, application, conditional and selected primitives; lexical environments hide all internal stack bookkeeping. This deliberately exchanges the absolute minimal grammar of Forth for an ordinary expression language with far lower cognitive burden for the author.
