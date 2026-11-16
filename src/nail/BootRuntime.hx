@@ -27,6 +27,11 @@ class BootRuntime {
   public function grantTextResultReader(alias:String, capability:TextReadCapability):Void
     machine.grantTextResultReader(alias, capability);
 
+  /** Explicit write-only grant for the source-free bytecode runtime. */
+  @:keep
+  public function grantTextWriter(alias:String, capability:TextWriteCapability):Void
+    machine.grantTextWriter(alias, capability);
+
   /** Compilation is performed by compileSource, a Nail function in bytecode. */
   @:keep
   public function compile(source:String, ?modules:String->Null<String>):Value return machine.compileSource(source, modules);

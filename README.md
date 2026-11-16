@@ -2,6 +2,8 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
+**Current development: v0.39** — opt-in typed text-write host capabilities, separate from read grants. Historical v0.38 remains immutable at its release tag; v0.39 is a development milestone until tested and tagged.
+
 This repository reconstructs the original NailSeed prototype as a clean, version-by-version public Git history. Each historic version has its own commit and tag. The current branch contains a single src/ directory, rather than numbered version folders.
 
 - Language source and Haxe implementation: src/
@@ -9,7 +11,9 @@ This repository reconstructs the original NailSeed prototype as a clean, version
 - Cookbook: COOKBOOK.md
 - Run from the command line or embed in JavaScript/PHP: RUNNING.md
 - Historical language tours and code: docs/versions.md
-- Downloadable historical source and compiled distributions: GitHub Releases
+- Downloadable historical source and compiled distributions: GitHub Releases (assets vary by release)
+- Current Haxe/JS/PHP build and targeted test workflow: .github/workflows/ci.yml
+- Future tagged distribution workflow: .github/workflows/release.yml
 
 The v0.16, v0.28 and v0.29 numeric experiments are preserved under experiments/numeric in their historical tags. They are research experiments, not replacements for the main compiler. Python is not required for local builds and tests; 270 independent numeric reference cases are committed.
 

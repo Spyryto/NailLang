@@ -417,6 +417,14 @@ class Vm {
     root.bind(alias, capability.asResultValue());
   }
 
+  /** Explicit write-only grant; separate from every text-reader binding. */
+  public function grantTextWriter(alias:String, capability:TextWriteCapability):Void {
+    if (capability == null || !~/^[A-Za-z_][A-Za-z_0-9]*$/.match(alias))
+      throw 'Invalid text writer grant';
+    if (root.hasHere(alias)) throw 'Duplicate or reserved capability alias: ' + alias;
+    root.bind(alias, capability.asValue());
+  }
+
   /** Execute validated core forms using the same evaluator on every target. */
   function executeForms(forms:Array<Form>):Array<Value> {
     var output:Array<Value> = [];

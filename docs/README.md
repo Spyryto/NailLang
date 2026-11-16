@@ -7,3 +7,5 @@ Browse source, language tours, cookbooks and execution instructions by selecting
 - `LANGUAGE-TOUR.md`, `COOKBOOK.md` and `RUNNING.md` track the main compiler. For numeric-lab tags, the corresponding guides are under `experiments/numeric/`.
 
 The history is reconstructed from sources, not imported from the old private Git history. No license has been selected yet.
+
+The current development head may be newer than the latest release tag. See [the root language tour](../LANGUAGE-TOUR.md) for the current development version; the table in [versions.md](./versions.md) lists released historical tags.

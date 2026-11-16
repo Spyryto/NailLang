@@ -50,6 +50,24 @@ class UnicodeText {
     return scalars;
   }
 
+  /** Inspect no more than maxScalars + 1 codepoints without materializing
+      an unbounded array. This is an admission check for untrusted host I/O
+      payloads, not a replacement for cached indexed string access. */
+  public static function fitsScalarBudget(source:String, maxScalars:Int):Bool {
+    if (maxScalars < 0) throw 'Invalid Unicode scalar budget';
+    var iterator = new StringIteratorUnicode(source);
+    var count = 0;
+    while (iterator.hasNext()) {
+      var cp = iterator.next();
+      if (cp < 0 || cp > 0x10FFFF ||
+          (cp >= 0xD800 && cp <= 0xDFFF))
+        throw 'Invalid Unicode scalar in Text';
+      count++;
+      if (count > maxScalars) return false;
+    }
+    return true;
+  }
+
   public static function length(source:String):Int return points(source).length;
 
   /** Caller validates bounds using the length and the existing numeric

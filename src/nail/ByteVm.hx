@@ -274,6 +274,12 @@ class ByteVm {
     linkImport(alias, capability.asResultValue());
   }
 
+  /** Explicit write-only grant, using the same import alias safeguards. */
+  public function grantTextWriter(alias:String, capability:TextWriteCapability):Void {
+    if (capability == null) throw 'Missing text writer capability';
+    linkImport(alias, capability.asValue());
+  }
+
   /** Link a verified import without altering the compiled module's code.
       A module gets a fresh ByteVm root; only declared exported values are
       installed and ordinary global lookup remains private to that module. */
