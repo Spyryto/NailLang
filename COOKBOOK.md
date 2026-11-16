@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.26
+# Nail Cookbook — v0.27
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Origine sorgente e identità dei binding
+## Ricetta 3 — Contratti delle definizioni generate
 
 ```nail
 type Person { name Text age Number } ;
 def ada = Person " Ada " 32 ;
-ada . name ;
+ada . age ;
 ```
 
-Il cambiamento riguarda dati di provenienza di token/AST e identificativi dei binding; `source-provenance.nail` si carica separatamente.
+Un validatore indipendente confronta il piano dei record con la dichiarazione sorgente e controlla firme monomorfiche generate.
 
 ## Allenamento: studiare l'implementazione
 

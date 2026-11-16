@@ -1,68 +1,98 @@
-# NailSeed v0.26 — Source provenance and binding identities
+# NailSeed v0.27 — Generated record declaration contracts
 
-Independent follow-up to [v0.25](../v0.25/), which remains unchanged.
-The five-expression core, runtime semantics and canonical bytecode stay intact.
+This is an independent experimental snapshot based on
+[v0.26](../v0.26/), which remains unchanged. It introduces an **opt-in
+validation gate** for the trusted record transformer written in Nail.
 
-## Implemented in this experiment
+## Validation contract
 
-- Token offsets and start/end coordinates with strings and comments.
-- Optional `Parser.provenance` sidecar for expressions and top-level forms.
-- Macro normalization preserving source argument spans and reporting the
-  expansion call site separately.
-- Iterative `BindingAnalysis.resolve(forms, parser.provenance)` producing
-  deterministic per-program IDs for lambda parameters and definitions.
-  Shadowing, self-reference and macro-global bypass are covered by tests.
-- Interpreter, JavaScript and PHP provenance regression tests alongside the
-  inherited cross-target bootstrap and runtime checks.
+`GeneratedDeclarationValidator.validate(plan)` accepts the
+`RecordExpansion` value emitted by the Nail transformer and:
 
-## Try it
+1. Checks the original, un-erased source Program with `TypeChecker`,
+   including nominal field signatures and ordinary expressions.
+2. Independently lowers each `RecordType` to the constructor and qualified
+   accessors using the Haxe `RecordLowering` reference implementation.
+3. Compares every emitted definition and unchanged form against the expected
+   **full** Syntax structure, rejecting missing, extra, renamed or modified
+   definitions. It does not trust the generated names or arity alone.
+4. Returns the unchanged runtime Program only when all checks pass.
+
+The optional VM API is:
+
+```haxe
+var vm = new nail.Vm(50000000);
+vm.loadStdlib();
+var program = vm.validatedRecordsWithNail(source);
+var bytecode = vm.compileValidatedWithNail(source);
+```
+
+The existing `compileWithNail` API and source-free `BootRuntime` remain
+compatible; these new host-side entry points **do not silently change**
+their behavior or introduce any new VM instruction.
+
+## Reusable generated-definition signatures
+
+The same release also exposes an independent, general contract for
+**new generated definitions with closed, monomorphic signatures**:
+
+```haxe
+var original:Value = SyntaxEncoder.program(new Parser(
+  "type Person { age Number } ;").parseRaw());
+var generated:Value = SyntaxEncoder.program(new Parser(
+  "def age person = person . age ;").parseRaw());
+
+var signatures = [{name:"age",
+  type:TFunction(TRecord("Person"), TNumber)}];
+
+new TypeChecker().checkGenerated(original, generated, signatures);
+GeneratedDeclarationValidator.validateTyped(original, generated, signatures);
+var bytecode = vm.compileCheckedGenerated(original, generated, signatures);
+```
+
+This checks each emitted definition in order, rejects unexpected/duplicate
+names and forms, validates known nominal types, and unifies each body with its
+declared signature. Earlier definitions and original checked source bindings
+may be referenced; the currently checked name can recurse. The checker works
+transactionally and does not modify the caller's type environment.
+
+The original and generated programs must be validated Syntax trees. Type
+contracts use the host-side `NType` constructors: no type-annotation syntax
+or user-defined procedural macro registration is implied. The optional
+`callSite:SourceSpan` parameter on `validateTyped` enriches diagnostic
+errors with source line/column without changing successful output.
+
+**Polymorphic generated signatures are deliberately refused** until we have
+sound skolemization/rigidity checks. This does not grant privileges to
+generated code or introduce any new runtime operations.
+
+## Validation
 
 ```sh
-haxe source-positions-test-interp.hxml
-haxe source-positions-test-js.hxml && node build/tests/source-positions.js
-haxe source-positions-test-php.hxml && php build/tests/php-source-positions/index.php
+haxe seed-image.hxml
+haxe generated-contract-test-interp.hxml
+haxe generated-contract-test-js.hxml && node build/tests/generated-contract.js
+haxe generated-contract-test-php.hxml && php build/tests/php-generated-contract/index.php
 ```
 
-## Self-hosted source maps (implemented in Nail)
+`GeneratedDeclarationValidationTestMain` checks nested/multiple and 128-field
+records, absence of records, imported expression macros, missing/extra/changed
+generated forms, nominal type errors, deterministic bytecode and execution
+parity. The `nailseed-v027.yml` workflow repeats these tests across the
+three targets and runs inherited bootstrap/fixed-point suites.
 
-An optional Nail-written library, `source-provenance.nail`, provides two
-inspectors. Load it **after** the ordinary standard library; it is deliberately
-excluded from the canonical bootstrap image:
+## Important boundaries
 
-```nail
-def source = " def x = 7 ; x ; " ;
-tokenizeWithPositions source ;
-parseSourceWithPositions source ;
-```
+Two validation paths now coexist: (1) the trusted record-transformer
+contract using exact equivalence to independent lowering, and (2) generic
+type checking of new generated definitions when the host supplies explicit
+**monomorphic** type contracts. Neither exposes public user-defined
+procedural transformers, arbitrary unannotated inference of generated
+declarations, or sound checking of polymorphic promised signatures.
 
-`tokenizeWithPositions : Text -> [LocatedToken]` uses the Nail-written lexer
-and a Nail-written position scanner; each record contains the unchanged
-`Syntax` token plus a `SourceSpan` with half-open offsets and start/end
-line/column. `parseSourceWithPositions : Text -> [LocatedForm]` calls the
-real Nail `parseForm` for each form, matching consumed tokens to its original
-source range. The canonical `parseSource` result remains unchanged.
+The source-free bootstrap currently uses its existing trusted transformer
+without invoking the optional host-side validator. Generated child-expression
+provenance, richer source diagnostics and parametric type contract checking
+remain later milestones.
 
-The new `SelfSourceProvenanceTestMain` loads this library on demand, then
-independently compares Nail-computed
-token and form locations against the Haxe sidecar, including multiline input,
-comments, strings, macros and source-free bootstrap execution on all targets.
-
-The inspectable source map costs extra scanning/allocations and is not computed
-or even loaded by ordinary compilation. To load the library through a Haxe
-host, run `vm.run(sourceProvenanceNailText)` after `vm.loadStdlib()`;
-`BootRuntime` can load the same Nail source with `runPlain` in its
-source-free runtime.
-
-## Deliberate limits
-
-The Haxe sidecar tracks parsed expressions and outer macro call sites.
-The **self-hosted Nail sidecar tracks tokens and complete top-level forms**,
-but not each nested expression, synthesized lambda, or transformation-created
-child. The Nail companion reports completed forms; call `parseSource` separately
-to inspect parse errors. No metadata is inserted into the canonical
-Syntax/bytecode image. Binding IDs are analysis-only, not yet a public
-hygienic macro API. Generated declaration signature validation is the
-next proposed version, v0.27.
-
-See [../ROADMAP.md](../ROADMAP.md) for the numerical evaluation and the
-balanced-language milestone.
+See [../ROADMAP.md](../ROADMAP.md), including the v0.28–0.29 numeric work.

@@ -1,3 +1,41 @@
+# v0.27 delta: checked record-generation contract (opt-in)
+
+`GeneratedDeclarationValidator.validate` accepts only a well-formed
+`RecordExpansion [sourceProgram, runtimeProgram]`. It first type-checks
+`sourceProgram`, then independently reconstructs the expected constructor
+and getter definitions through the Haxe reference `RecordLowering`.
+Every generated form and every preserved source form must be structurally
+identical to the expected result; extra/missing/modified declarations fail.
+On success, it returns `runtimeProgram` unchanged.
+
+`Vm.validatedRecordsWithNail` and `Vm.compileValidatedWithNail` expose
+this trusted, explicit validation path. Regular compilation and source-free
+bootstrap remain unchanged. This exact-lowering record contract is separate from the host-side generic
+monomorphic generated-definition checker below; neither exposes a public
+procedural-macro registration API.
+
+## Generic typed generated definitions (host-side)
+
+`TypeChecker.checkGenerated(sourceSyntax, generatedSyntax, contracts)` is a
+transactional type-checking entry point for a generated Program consisting
+**only of fresh definitions** in the same order as a manifest of
+`{name:String, type:NType}` contracts. Source syntax is checked first and
+provides nominal types and earlier source bindings. Each generated
+definition is inferred against its **closed, monomorphic** signature;
+earlier generated names and the current recursive binding are in scope.
+Unbound names, mismatched types, invalid nominal types, missing/extra
+definitions, duplicate names and unsupported polymorphic contracts fail.
+
+`GeneratedDeclarationValidator.validateTyped` accepts the same inputs
+and returns the unchanged generated Syntax on success. Its optional
+`SourceSpan` argument adds call-site line and column to errors.
+`Vm.compileCheckedGenerated` compiles validated output through the normal
+self-hosted Nail compiler. There is no new bytecode instruction or syntax
+form. This is not a public arbitrary procedural macro system, and it
+does not promise sound checking of polymorphic generated signatures.
+
+---
+
 # v0.26: Optional source maps and lexical binding identities
 
 The host parser exposes token coordinates and external AST/source mapping.

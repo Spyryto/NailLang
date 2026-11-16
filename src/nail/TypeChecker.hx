@@ -62,6 +62,21 @@ class TypeChecker {
     return inferred;
   }
 
+  /** Check a generated Program against explicit, closed monomorphic types.
+      The source Program supplies the nominal type environment; generated
+      definitions must have fresh names and the same order as contracts.
+      Transactional: this TypeChecker is not mutated by success or failure.
+      This is a host-side API, not public procedural macro registration. */
+  public function checkGenerated(source:Value, generated:Value,
+      contracts:Array<{name:String, type:NType}>):Array<String> {
+    var sourceChecker = copy();
+    sourceChecker.checkSyntax(source);
+    var solver = new Inference(sourceChecker.nextId, sourceChecker.global,
+      sourceChecker.records, sourceChecker.sums, sourceChecker.sumCases,
+      sourceChecker.constructorOwners);
+    return solver.verifyGenerated(SyntaxBridge.forms(generated), contracts);
+  }
+
   /** No mutation of this checker: useful for IDEs and preflight checks. */
   public function preview(source:String, ?modules:String->Null<String>):Array<String>
     return copy().check(source, modules);
@@ -605,6 +620,67 @@ private class Inference {
         case _:
       }
     }
+  }
+
+  /** A generated definition is checked against a declared monomorphic
+      signature, including the types of free references and nominal fields.
+      This is different from inferring/checking arbitrary unannotated code. */
+  public function verifyGenerated(forms:Array<Form>,
+      contracts:Array<{name:String, type:NType}>):Array<String> {
+    if (forms.length != contracts.length)
+      throw 'Generated type contract: definition count (expected '
+        + contracts.length + ', got ' + forms.length + ')';
+    var inferred:Array<String> = [];
+    var used = new StringMap<Bool>();
+    var validName = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
+    for (i in 0...contracts.length) {
+      var contract = contracts[i];
+      var name = contract.name;
+      if (!validName.match(name) || StringTools.startsWith(name, '#'))
+        throw 'Generated type contract: invalid definition name ' + name;
+      if (used.exists(name) || globals.exists(name))
+        throw 'Generated type contract: duplicate or existing definition ' + name;
+      used.set(name, true);
+      var pending:Array<NType> = [contract.type];
+      while (pending.length > 0) {
+        switch (pending.pop()) {
+          case TVariable(_):
+            throw 'Generated type contract: polymorphic signatures require a separate validation rule';
+          case TRecord(owner):
+            if (!records.exists(owner))
+              throw 'Generated type contract: unknown record type ' + owner;
+          case TSum(owner, arguments):
+            if (!sums.exists(owner) || sums.get(owner) != arguments.length)
+              throw 'Generated type contract: unknown sum type or arity ' + owner;
+            for (arg in arguments) pending.push(arg);
+          case TFunction(argument, result):
+            pending.push(argument);
+            pending.push(result);
+          case TList(item) | TVector(item):
+            pending.push(item);
+          case _:
+        }
+      }
+      var body:Expr = switch (forms[i]) {
+        case Define(actual, definition) if (actual == name): definition;
+        case Define(actual, _):
+          throw 'Generated type contract: expected ' + name + ' at form ' + i
+            + ', got ' + actual;
+        case _:
+          throw 'Generated type contract: expected definition ' + name + ' at form ' + i;
+      };
+      // Only this declared name is recursively in scope. Earlier generated
+      // bindings are available; later ones are not (sequential semantics).
+      var env = scopeCopy(globals);
+      var expected = mono(contract.type);
+      env.set(name, expected);
+      validateMatches(body);
+      var actualType = infer(body, env, {name:name, scheme:expected});
+      unify(actualType, contract.type);
+      globals.set(name, expected);
+      inferred.push(describe(normalize(contract.type)));
+    }
+    return inferred;
   }
 
   public function run(forms:Array<Form>):Array<String> {

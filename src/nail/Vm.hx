@@ -385,6 +385,25 @@ class Vm {
     return call(root.lookup('expandRecordDeclarations'), tree);
   }
 
+  /** Opt-in contract validation for the trusted Nail record transformer.
+      The original nominal Program is checked before the expanded Program
+      is returned; malformed/extra generated forms are rejected. */
+  public function validatedRecordsWithNail(source:String, ?modules:String->Null<String>):Value
+    return GeneratedDeclarationValidator.validate(expandRecordsWithNail(source, modules));
+
+  /** Compile only after validating the transformer output against its source.
+      This path is separate from the existing compileWithNail compatibility API. */
+  public function compileValidatedWithNail(source:String, ?modules:String->Null<String>):Value
+    return compileSyntaxWithNail(validatedRecordsWithNail(source, modules));
+
+  /** Compile a generated Program only after checking explicit monomorphic
+      signatures. Source declarations supply nominal types and existing
+      definitions. Does not mutate the source checker or add VM instructions. */
+  public function compileCheckedGenerated(source:Value, generated:Value,
+      contracts:Array<{name:String, type:nail.NType}>):Value
+    return compileSyntaxWithNail(
+      GeneratedDeclarationValidator.validateTyped(source, generated, contracts));
+
   /** Use Nail's own parseSource function, then execute its output.
       The bootstrap Haxe parser is used only to load stdlib.nail. */
   public function runWithNail(source:String, ?modules:String->Null<String>):Array<Value> {
