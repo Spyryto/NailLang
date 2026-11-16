@@ -1,0 +1,6 @@
+-cp src
+-main StructuralRecordsTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/structural-practice.nail@struct_practice
+-js build/tests/structural-records.js

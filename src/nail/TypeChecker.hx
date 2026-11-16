@@ -77,6 +77,22 @@ class TypeChecker {
     return solver.verifyGenerated(SyntaxBridge.forms(generated), contracts);
   }
 
+  /** Canonical, closed structural rows are sorted by name and non-empty.
+      Validate explicit host manifests as well as inferred public types. */
+  public static function validStructural(fields:Array<nail.NType.StructuralField>):Bool {
+    if (fields == null || fields.length == 0 || fields.length > 128) return false;
+    var previous:Null<String> = null;
+    for (item in fields) {
+      if (item == null || item.type == null || item.name == null ||
+          !~/^[A-Za-z_][A-Za-z_0-9]*$/.match(item.name) ||
+          item.name == '_' ||
+          (previous != null && Reflect.compare(previous, item.name) >= 0))
+        return false;
+      previous = item.name;
+    }
+    return true;
+  }
+
   /** A separately compiled module may refer only to explicitly imported
       monomorphic symbols. The caller provides an already verified interface
       (not an inferred or arbitrary polymorphic promise). */
@@ -89,6 +105,10 @@ class TypeChecker {
     while (pending.length > 0) switch (pending.pop()) {
       case TNumber | TExact | TBoolean | TText | TSyntax:
       case TList(child) | TVector(child): pending.push(child);
+      case TStructural(fields):
+        if (!validStructural(fields))
+          throw 'Module type error: invalid structural record interface';
+        for (field in fields) pending.push(field.type);
       case TFunction(a, b): pending.push(b); pending.push(a);
       case TVariable(_):
         throw 'Module type error: polymorphic import signatures are not yet supported';
@@ -111,6 +131,10 @@ class TypeChecker {
     while (work.length > 0) switch (work.pop()) {
       case TNumber | TExact | TBoolean | TText | TSyntax:
       case TList(item) | TVector(item): work.push(item);
+      case TStructural(fields):
+        if (!validStructural(fields))
+          throw 'Public interface: invalid structural record fields';
+        for (field in fields) work.push(field.type);
       case TFunction(a, b): work.push(b); work.push(a);
       case TVariable(_):
         throw 'Public interface: unconstrained type variable in export ' + name;
@@ -151,6 +175,10 @@ class TypeChecker {
       switch (pending.pop()) {
         case TNumber | TExact | TBoolean | TText | TSyntax:
         case TList(t) | TVector(t): pending.push(t);
+        case TStructural(fields):
+          if (!validStructural(fields))
+            throw 'Public interface: invalid structural record fields';
+          for (field in fields) pending.push(field.type);
         case TFunction(a, b): pending.push(b); pending.push(a);
         case TVariable(id):
           if (!quantified.exists(id))
@@ -196,6 +224,14 @@ class TypeChecker {
             for (i in 0...args.length) parameters.push(results.pop());
             parameters.reverse();
             results.push(TRecordApplied(name, parameters));
+          case TStructural(fields):
+            var types:Array<NType> = [];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField> = [];
+            for (i in 0...fields.length)
+              rebuilt.push({name:fields[i].name, type:types[i]});
+            results.push(TStructural(rebuilt));
           case _: throw 'Public interface: malformed type scheme';
         }
       } else switch (frame.type) {
@@ -211,6 +247,10 @@ class TypeChecker {
           work.push({type:frame.type, end:true});
           var i = args.length;
           while (i > 0) work.push({type:args[--i], end:false});
+        case TStructural(fields):
+          work.push({type:frame.type, end:true});
+          var i = fields.length;
+          while (i > 0) work.push({type:fields[--i].type, end:false});
         case TRecord(name): results.push(TRecord(name));
         case TSum(_, _):
           throw 'Public interface: algebraic public type identity is not implemented';
@@ -296,6 +336,7 @@ private class InferFrame {
   public var phase:Int = 0;
   public var saved:NType;
   public var namedFields:Array<{name:String, expr:Expr}>;
+  public var namedTypes:Array<NType>;
   public var namedIndex:Int = 0;
   public function new(source:Expr, scope:StringMap<TypeScheme>) {
     this.source = source;
@@ -413,6 +454,7 @@ private class Inference {
         case TVariable(other): if (id == other) return true;
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
+        case TStructural(fields): for (field in fields) stack.push(field.type);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -427,6 +469,7 @@ private class Inference {
         case TNumber | TExact | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
+        case TStructural(fields): for (field in fields) stack.push(field.type);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
       }
@@ -457,6 +500,14 @@ private class Inference {
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
+        case [TStructural(xs), TStructural(ys)]:
+          if (xs.length != ys.length)
+            throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
+          for (i in 0...xs.length) {
+            if (xs[i].name != ys[i].name)
+              throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
+            stack.push({a:xs[i].type, b:ys[i].type});
+          }
         case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
@@ -485,6 +536,14 @@ private class Inference {
               case TSum(_, _): TSum(name, newArgs);
               case _: TRecordApplied(name, newArgs);
             });
+          case TStructural(fields):
+            var types:Array<NType> = [];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField> = [];
+            for (i in 0...fields.length)
+              rebuilt.push({name:fields[i].name, type:types[i]});
+            results.push(TStructural(rebuilt));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -498,6 +557,10 @@ private class Inference {
           stack.push({type:frame.type, finish:true});
           var i = types.length;
           while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
+        case TStructural(fields):
+          stack.push({type:frame.type, finish:true});
+          var i = fields.length;
+          while (i > 0) stack.push({type:fields[--i].type, finish:false});
         case TList(a) | TVector(a):
           stack.push({type:frame.type, finish:true});
           stack.push({type:a, finish:false});
@@ -529,6 +592,8 @@ private class Inference {
         case TList(item) | TVector(item): stack.push(item);
         case TSum(_, types) | TRecordApplied(_, types):
           for (item in types) stack.push(item);
+        case TStructural(fields):
+          for (field in fields) stack.push(field.type);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -552,6 +617,14 @@ private class Inference {
               case TSum(_, _): TSum(name, newArgs);
               case _: TRecordApplied(name, newArgs);
             });
+          case TStructural(fields):
+            var types:Array<NType> = [];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField> = [];
+            for (i in 0...fields.length)
+              rebuilt.push({name:fields[i].name, type:types[i]});
+            results.push(TStructural(rebuilt));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -564,6 +637,10 @@ private class Inference {
             stack.push({type:normalized, finish:true});
             var i = types.length;
             while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
+          case TStructural(fields):
+            stack.push({type:normalized, finish:true});
+            var i = fields.length;
+            while (i > 0) stack.push({type:fields[--i].type, finish:false});
           case TList(a) | TVector(a):
             stack.push({type:normalized, finish:true});
             stack.push({type:a, finish:false});
@@ -632,6 +709,9 @@ private class Inference {
     var recordName:Null<String> = null;
     switch (prune(receiver)) {
       case TRecord(name) | TRecordApplied(name, _): recordName = name;
+      case TStructural(fields):
+        for (item in fields) if (item.name == field) return item.type;
+        throw 'Type error: structural record has no field ' + field;
       case TVariable(_):
         var matches:Array<String> = [];
         for (name in records.keys()) if (globals.exists(name + '.' + field)) matches.push(name);
@@ -697,7 +777,9 @@ private class Inference {
         case Apply(Apply(Apply(Var(make), Literal(Text(owner))), fieldNames), fieldValues)
           if (MacroExpander.globalName(make) == '#recordMake'):
           if (frame.phase == 0) {
-            if (!records.exists(owner)) throw 'Type error: unknown named record type ' + owner;
+            var structural = owner == '#struct';
+            if (!structural && !records.exists(owner))
+              throw 'Type error: unknown named record type ' + owner;
             var names = namedItems(fieldNames);
             var values = namedItems(fieldValues);
             if (names.length != values.length)
@@ -711,26 +793,30 @@ private class Inference {
               };
               if (seen.exists(field)) throw 'Type error: duplicate named record field ' + field;
               seen.set(field, true);
-              if (!globals.exists(owner + '.' + field))
+              if (!structural && !globals.exists(owner + '.' + field))
                 throw 'Type error: unknown named record field ' + owner + '.' + field;
               frame.namedFields.push({name:field, expr:values[i]});
             }
-            var count = 0;
-            for (key in globals.keys())
-              if (StringTools.startsWith(key, owner + '.')) count++;
-            if (count != frame.namedFields.length)
-              throw 'Type error: missing named record field for ' + owner;
-            var constructor = globals.get(owner);
-            if (constructor == null) throw 'Type error: unknown named record type ' + owner;
-            var resultType = instantiate(constructor);
-            var scanning = true;
-            while (scanning) switch (prune(resultType)) {
-              case TFunction(_, next): resultType = next;
-              case TRecord(label) if (label == owner): scanning = false;
-              case TRecordApplied(label, _) if (label == owner): scanning = false;
-              case _: throw 'Type error: invalid named record constructor ' + owner;
+            if (structural) {
+              frame.namedTypes = [];
+            } else {
+              var count = 0;
+              for (key in globals.keys())
+                if (StringTools.startsWith(key, owner + '.')) count++;
+              if (count != frame.namedFields.length)
+                throw 'Type error: missing named record field for ' + owner;
+              var constructor = globals.get(owner);
+              if (constructor == null) throw 'Type error: unknown named record type ' + owner;
+              var resultType = instantiate(constructor);
+              var scanning = true;
+              while (scanning) switch (prune(resultType)) {
+                case TFunction(_, next): resultType = next;
+                case TRecord(label) if (label == owner): scanning = false;
+                case TRecordApplied(label, _) if (label == owner): scanning = false;
+                case _: throw 'Type error: invalid named record constructor ' + owner;
+              }
+              frame.saved = resultType;
             }
-            frame.saved = resultType;
             frame.phase = 1;
             if (frame.namedFields.length > 0)
               work.push(new InferFrame(frame.namedFields[0].expr, frame.scope));
@@ -741,15 +827,27 @@ private class Inference {
           } else {
             var valueType = results.pop();
             var currentField = frame.namedFields[frame.namedIndex];
-            var accessor = globals.get(owner + '.' + currentField.name);
-            var fieldType = fresh();
-            unify(instantiate(accessor), fun(frame.saved, fieldType));
-            unify(valueType, fieldType);
+            if (owner == '#struct') {
+              frame.namedTypes.push(valueType);
+            } else {
+              var accessor = globals.get(owner + '.' + currentField.name);
+              var fieldType = fresh();
+              unify(instantiate(accessor), fun(frame.saved, fieldType));
+              unify(valueType, fieldType);
+            }
             frame.namedIndex++;
             if (frame.namedIndex < frame.namedFields.length)
               work.push(new InferFrame(frame.namedFields[frame.namedIndex].expr, frame.scope));
             else {
-              results.push(frame.saved);
+              if (owner == '#struct') {
+                var fields:Array<nail.NType.StructuralField> = [];
+                for (i in 0...frame.namedFields.length)
+                  fields.push({name:frame.namedFields[i].name, type:frame.namedTypes[i]});
+                fields.sort((a, b) -> Reflect.compare(a.name, b.name));
+                if (!TypeChecker.validStructural(fields))
+                  throw 'Type error: invalid structural record fields';
+                results.push(TStructural(fields));
+              } else results.push(frame.saved);
               work.pop();
             }
           }
@@ -950,6 +1048,10 @@ private class Inference {
             pending.push(result);
           case TList(item) | TVector(item):
             pending.push(item);
+          case TStructural(fields):
+            if (!TypeChecker.validStructural(fields))
+              throw 'Generated type contract: invalid structural record type';
+            for (field in fields) pending.push(field.type);
           case _:
         }
       }
@@ -1104,6 +1206,16 @@ private class Inference {
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);
+        case TStructural(fields):
+          stack.push({type:null, text:'}', parens:false});
+          var i = fields.length;
+          while (i > 0) {
+            i--;
+            stack.push({type:fields[i].type, text:null, parens:false});
+            stack.push({type:null, text:fields[i].name + ': ', parens:false});
+            if (i > 0) stack.push({type:null, text:', ', parens:false});
+          }
+          stack.push({type:null, text:'{', parens:false});
         case TSum(name, args) | TRecordApplied(name, args):
           if (args.length == 0) output.add(name);
           else {

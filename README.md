@@ -155,3 +155,25 @@ numeric dialect. Commas separate named assignments. In untyped VM
 execution, as with other unchecked raw source, static type errors are
 only rejected when the caller invokes `TypeChecker`; use the typed path
 when schema validation is required.
+
+## v0.35 first slice — anonymous closed structural records
+
+Write `{ age = 36 , name = " Ada " }` without declaring a nominal
+record type first. The checker infers a **closed** structural row:
+`{age: Number, name: Text}`. Field order is canonicalized by name in
+the type system, while **evaluation occurs once, in the written order**.
+Field projection `profile . age` and equality work using the existing
+`#recordMake` and `#recordGet` primitives and VM representation.
+These records use the reserved `#struct` runtime identity, which is
+disjoint from nominal types, even when field shapes happen to match.
+
+There is no row polymorphism or width subtyping yet: `{x:Number}` and
+`{x:Number,y:Bool}` are intentionally different types. Ordinary HM
+quantification inside a structural field works; fully typed structural
+schemes can cross separately compiled module boundaries without source
+recompilation or a new module image schema. Canonical public signatures
+remain text in image v1, with explicit contract checking at linking.
+
+The five expression forms, bytecode instruction set, default Float and
+opt-in Exact number semantics are unchanged. The empty form `{}` is
+not supported yet, and anonymous fields must be explicitly named.

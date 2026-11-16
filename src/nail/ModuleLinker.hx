@@ -163,6 +163,10 @@ class ModuleLinker {
         if (args.length == 0 || args.length > 16)
           throw 'Module compiler: invalid generic record arity';
         for (arg in args) pending.push(arg);
+      case TStructural(fields):
+        // Structural identity belongs to the field set, not the provider.
+        // Any nominal field nested inside it still needs a verified owner.
+        for (field in fields) pending.push(field.type);
       case TList(t) | TVector(t): pending.push(t);
       case TFunction(a, b): pending.push(b); pending.push(a);
       case TSum(_, _):

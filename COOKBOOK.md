@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.34
+# Nail Cookbook — v0.35
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Costruzione con campi nominati
+## Ricetta 3 — Record strutturali anonimi chiusi
 
 ```nail
-type Person { name Text age Number } ;
-def ada = Person { age = 36 , name = " Ada " } ;
-ada . name ;
+def profile = { age = 36 , name = " Ada " } ;
+profile . age ;
 ```
 
-L'ordine di scrittura dei campi è indipendente da quello della dichiarazione; il checker valida nomi/tipi.
+I tipi dei record anonimi dipendono dai nomi e tipi dei campi; sono CHIUSI (nessun row polymorphism o width subtyping).
 
 ## Allenamento: studiare l'implementazione
 

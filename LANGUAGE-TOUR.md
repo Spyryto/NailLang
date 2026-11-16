@@ -1,19 +1,18 @@
-# Nail Language Tour — v0.34
+# Nail Language Tour — v0.35
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Costruzione con campi nominati**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Record strutturali anonimi chiusi**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.33/LANGUAGE-TOUR.md) → **v0.34** → [versione successiva](../v0.35/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.34/LANGUAGE-TOUR.md) → **v0.35** → [versione successiva](../v0.36/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-L'ordine di scrittura dei campi è indipendente da quello della dichiarazione; il checker valida nomi/tipi.
+I tipi dei record anonimi dipendono dai nomi e tipi dei campi; sono CHIUSI (nessun row polymorphism o width subtyping).
 
 ```nail
-type Person { name Text age Number } ;
-def ada = Person { age = 36 , name = " Ada " } ;
-ada . name ;
+def profile = { age = 36 , name = " Ada " } ;
+profile . age ;
 ```
 
 ## Primo programma
@@ -108,6 +107,15 @@ total ;
 
 L'header deve essere la prima riga non vuota e seleziona l'intero file. Senza header, `Number` conserva la semantica legacy. I due domini numerici non si mescolano implicitamente.
 
+## Record anonimi (v0.35+)
+
+```nail
+def profile = { age = 36 , name = " Ada " } ;
+profile . age ;
+```
+
+Sono tipi strutturali chiusi. Non dare per scontato l'esistenza di row polymorphism o sottotipaggio per aggiunta di campi.
+
 ## Oltre la sintassi
 
 Le API di compilazione/collegamento, i controlli di tipi e le capability host vivono nel progetto Haxe. Per studiarle leggi `src/nail/`, `SPEC.md` e i test specifici. **Il compilato JS/PHP esegue l'interprete Nail**: non è la traduzione 1:1 di ogni file `.nail` in un modulo JavaScript o PHP.
@@ -117,7 +125,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.34 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.34) e cerca il test associato alla feature.
+4. Apri la [versione v0.35 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.35) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

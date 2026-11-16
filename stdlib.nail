@@ -150,6 +150,7 @@ def isNumeric word =
 def isPrefixStart word =
   if isMacroKeyword word then true
   else if word == " ( " then true
+  else if word == " { " then true
   else if word == " [ " then true
   else if word == " [] " then true
   else if word == " if " then true
@@ -411,6 +412,9 @@ def parsePrefix recur tokens =
         parsePair ( parseTree inner ) ( tail ( parseRest inner ) )
       else parseError " Expected ) "
     else if word == " [] " then parsePair syntaxNil remaining
+    else if word == " { " then
+      if parsePeek remaining == " } " then parseError " Named record requires a field "
+      else parseNamedFields recur " #struct " remaining []
     else if word == " [ " then parseListItems recur remaining []
     else if word == " true " then parsePair ( syntaxLiteral " Bool " " true " ) remaining
     else if word == " false " then parsePair ( syntaxLiteral " Bool " " false " ) remaining

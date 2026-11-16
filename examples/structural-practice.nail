@@ -1,0 +1,8 @@
+# Sessione di studio: un record anonimo senza dichiarazione nominale.
+def practice = {
+  bpm = 116 ,
+  exercise = " alternate picking " ,
+  minutes = 20
+} ;
+practice . bpm ;
+practice . minutes ;

@@ -73,7 +73,7 @@ class Parser {
 
   static function beginsAtom(s:Null<String>):Bool {
     return switch (s) {
-      case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
+      case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | '{' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
       case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
     };
   }
@@ -245,8 +245,8 @@ class Parser {
     return result;
   }
 
-  function parseNamedRecord(owner:String):Expr {
-    expect('{');
+  function parseNamedRecord(owner:String, opened:Bool = false):Expr {
+    if (!opened) expect('{');
     var names:Array<Expr> = [];
     var values:Array<Expr> = [];
     var seen = new haxe.ds.StringMap<Bool>();
@@ -279,6 +279,7 @@ class Parser {
     if (StringTools.startsWith(token, '\u0001')) return Literal(Text(token.substr(1)));
     if (token == 'quote' || token == 'unquote' || token == 'expand') return Var('#macro_' + token);
     if (token == '[]') return Literal(Nil);
+    if (token == '{') return parseNamedRecord('#struct', true);
     if (token == '(') {
       // Collapse leading groups, then resume each group's Pratt suffix
       // after closing its inner parentheses.
