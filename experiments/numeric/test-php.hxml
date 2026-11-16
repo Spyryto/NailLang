@@ -1,0 +1,4 @@
+-cp src
+-resource tests/numeric-cases.json@numeric-cases
+-main NumericLabMain
+-php build/php

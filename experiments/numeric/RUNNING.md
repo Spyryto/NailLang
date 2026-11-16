@@ -1,0 +1,18 @@
+# Come eseguire NailSeed — v0.16
+
+[Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
+
+**Natura dell'artefatto:** laboratorio di implementazione Haxe, non dialetto Nail pronto all'uso. Tutti i comandi seguenti si eseguono nella cartella `v0.16/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+
+## Esperimento numerico (non interprete Nail integrato)
+
+Sono necessari Haxe 4.3.x, Node.js per il test JS e PHP 8 per il test PHP. Dal terminale:
+
+```sh
+cd v0.16
+haxe test-interp.hxml
+haxe test-js.hxml && node build/numeric-lab.js
+haxe test-php.hxml && php build/php/index.php
+```
+
+I programmi compilati qui sono **runner di test numerici**, non un'interprete Nail da lanciare su un file `.nail` e non un modulo pubblico predisposto per una pagina HTML. Per una sintassi esatta eseguibile consulta [v0.29-runtime](../v0.29-runtime/RUNNING.md).
