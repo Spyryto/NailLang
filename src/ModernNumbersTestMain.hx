@@ -45,10 +45,10 @@ class ModernNumbersTestMain {
       + 'toFloat ( 1 / 2 ) ;\n'
       + 'ratioFromText " 0.1 " + ratioFromText " 0.2 " ;\n'
       + 'intFromText " 999999999999999999999999999999 " + 1 ;\n'
-      + '1 / 3 + 1 / 6 ;\\n'
-      + 'textLength " hello " ;\\n'
-      + 'textAt " hello " 1 ;\\n'
-      + 'vectorGet ( vector [ 3 , 5 ] ) 1 ;\\n'
+      + '1 / 3 + 1 / 6 ;\n'
+      + 'textLength " hello " ;\n'
+      + 'textAt " hello " 1 ;\n'
+      + 'vectorGet ( vector [ 3 , 5 ] ) 1 ;\n'
       + 'vectorLength ( vector [ 3 , 5 ] ) ;';
     var expected:Array<Dynamic>=[
       'R:9/2',4.5,'R:9/2','R:9/2','R:9/2',
