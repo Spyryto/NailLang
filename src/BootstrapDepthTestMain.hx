@@ -24,6 +24,10 @@ class BootstrapDepthTestMain {
   static function bootstrap(compiler:Vm):ByteVm {
     var selected = [
       'fold', 'length', 'syntaxLiteral', 'syntaxVar', 'syntaxName', 'syntaxNil',
+      'map', 'reverse', 'syntaxApply', 'syntaxLambda', 'syntaxBinary', 'syntaxList', 'parseLambdaWrap',
+      'recordFieldName', 'recordConstructor', 'syntaxDefine', 'recordAccessorDefinition',
+      'recordDefinitions', 'expandRecordForms', 'expandRecordDeclarations',
+      'recordExpansionSource', 'recordExpansionRuntime',
       'coreReadLiteral', 'coreRead', 'coreLiteralSyntax', 'coreCompileGo',
       'append', 'bcCode', 'bcInstruction0', 'bcInstruction1',
       'bcInstruction2', 'bcReturn', 'bcCall', 'bcTailCall',

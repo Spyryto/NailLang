@@ -378,6 +378,13 @@ class Vm {
     return MacroExpander.syntax(call(parse, Text(source)), resolve);
   }
 
+  /** Inspect the trusted standard record transformer before code generation.
+      Call checkSyntax on the retained source, not on erased declarations. */
+  public function expandRecordsWithNail(source:String, ?modules:String->Null<String>):Value {
+    var tree = parseWithNail(source, modules);
+    return call(root.lookup('expandRecordDeclarations'), tree);
+  }
+
   /** Use Nail's own parseSource function, then execute its output.
       The bootstrap Haxe parser is used only to load stdlib.nail. */
   public function runWithNail(source:String, ?modules:String->Null<String>):Array<Value> {

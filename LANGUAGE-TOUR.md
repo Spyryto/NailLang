@@ -1,18 +1,19 @@
-# Nail Language Tour — v0.24
+# Nail Language Tour — v0.25
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Moduli di macro riutilizzabili**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Trasformazione dichiarazioni record**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.23/LANGUAGE-TOUR.md) → **v0.24** → [versione successiva](../v0.25/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.24/LANGUAGE-TOUR.md) → **v0.25** → [versione successiva](../v0.26/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Import nominale di macro da un modulo e caricamento esplicito del modulo nell'host/CLI.
+Le dichiarazioni record diventano definizioni ispezionabili prima del bytecode; si mantiene un oracolo Haxe indipendente.
 
 ```nail
-import timedDrill from guitar ;
-expand timedDrill " Ripeti a tempo " " 60 " " Esegui il bending " " 4 su 5 " ;
+def source = parseSource " type Person { name Text age Number } ; " ;
+def plan = expandRecordDeclarations source ;
+recordExpansionSource plan ;
 ```
 
 ## Primo programma
@@ -102,7 +103,7 @@ Le macro manipolano strutture sintattiche, non stringhe arbitrarie. Dalla v0.24 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.24 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.24) e cerca il test associato alla feature.
+4. Apri la [versione v0.25 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.25) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

@@ -786,22 +786,42 @@ def recordConstructor name fields =
     ( syntaxList ( reverse vals ) ) in
   parseLambdaWrap params make ;
 
-def recordAccessor name field =
+# A declaration transformer produces ordinary syntax, never bytecode.
+# Its input is a parser-validated RecordType; type validation remains separate.
+def syntaxDefine name body = syntaxNode " Define " [ syntaxName name , body ] ;
+
+def recordAccessorDefinition name field =
   let fname = recordFieldName field in
   let getter = textConcat ( textConcat name " . " ) fname in
-  let body = syntaxLambda " #rec "
-    ( syntaxApply
-      ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar " #rec " ) )
-      ( syntaxLiteral " Text " fname ) ) in
-  bcInstruction2 " DEFINE " ( syntaxName getter ) ( bcCode ( compileTail body ) ) ;
+  syntaxDefine getter
+    ( syntaxLambda " #rec "
+      ( syntaxApply
+        ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar " #rec " ) )
+        ( syntaxLiteral " Text " fname ) ) ) ;
 
-def compileRecordType form =
+def recordDefinitions form =
   let parts = syntaxChildren form in
   let name = syntaxText ( head parts ) in
   let fields = syntaxChildren ( head ( tail parts ) ) in
-  cons ( bcInstruction2 " DEFINE " ( syntaxName name )
-    ( bcCode ( compileTail ( recordConstructor name fields ) ) ) )
-    ( map ( fun field -> recordAccessor name field ) fields ) ;
+  cons ( syntaxDefine name ( recordConstructor name fields ) )
+    ( map ( fun field -> recordAccessorDefinition name field ) fields ) ;
+
+# Preserve the original declarations for nominal type checking. The second
+# Program is executable syntax. Both are available before bytecode emission.
+def expandRecordForms forms = match forms with
+  | [] -> []
+  | form :: rest -> append
+      ( if syntaxTag form == " RecordType " then recordDefinitions form else [ form ] )
+      ( expandRecordForms rest ) ;
+
+def expandRecordDeclarations program =
+  if syntaxTag program == " Program " then
+    syntaxNode " RecordExpansion "
+      [ program , syntaxNode " Program " ( expandRecordForms ( syntaxChildren program ) ) ]
+  else program ;
+
+def recordExpansionSource expansion = head ( syntaxChildren expansion ) ;
+def recordExpansionRuntime expansion = head ( tail ( syntaxChildren expansion ) ) ;
 
 
 # Algebraic variants share the Record representation. Tag and positional
@@ -889,16 +909,16 @@ def compileForms forms =
   match forms with
   | [] -> []
   | form :: rest ->
-    if syntaxTag form == " RecordType " then
-      append ( compileRecordType form ) ( compileForms rest )
-    else if syntaxTag form == " SumType " then
+    if syntaxTag form == " SumType " then
       append ( compileSumType form ) ( compileForms rest )
     else cons ( compileForm form ) ( compileForms rest ) ;
 
 def compileSyntax program =
   let expanded = macroExpandSyntax program in
   if syntaxTag expanded == " Program " then
-    syntaxNode " Bytecode " ( compileForms ( syntaxChildren expanded ) )
+    let plan = expandRecordDeclarations expanded in
+    syntaxNode " Bytecode "
+      ( compileForms ( syntaxChildren ( recordExpansionRuntime plan ) ) )
   else expanded ;
 
 def compileSource source = compileSyntax ( parseSource source ) ;

@@ -1,3 +1,19 @@
+# v0.25 delta: record declaration expansion
+
+`expandRecordDeclarations : Syntax -> Syntax` maps a parser-validated Program to
+`RecordExpansion [sourceProgram, runtimeProgram]`. Non-Program input is returned
+unchanged, including parser errors. `recordExpansionSource` and
+`recordExpansionRuntime` project the two Programs. They require a valid expansion.
+
+`recordDefinitions : Syntax -> [Syntax]` takes a RecordType and produces constructor
+and accessor Define forms, in declaration order. `compileSyntax` performs this pass
+after expression macro expansion. The core AST, nominal record types, bytecode and
+record primitives are unchanged. The transformer is trusted compiler code, not an
+extension point for arbitrary user macros. Original syntax is retained without new
+source-position or binding metadata. See README.md for API boundaries.
+
+---
+
 # NailSeed v0.24 — Macro modules
 
 Macro expansion still follows the [0.22 template rules](../v0.22/SPEC.md).

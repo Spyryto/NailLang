@@ -103,6 +103,10 @@ class BytecodeTestMain {
     var libraryText = Resource.getString('stdlib');
     var compilerNames = [
       'fold', 'length', 'syntaxLiteral', 'syntaxVar', 'syntaxName', 'syntaxNil',
+      'map', 'reverse', 'syntaxApply', 'syntaxLambda', 'syntaxBinary', 'syntaxList', 'parseLambdaWrap',
+      'recordFieldName', 'recordConstructor', 'syntaxDefine', 'recordAccessorDefinition',
+      'recordDefinitions', 'expandRecordForms', 'expandRecordDeclarations',
+      'recordExpansionSource', 'recordExpansionRuntime',
       'coreReadLiteral', 'coreRead', 'coreLiteralSyntax', 'coreCompileGo',
       'append', 'bcCode', 'bcInstruction0', 'bcInstruction1',
       'bcInstruction2', 'bcReturn', 'bcCall', 'bcTailCall', 'compileGo', 'compileExpr', 'compileTail',
@@ -129,6 +133,13 @@ class BytecodeTestMain {
       throw 'Bytecode compiler self-bootstrap disagrees with Haxe reference';
     if (Json.stringify((new ByteVm(100000)).runPlain(compilerOutput)) != '[14]')
       throw 'Bootstrapped compiler result incorrect';
+
+    var recordInput = 'type Point { x Number y Number } ; ( Point 2 3 ) . y ;';
+    var recordOutput = boot.compileSyntax(SyntaxEncoder.program(new Parser(recordInput).parse()));
+    if (nail.BootstrapImage.encode(recordOutput) != nail.BootstrapImage.encode(BytecodeCompiler.compileSource(recordInput)))
+      throw 'Limited compiler bootstrap record expansion disagrees with reference';
+    if (Json.stringify(new ByteVm().runPlain(recordOutput)) != '[3]')
+      throw 'Limited compiler bootstrap record result incorrect';
 
     // Deep tail recursion is the regression that v0.10 could not survive.
     // Deliberately avoid recursively interpreting the source with Vm: the
@@ -165,7 +176,7 @@ class BytecodeTestMain {
     } catch (e:Dynamic) {
       if (Std.string(e) == 'Parser error accepted as bytecode') throw e;
     }
-    trace('NailSeed v0.11: ' + (examples.length + invalid.length + 6) + ' bytecode/TCO tests passed');
+    trace('NailSeed v0.11: ' + (examples.length + invalid.length + 7) + ' bytecode/TCO tests passed');
   }
 }
 

@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.24
+# Nail Cookbook — v0.25
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Moduli di macro riutilizzabili
+## Ricetta 3 — Trasformazione dichiarazioni record
 
 ```nail
-import timedDrill from guitar ;
-expand timedDrill " Ripeti a tempo " " 60 " " Esegui il bending " " 4 su 5 " ;
+def source = parseSource " type Person { name Text age Number } ; " ;
+def plan = expandRecordDeclarations source ;
+recordExpansionSource plan ;
 ```
 
-Import nominale di macro da un modulo e caricamento esplicito del modulo nell'host/CLI.
-
-Per le macro modulari, riusa le sorgenti e gli script reali in [`examples/`](./examples/) invece di inventare un loader. Alcuni esempi richiedono `--macro-module nome=percorso`.
+Le dichiarazioni record diventano definizioni ispezionabili prima del bytecode; si mantiene un oracolo Haxe indipendente.
 
 ## Allenamento: studiare l'implementazione
 
