@@ -28,6 +28,7 @@ class BytecodeCompiler {
   static function literal(v:Value):Value {
     var primitive:Value = switch (v) {
       case Number(n): leaf('Number', Std.string(n));
+      case ExactNumber(n): leaf('ExactNumber', numeric.FastNumber.encodeExact(n));
       case Boolean(b): leaf('Bool', b ? 'true' : 'false');
       case Text(s): leaf('Text', s);
       case Nil: leaf('Nil', 'nil');

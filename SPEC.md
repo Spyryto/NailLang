@@ -1,3 +1,77 @@
+# v0.29-runtime delta: real exact-number execution, isolated from v0.27
+
+This directory is a full standalone snapshot of the v0.27 compiler and both
+interpreters, modified to support an explicit numeric source dialect. It
+reuses the independently tested v0.29 compact-number engine. The previous
+v0.27 and v0.29 directory trees are not modified.
+
+## Source language semantics
+
+- No header or `# nail: 0.27`: legacy `Value.Number(Float)`, `TNumber`,
+  legacy builtin operators, v1 bytecode images and unchanged outputs.
+- First nonempty line `# nail: 0.29`: all numeric literals use
+  `Value.ExactNumber(FastValue)` and `TExact`, with `Small(Int)` for
+  values in signed ±2²⁶ range and `Fraction(Rational)` otherwise.
+- The five-expression core remains unchanged. Infix `+ - * / < <= > >=`
+  compile into statically typed separate exact builtins (`#exact...`).
+  Equality remains polymorphic and rejects a mixed exact/Float comparison
+  at runtime. There is no general numeric operator type class.
+- Exact functions, recursion, nominal record fields declared as `Number`,
+  sum payloads, vectors, text lengths/indices and macro-expanded literal
+  expressions use exact arithmetic in the opted-in file.
+- In this version, `Number` used as an annotation in exact-dialect nominal
+  fields maps to internal `Exact`. In the existing dialect it means Float.
+  A future public type-spelling design may choose a different explicit name.
+- Explicit conversion `exactToFloat : Exact -> Number` uses a conservative
+  finite-magnitude bridge and may round; `exactFromText : Text -> Exact`
+  constructs an exact rational from ASCII numeric text. There is **no**
+  silent cross-domain promotion.
+- Attempts to import macro modules with incompatible numeric dialects
+  are rejected. A general typed runtime module linker is not yet available.
+
+## Compiler/VM boundary
+
+- Haxe parser directly constructs exact literals from **original source
+  spelling**, without first converting via IEEE-754.
+- The Nail-written parser produces ordinary Syntax, and the new
+  `exactRewrite` transformation runs **after macro expansion**, rewriting
+  numeric literals, numeric operator names and nominal field-type tags.
+  `exactEncode` is a bounded host primitive that canonicalizes decimal
+  literal text before bytecode generation. `compileExactSource` is a
+  Nail-written compilation entry point.
+- `SyntaxLeaf('ExactNumber', 'E:n/d')` is a literal encoded as ASCII
+  numerator/denominator strings (canonical, reduced, denominator positive).
+  This is a new leaf tag inside the existing stack bytecode instruction set,
+  not an additional opcode or expression constructor.
+- Both `Vm` and `ByteVm` evaluate the same exact values. The source-free
+  `BootRuntime` routes opted-in source to the bootstrapped
+  `compileExactSource` function; the Haxe parser is not invoked.
+- v1 `BootstrapImage` still embeds the legacy compiler image, while
+  `ExactImage` offers an explicit v2-exact transport envelope with a
+  required `sourceDialect=0.29`. A v1 decoder rejects that v2 envelope.
+  Exact payloads are never converted to JSON numbers.
+- The reference Haxe compiler and Nail-written compiler are required to
+  produce *identical* canonical structured bytecode for both dialects,
+  including the source-free bootstrap and Haxe/JS/PHP backends.
+
+## Deliberate limits
+
+- `Exact` is a numeric *domain*, not a dependent integer subtype. A
+  fractional array index type-checks as `Exact` but is rejected by the VM.
+- The simple rational engine uses decimal-digit BigNat and bounded digit
+  budgets; it remains significantly slower than Float for fractional-heavy
+  arithmetic. Production heap/time budgets and optimized large-integer
+  algorithms remain future work.
+- Explicit conversions from Float to Exact are deliberately absent because
+  interpreting a binary approximation as a decimal string or an exact
+  binary fraction requires a documented policy.
+- Runtime module imports/exports and full mixed-version module linking are
+  not implemented. Only the existing macro module boundary is checked.
+- Bytecode-image format changes are opt-in: legacy bytecode and bootstrap
+  image compatibility are mandatory regression gates.
+
+---
+
 # v0.27 delta: checked record-generation contract (opt-in)
 
 `GeneratedDeclarationValidator.validate` accepts only a well-formed

@@ -231,13 +231,21 @@ class ByteVm {
 
   public function compileSource(source:String, ?modules:String->Null<String>):Value {
     steps = 0;
-    if (modules == null) return call(globals.lookup('compileSource'), Text(source));
+    if (modules == null) {
+      var compiler = numeric.NumericDialect.isExact(source) ? 'compileExactSource' : 'compileSource';
+      return call(globals.lookup(compiler), Text(source));
+    }
     var parse = globals.lookup('parseSource');
     var expanded = MacroExpander.syntax(call(parse, Text(source)), name -> {
       var moduleSource = modules(name);
-      return moduleSource == null ? null : call(parse, Text(moduleSource));
+      if (moduleSource == null) return null;
+      if (numeric.NumericDialect.isExact(moduleSource) != numeric.NumericDialect.isExact(source))
+        throw 'Imported macro module uses incompatible numeric dialect: ' + name;
+      return call(parse, Text(moduleSource));
     });
-    return compileSyntax(expanded);
+    var typed = numeric.NumericDialect.isExact(source)
+      ? call(globals.lookup('exactRewrite'), expanded) : expanded;
+    return compileSyntax(typed);
   }
 
   public function names():Array<String> return globals.keys();

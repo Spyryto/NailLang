@@ -5,6 +5,8 @@ import nail.Ast.Expr;
 /** A target-independent value model. Lists are immutable linked cons cells. */
 enum Value {
   Number(value:Float);
+  /** Exact signed integer or rational, never implicitly converted to Float. */
+  ExactNumber(value:numeric.FastNumber.FastValue);
   Boolean(value:Bool);
   Text(value:String);
   Vector(items:Array<Value>);

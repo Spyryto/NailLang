@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.27
+# Nail Cookbook — v0.29-runtime
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Contratti delle definizioni generate
+## Ricetta 3 — Dialetto esatto eseguibile (opt-in)
 
 ```nail
-type Person { name Text age Number } ;
-def ada = Person " Ada " 32 ;
-ada . age ;
+# nail: 0.29
+def cost = 0.1 + 0.2 ;
+cost ;
 ```
 
-Un validatore indipendente confronta il piano dei record con la dichiarazione sorgente e controlla firme monomorfiche generate.
+La prima riga opt-in seleziona `Exact` nell'intero file; conserva le semantiche legacy dei sorgenti senza header.
 
 ## Allenamento: studiare l'implementazione
 

@@ -158,7 +158,15 @@ private class Inference {
   }
 
   public function installPrimitives():Void {
-    var n = TNumber, b = TBoolean, s = TText;
+    var n = TNumber, e = TExact, b = TBoolean, s = TText;
+    for (name in ['+', '-', '*', '/']) globals.set('#exact' + name, mono(fun(e, fun(e, e))));
+    for (name in ['<', '<=', '>', '>=']) globals.set('#exact' + name, mono(fun(e, fun(e, b))));
+    globals.set('#exactEncode', mono(fun(s, s)));
+    globals.set('exactEncode', mono(fun(s, s)));
+    globals.set('exactFromText', mono(fun(s, e)));
+    globals.set('exactToFloat', mono(fun(e, n)));
+    globals.set('textLengthExact', mono(fun(s, e)));
+    globals.set('textAtExact', mono(fun(s, fun(e, s))));
     for (name in ['+', '-', '*', '/']) globals.set(name, mono(fun(n, fun(n, n))));
     for (name in ['<', '<=', '>', '>=']) globals.set(name, mono(fun(n, fun(n, b))));
     globals.set('textLength', mono(fun(s, n)));
@@ -192,6 +200,9 @@ private class Inference {
     globals.set('vectorLength', poly(fun(vector, n), [elem]));
     globals.set('vectorGet', poly(fun(vector, fun(n, a)), [elem]));
     globals.set('vectorSet', poly(fun(vector, fun(n, fun(a, vector))), [elem]));
+    globals.set('vectorLengthExact', poly(fun(vector, e), [elem]));
+    globals.set('vectorGetExact', poly(fun(vector, fun(e, a)), [elem]));
+    globals.set('vectorSetExact', poly(fun(vector, fun(e, fun(a, vector))), [elem]));
     globals.set('nil', poly(list, [elem]));
     var x = nextId++, y = nextId++;
     globals.set('#sumFail', poly(fun(TVariable(x), TVariable(y)), [x, y]));
@@ -232,7 +243,7 @@ private class Inference {
     var stack:Array<NType> = [ty];
     while (stack.length > 0) {
       switch (prune(stack.pop())) {
-        case TNumber | TBoolean | TText | TSyntax | TRecord(_):
+        case TNumber | TExact | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items): for (item in items) stack.push(item);
         case TVariable(id): eqRequired.set(id, true);
@@ -260,7 +271,7 @@ private class Inference {
       switch ([a, b]) {
         case [TVariable(i), _]: bindVariable(i, b);
         case [_, TVariable(j)]: bindVariable(j, a);
-        case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
+        case [TNumber, TNumber] | [TExact, TExact] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
         case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
         case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
@@ -441,6 +452,7 @@ private class Inference {
       var frame = work[work.length - 1];
       switch (frame.source) {
         case Literal(Number(_)): results.push(TNumber); work.pop();
+        case Literal(ExactNumber(_)): results.push(TExact); work.pop();
         case Literal(Boolean(_)): results.push(TBoolean); work.pop();
         case Literal(Text(_)): results.push(TText); work.pop();
         case Literal(Nil): results.push(TList(fresh())); work.pop();
@@ -525,6 +537,7 @@ private class Inference {
 
   function fieldType(name:String):NType return switch (name) {
     case 'Number': TNumber;
+    case 'Exact': TExact;
     case 'Bool': TBoolean;
     case 'Text' | 'String': TText;
     case 'Syntax': TSyntax;
@@ -539,6 +552,7 @@ private class Inference {
     if (generic != null) return generic;
     return switch (name) {
       case 'Number': TNumber;
+    case 'Exact': TExact;
       case 'Bool': TBoolean;
       case 'Text' | 'String': TText;
     case 'Syntax': TSyntax;
@@ -798,6 +812,7 @@ private class Inference {
       }
       switch (prune(frame.type)) {
         case TNumber: output.add('Number');
+        case TExact: output.add('Exact');
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);

@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.27
+# Nail Language Tour — v0.29-runtime
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Contratti delle definizioni generate**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Dialetto esatto eseguibile (opt-in)**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.26/LANGUAGE-TOUR.md) → **v0.27** → [versione successiva](../v0.28/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.29/LANGUAGE-TOUR.md) → **v0.29-runtime** → [versione successiva](../v0.30/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Un validatore indipendente confronta il piano dei record con la dichiarazione sorgente e controlla firme monomorfiche generate.
+La prima riga opt-in seleziona `Exact` nell'intero file; conserva le semantiche legacy dei sorgenti senza header.
 
 ```nail
-type Person { name Text age Number } ;
-def ada = Person " Ada " 32 ;
-ada . age ;
+# nail: 0.29
+def cost = 0.1 + 0.2 ;
+cost ;
 ```
 
 ## Primo programma
@@ -98,12 +98,26 @@ expand unless false 42 ;
 
 Le macro manipolano strutture sintattiche, non stringhe arbitrarie. Dalla v0.24 sono importabili da moduli dedicati; dalla v0.30 esiste anche una API host tipizzata per trasformatori procedurali.
 
+## Numeri esatti (dialetto opt-in)
+
+```nail
+# nail: 0.29
+def total = 0.1 + 0.2 ;
+total ;
+```
+
+L'header deve essere la prima riga non vuota e seleziona l'intero file. Senza header, `Number` conserva la semantica legacy. I due domini numerici non si mescolano implicitamente.
+
+## Oltre la sintassi
+
+Le API di compilazione/collegamento, i controlli di tipi e le capability host vivono nel progetto Haxe. Per studiarle leggi `src/nail/`, `SPEC.md` e i test specifici. **Il compilato JS/PHP esegue l'interprete Nail**: non è la traduzione 1:1 di ogni file `.nail` in un modulo JavaScript o PHP.
+
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.27 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.27) e cerca il test associato alla feature.
+4. Apri la [versione v0.29-runtime nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.29-runtime) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

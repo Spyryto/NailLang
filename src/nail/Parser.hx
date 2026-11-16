@@ -20,7 +20,10 @@ class Parser {
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
   static final spacePattern = ~/\s+/g;
 
+  final exactMode:Bool;
+
   public function new(source:String) {
+    exactMode = numeric.NumericDialect.isExact(source);
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
@@ -74,6 +77,15 @@ class Parser {
       case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
     };
   }
+
+  static function exactBuiltinName(name:String):String return switch (name) {
+    case 'textLength': 'textLengthExact';
+    case 'textAt': 'textAtExact';
+    case 'vectorLength': 'vectorLengthExact';
+    case 'vectorGet': 'vectorGetExact';
+    case 'vectorSet': 'vectorSetExact';
+    case _: name;
+  };
 
   static function precedence(s:Null<String>):Int {
     return switch (s) {
@@ -208,7 +220,7 @@ class Parser {
       while (peek() != '|' && peek() != ';') {
         var ty = take();
         if (!isName(ty)) throw 'Expected algebraic field type';
-        payload.push(ty);
+        payload.push(exactMode && ty == 'Number' ? 'Exact' : ty);
         if (payload.length > 10) throw 'Too many constructor fields';
       }
       for (previous in ctors) if (previous.name == ctor) throw 'Duplicate constructor';
@@ -284,12 +296,15 @@ class Parser {
       return lambdas(params, expression(), positions);
     }
     if (isNumber(token)) {
+      if (exactMode) return Literal(ExactNumber(numeric.FastNumber.exact(
+        StringTools.startsWith(token, '.') ? '0' + token :
+        StringTools.startsWith(token, '-.') ? '-0' + token.substr(1) : token)));
       var number = Std.parseFloat(token);
       if (!Math.isFinite(number)) throw 'Number out of range: ' + token;
       return Literal(Number(number));
     }
     if (token == 'true' || token == 'false') return Literal(Boolean(token == 'true'));
-    if (isName(token)) return Var(token);
+    if (isName(token)) return Var(exactMode ? exactBuiltinName(token) : token);
     throw 'Unexpected token ' + token + ' at token ' + at;
   }
 
@@ -318,6 +333,7 @@ class Parser {
       var prec = precedence(peek());
       if (prec < minimum) break;
       var op = take();
+      if (exactMode && op != '==' && op != '!=') op = '#exact' + op;
       left = Apply(Apply(Var(op), left), expression(prec + 1));
       if (first >= 0) left = provenance.expression(left, first, at);
     }
@@ -336,7 +352,7 @@ class Parser {
       var fieldType = take();
       if (!isName(fieldType)) throw 'Expected record field type';
       for (item in fields) if (item.name == fieldName) throw 'Duplicate record field ' + fieldName;
-      fields.push({name:fieldName, typeName:fieldType});
+      fields.push({name:fieldName, typeName:exactMode && fieldType == 'Number' ? 'Exact' : fieldType});
       if (fields.length > 128) throw 'Too many record fields';
     }
     expect('}');
@@ -350,7 +366,10 @@ class Parser {
     var expanded = modules == null ? MacroExpander.forms(forms)
       : SyntaxBridge.forms(MacroExpander.syntax(SyntaxEncoder.program(forms), name -> {
         var source = modules(name);
-        return source == null ? null : SyntaxEncoder.program(new Parser(source).parseRaw());
+        if (source == null) return null;
+        if (numeric.NumericDialect.isExact(source) != exactMode)
+          throw 'Imported macro module uses incompatible numeric dialect: ' + name;
+        return SyntaxEncoder.program(new Parser(source).parseRaw());
       }));
     // Macro declarations/imports/exports disappear. Every remaining form has
     // one output form in the same order; preserve its source/call-site span.

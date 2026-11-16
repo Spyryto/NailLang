@@ -43,6 +43,7 @@ class SyntaxEncoder {
       }
       switch (frame.source) {
         case Literal(Number(n)): values.push(node('Literal', [leaf('Number', Std.string(n))]));
+        case Literal(ExactNumber(n)): values.push(node('Literal', [leaf('ExactNumber', numeric.FastNumber.encodeExact(n))]));
         case Literal(Boolean(b)): values.push(node('Literal', [leaf('Bool', b ? 'true' : 'false')]));
         case Literal(Text(text)): values.push(node('Literal', [leaf('Text', text)]));
         case Literal(Nil): values.push(node('Literal', [leaf('Nil', 'nil')]));

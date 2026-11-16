@@ -677,13 +677,14 @@ def bcTailCall = bcInstruction0 " TAIL_CALL " ;
 
 # v0.20: expression IR is ordinary Nail ADT data. No Syntax payloads.
 # Numeric/boolean spellings stay textual to preserve the bytecode tape exactly.
-type CoreLiteral = CoreNumber Text | CoreBoolean Text | CoreText Text | CoreNil ;
+type CoreLiteral = CoreNumber Text | CoreExact Text | CoreBoolean Text | CoreText Text | CoreNil ;
 type CoreExpr = CoreLit CoreLiteral | CoreVar Text | CoreLambda Text CoreExpr | CoreApply CoreExpr CoreExpr | CoreIf CoreExpr CoreExpr CoreExpr ;
 type CoreRead = CoreReadOk CoreExpr | CoreReadError Text ;
 
 def coreReadLiteral literal =
   let tag = syntaxTag literal in
   if tag == " Number " then CoreReadOk ( CoreLit ( CoreNumber ( syntaxText literal ) ) )
+  else if tag == " ExactNumber " then CoreReadOk ( CoreLit ( CoreExact ( syntaxText literal ) ) )
   else if tag == " Bool " then
     let value = syntaxText literal in
     if value == " true " then CoreReadOk ( CoreLit ( CoreBoolean value ) )
@@ -734,6 +735,7 @@ def coreRead tree =
 
 def coreLiteralSyntax literal = match literal with
   | CoreNumber value -> syntaxLiteral " Number " value
+  | CoreExact value -> syntaxLiteral " ExactNumber " value
   | CoreBoolean value -> syntaxLiteral " Bool " value
   | CoreText value -> syntaxLiteral " Text " value
   | CoreNil -> syntaxNil ;
@@ -922,3 +924,49 @@ def compileSyntax program =
 
 def compileSource source = compileSyntax ( parseSource source ) ;
 
+
+# v0.29-runtime: opt-in, type-preserving rewrite of the self-parsed Syntax
+# program. The old compileSource remains byte-for-byte semantically compatible.
+# Converting source literal text is an explicit finite-budget native primitive.
+# This is a transform over the already macro-expanded source, not an AST change.
+def exactOperator name =
+  if name == " #macro_global_+ " then " #macro_global_#exact+ "
+  else if name == " #macro_global_- " then " #macro_global_#exact- "
+  else if name == " #macro_global_* " then " #macro_global_#exact* "
+  else if name == " #macro_global_/ " then " #macro_global_#exact/ "
+  else if name == " #macro_global_< " then " #macro_global_#exact< "
+  else if name == " #macro_global_<= " then " #macro_global_#exact<= "
+  else if name == " #macro_global_> " then " #macro_global_#exact> "
+  else if name == " #macro_global_>= " then " #macro_global_#exact>= "
+  else if name == " + " then " #exact+ "
+  else if name == " - " then " #exact- "
+  else if name == " * " then " #exact* "
+  else if name == " / " then " #exact/ "
+  else if name == " < " then " #exact< "
+  else if name == " <= " then " #exact<= "
+  else if name == " > " then " #exact> "
+  else if name == " >= " then " #exact>= "
+  else if name == " textLength " then " textLengthExact "
+  else if name == " textAt " then " textAtExact "
+  else if name == " vectorLength " then " vectorLengthExact "
+  else if name == " vectorGet " then " vectorGetExact "
+  else if name == " vectorSet " then " vectorSetExact "
+  else name ;
+
+def exactRewrite tree =
+  let tag = syntaxTag tree in
+  if tag == " Number " then syntaxLeaf " ExactNumber " ( exactEncode ( syntaxText tree ) )
+  else if tag == " Type " then
+    if syntaxText tree == " Number " then syntaxLeaf " Type " " Exact "
+    else tree
+  else if tag == " Var " then syntaxVar ( exactOperator ( syntaxText tree ) )
+  else if tag == " Name " then tree
+  else if tag == " Bool " then tree
+  else if tag == " Text " then tree
+  else if tag == " Nil " then tree
+  else if tag == " Error " then tree
+  else if tag == " MacroError " then tree
+  else syntaxNode tag ( map exactRewrite ( syntaxChildren tree ) ) ;
+
+def compileExactSource source =
+  compileSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
