@@ -41,6 +41,13 @@ jobs:
           node build/tests/revocable-capabilities.js
           haxe revocable-capabilities-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-revocable-capabilities/index.php
+      - name: Verify Ed25519 signed manifests on Haxe, Node and PHP
+        run: |
+          haxe signed-manifests-test-interp.hxml
+          haxe signed-manifests-test-js.hxml
+          node build/tests/signed-manifests.js
+          haxe signed-manifests-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-signed-manifests/index.php
       - name: Check inherited read capability and shared-result ABI
         run: |
           haxe host-capabilities-test-interp.hxml
@@ -50,6 +57,8 @@ jobs:
           node build/tests/shared-result.js
           haxe shared-result-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-shared-result/index.php
+      - name: Test offline Ed25519 distribution signing helper
+        run: node --test tools/sign-modules.test.mjs
       - name: Check Nail-written compiler fixed point
         run: haxe rebootstrap-image.hxml
       - name: Compile JavaScript and PHP distributions

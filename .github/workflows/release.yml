@@ -58,7 +58,13 @@ jobs:
           node build/tests/revocable-capabilities.js
           haxe revocable-capabilities-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-revocable-capabilities/index.php
+          haxe signed-manifests-test-interp.hxml
+          haxe signed-manifests-test-js.hxml
+          node build/tests/signed-manifests.js
+          haxe signed-manifests-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-signed-manifests/index.php
           haxe shared-result-test-interp.hxml
+          node --test tools/sign-modules.test.mjs
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml

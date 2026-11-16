@@ -493,6 +493,27 @@ class ModuleLinker {
     return new ModuleBundle(states);
   }
 
+  /** Signed deployment manifest: verify release and Ed25519 signature
+      using native Node/PHP crypto, then verify EVERY module image before
+      linking any host capability. In unsupported targets this fails closed. */
+  public static function linkSignedImages(images:Array<String>,
+      manifest:String, policy:ModuleSigningPolicy,
+      maxSteps:Int = DEFAULT_STEPS, ?hostGrants:HostTextGrants):ModuleBundle {
+    return linkSignedImagesWithVerifier(images, manifest, policy,
+      NativeEd25519.verify, maxSteps, hostGrants);
+  }
+
+  /** Adapter boundary for embedders supplying another trusted synchronous
+      Ed25519 verifier (e.g. an interpreter that calls an OS crypto API).
+      Supplying a permissive callback entirely voids manifest authentication. */
+  public static function linkSignedImagesWithVerifier(images:Array<String>,
+      manifest:String, policy:ModuleSigningPolicy,
+      verifier:String->String->String->Bool,
+      maxSteps:Int = DEFAULT_STEPS, ?hostGrants:HostTextGrants):ModuleBundle {
+    var approved = SignedModuleManifest.verify(manifest, policy, verifier);
+    return link(approved.verify(images), maxSteps, hostGrants);
+  }
+
   /** Opt-in integrity gate: the host supplies independently trusted image
       digests and name bindings, and ALL inputs are verified before linking.
       A digest is not an authenticated publisher signature. For permissioned

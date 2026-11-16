@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.41
+# Nail Language Tour — v0.42
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -71,3 +71,27 @@ una callback host sincrona non possono essere annullate retroattivamente.
 
 Esegui `haxe revocable-capabilities-test-interp.hxml` e i target JS/PHP
 descritti in [RUNNING.md](./RUNNING.md).
+
+## v0.42 — Manifest firmati (lato host)
+
+Nail non cambia grammatica: i moduli continuano a usare le stesse funzioni,
+i record e gli import di v0.41. Ora l'host può autorizzare una **distribuzione
+firmata Ed25519** invece di gestire a mano tutti i digest SHA-256.
+
+```haxe
+var policy = new nail.ModuleSigningPolicy('v0.42');
+policy.trustKey('publisher-2026', chiavePubblicaAffidabile);
+var app = nail.ModuleLinker.linkSignedImages(
+  immagini, manifestoFirmato, policy, 25000000, grants);
+```
+
+La firma copre versione attesa, identificativo chiave e lista ordinata dei
+moduli e dei loro SHA-256. L'host sceglie preventivamente quali chiavi e
+versioni accettare, senza consultare il manifesto non attendibile.
+
+Node.js usa `node:crypto`, PHP usa `sodium`. Un browser o l'interprete
+Haxe richiedono invece un verificatore sincrono affidabile fornito
+dall'applicazione; altrimenti la verifica fallisce. I test reali includono
+manomissione, chiavi sconosciute, cambio versione e sostituzione di moduli.
+
+Approfondisci [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
