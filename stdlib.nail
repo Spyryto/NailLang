@@ -598,11 +598,11 @@ def parseNamedDefinition prefix tokens =
             if prefix != " " then parseError " Macro relations are not supported "
             else if length ( syntaxChildren ( parseTree params ) ) != 2 then
               parseError " Binary relation requires two parameters "
-            else if not ( recognizedNumericRelation ( parsePeek afterParams ) ) then
-              parseError " Unsupported type relation "
-            else if parsePeek ( tail afterParams ) != " = " then
-              parseError " Expected = after relation "
-            else parseNamedBody prefix name ( parseTree params ) startBody
+            else if recognizedNumericRelation ( parsePeek afterParams ) then
+              if parsePeek ( tail afterParams ) != " = " then
+                parseError " Expected = after relation "
+              else parseNamedBody prefix name ( parseTree params ) startBody
+            else parseError " Unsupported type relation "
           else parseNamedBody prefix name ( parseTree params ) startBody
     else parseError " Expected definition name " ;
 
