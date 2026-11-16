@@ -50,6 +50,17 @@ class Rational {
   public function negate():Rational return make(!negative, numerator, denominator);
 
   public function add(other:Rational):Rational {
+    // Common in musical timing, uniform-rate clocks and financial sums:
+    // equal canonical denominators need no cross-products at all.
+    if (denominator == other.denominator) {
+      if (negative == other.negative)
+        return make(negative, BigNat.add(numerator, other.numerator), denominator);
+      var comparison = BigNat.compare(numerator, other.numerator);
+      if (comparison == 0) return make(false, '0', '1');
+      return comparison > 0
+        ? make(negative, BigNat.subtract(numerator, other.numerator), denominator)
+        : make(other.negative, BigNat.subtract(other.numerator, numerator), denominator);
+    }
     var a = BigNat.multiply(numerator, other.denominator);
     var b = BigNat.multiply(other.numerator, denominator);
     var d = BigNat.multiply(denominator, other.denominator);

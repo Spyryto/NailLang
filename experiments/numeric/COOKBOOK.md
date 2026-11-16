@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.28
+# Nail Cookbook — v0.29
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -11,8 +11,9 @@ La cartella è un laboratorio, non un'interprete Nail completo. Esegui i tre tar
 ## Ricetta 2 — evitare le false aspettative
 
 ```haxe
-var a = NumericCandidate.exact("0.1");
-var b = NumericCandidate.exact("0.2");
+var sum = numeric.FastNumber.arithmetic(
+  "+", numeric.FastNumber.exact("0.1"), numeric.FastNumber.exact("0.2"));
+trace(numeric.FastNumber.encodeExact(sum)); // E:3/10
 ```
 
 È materiale di laboratorio Haxe: non è un programma Nail eseguibile da browser o CLI standard.

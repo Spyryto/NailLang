@@ -1,0 +1,3 @@
+-cp src
+-main NumericWorkloadTestMain
+-php build/php-numeric-workload

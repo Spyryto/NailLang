@@ -1,70 +1,100 @@
-# NailSeed v0.28 — Numeric semantics decision laboratory
+# NailSeed v0.29 — Compact exact-number and source-dialect prototype
 
-This is an **isolated experiment**, not an integrated Nail compiler or VM
-release. The existing runtime still represents `Number` with a Haxe
-`Float`. No previous source dialect or bootstrap image is changed.
+This is a **separate, experimental language-integration stage** derived from
+[v0.28](../v0.28/). It does **not** change the established Nail compiler,
+type checker, bytecode interpreter or `Value.Number(Float)` representation.
+It isolates the semantics and portability requirements needed before a
+backward-compatible runtime migration can be attempted.
 
-## Candidates under evaluation
+## What's new
 
-1. **Unified exact `Number` plus explicit `Float`**: integers, finite
-   decimal literals and fractions are normalized as the same exact rational.
-   `Float` is explicitly approximate, optimized for audio, graphics and
-   measurement workloads.
-2. **Separate `Int`, `Rational`, `Float`**: may improve integer
-   indexing and specialized operations, but adds conversion and type-inference
-   rules. This remains a design comparison, not yet a second implementation.
+- `FastNumber` represents an exact number as either `Small(Int)` or a
+  canonical `Fraction(Rational)`. An explicit `Approximate(Float)` remains
+  a separate domain. No implicit exact/Float mixing.
+- Small integers are limited to the signed range **±67,108,864 (2²⁶)**.
+  Addition, subtraction, multiplication and division use fast native integer
+  operations only when the result is provably representable in that range.
+  This is designed to avoid overflow even in the Haxe interpreter. Anything
+  else enters the already tested arbitrary-precision rational implementation.
+- Exact operations enforce operand/output digit limits and a conservative
+  work-budget preflight for large-number calculations. The work budget is
+  **not** yet a full execution-time/memory quota.
+- The v0.29 copy of `Rational.add` avoids unnecessary cross-products for
+  canonical fractions sharing a denominator. The 512-beat tempo workload
+  demonstrates this optimization on all three targets.
+- Source-dialect adapter `NumericDialect.detect` defaults to legacy Float
+  semantics. The header `# nail: 0.29` explicitly opts into exact arithmetic
+  **only through this experimental adapter**. The live Nail source parser does
+  not yet enforce or interpret the new dialect.
+- `FastNumber.encodeExact/decodeExact` uses canonical, text-based `E:n/d`
+  wire values. Never transport a large exact numerator or denominator as a
+  JSON number. Old bytecode images are unchanged.
 
-The current executable candidate explores option 1, reusing
-[v0.16's pure-Haxe BigNat/Rational implementation](../v0.16/).
-The `NumericCandidate` wrapper deliberately rejects implicit mixed-domain
-arithmetic/equality/comparison, enforces finite approximate values, supports
-an explicit (conservative) rational-to-Float bridge and requires exact
-nonnegative integers for indexing.
+### Example (Haxe host-side prototype)
 
 ```haxe
-var a = NumericCandidate.exact("0.1");
-var b = NumericCandidate.exact("0.2");
-var sum = NumericCandidate.arithmetic("+", a, b);
-// exact:3/10, not an approximated IEEE 754 result
-var approximation = NumericCandidate.toApproximate(sum);
+import numeric.FastNumber;
+import numeric.NumericDialect;
+
+var sum = FastNumber.arithmetic(
+  "+", FastNumber.exact("0.1"), FastNumber.exact("0.2"));
+trace(FastNumber.encodeExact(sum)); // E:3/10
+
+trace(NumericDialect.describe(NumericDialect.evaluate(
+  "# nail: 0.29\n0.1 + 0.2 ;", "0.1", "+", "0.2")));
+// exact:E:3/10
+
+// Without a header the adapter keeps the old Float semantics.
 ```
 
-## Execute (Haxe, JavaScript and PHP)
+## Tests
 
 ```sh
+# Inside v0.29/, with Haxe 4.3.7:
 haxe test-interp.hxml
 haxe test-js.hxml && node build/numeric-lab.js
 haxe test-php.hxml && php build/php/index.php
 haxe candidate-test-interp.hxml
 haxe candidate-test-js.hxml && node build/numeric-model.js
 haxe candidate-test-php.hxml && php build/php-numeric-model/index.php
+haxe numeric-fast-test-interp.hxml
+haxe numeric-fast-test-js.hxml && node build/fast-numeric.js
+haxe numeric-fast-test-php.hxml && php build/php-fast-numeric/index.php
 ```
 
-The repository commits the full 270-case independent arithmetic oracle,
-originally generated with Python `fractions.Fraction`. Local builds and
-GitHub Actions consume these fixed reference vectors directly, without Python,
-and run all inherited v0.16 tests before checking candidate arithmetic,
-conversions, indexing, resource errors, and simple cross-target arithmetic
-benchmarks. `tests/generate_cases.py` remains an optional provenance tool.
+The GitHub workflow reads all 270 committed independent Python Fraction
+reference cases (no Python runtime needed), then runs the inherited v0.28
+tests and new parity/property-style tests. New tests cover
+promotion at the signed 2²⁶ boundary, large exact products, canonical
+wire round-trips, invalid indices/headers, exact/Float isolation, and a
+three-way fast-integer / pure rational / Float microbenchmark. It also
+compares a **144-line invoice** and a **512-beat musical timeline** across
+compact exact, pure Rational and Float on all three targets. Diagnostic
+counters track fast paths and fallback conversions, not actual heap allocations.
 
-## Constraints and benchmark interpretation
+See [SPEC.md](SPEC.md) for numeric opt-in compatibility requirements and
+[WORKLOAD-BENCHMARKS.md](WORKLOAD-BENCHMARKS.md) for the invoice and musical
+timeline measurements, including counts of integer and rational paths.
+Earlier exploratory measurements are in
+[v0.28/BENCHMARK-RESULTS.md](../v0.28/BENCHMARK-RESULTS.md).
 
-- The pure-Haxe decimal-digit algorithms prioritize portability and
-  auditability, **not performance**. Benchmark output is informative only:
-  there is no arbitrary target-relative speed threshold in CI.
-- The wrapper limits input/output numerator and denominator sizes
-  (`DEFAULT_DIGITS=128`, hard maximum `4096`). Intermediate products
-  can be larger than the limit. This is not yet an instruction/memory budget
-  adequate for executing untrusted programs.
-- Conversion to `Float` rejects non-finite intermediate magnitudes, even if
-  a huge numerator/denominator ratio would be representable. This
-  conservative rule is revisable.
-- Benchmark timing varies substantially by VM, JIT, host CPU and warmup.
-  Allocation, memory, indexing in a real Nail runtime, and complete
-  self-hosted compilation costs are **not measured** here.
+## Explicit limits and next integration steps
 
-See [SPEC.md](SPEC.md) for open language design choices and
-[BENCHMARK-RESULTS.md](BENCHMARK-RESULTS.md) for the first measured CI comparison. **Do not change the
-meaning of `Number` or `/` in the main language until source dialect
-versioning, mixed-version modules, serialization, inference and bootstrap
-compatibility have explicit tests.**
+A small-integer fast path removes unnecessary arbitrary-precision allocations
+for ordinary arithmetic but **is not proof** that a unified exact `Number`
+is now optimal for all workloads. It also does not make decimal-string
+BigNat/GCD algorithms fast for huge fractions.
+
+Before declaring v0.29's intended **full numeric integration** complete,
+we still need:
+
+1. Source-language dialect metadata carried through modules, imports and
+   the self-hosted compiler, with explicit incompatibility diagnostics.
+2. Type inference/operators that distinguish exact `Number` and `Float`.
+3. New VM value variants and a backward-compatible serialized bytecode
+   format; test both Nail-written compiler and Haxe reference compiler.
+4. Cross-target runtime and fixed-point bootstrap tests with opted-in programs,
+   plus memory allocations, adversarial workload budgets and real applications.
+
+The current PR is intentionally **groundwork**, not a claim that those
+compiler/runtime changes have already been delivered.

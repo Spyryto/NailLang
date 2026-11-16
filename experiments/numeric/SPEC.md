@@ -1,74 +1,90 @@
-# Nail 0.28 proposed numeric decision gates
+# v0.29 experimental numeric integration contract
 
-## Observed baseline
+## Release status
 
-- v0.26 and v0.27 still use `Value.Number(value:Float)` and
-  `NType.TNumber`; `+`, `-`, `*`, `/`, comparisons, text indexes and
-  vector indexes share that representation.
-- v0.16 independently proved pure-Haxe arbitrary-precision rational
-  arithmetic on Haxe, JavaScript and PHP. It did not change the Nail VM.
-- v0.28 adds an executable tag boundary:
-  `Exact(Rational)` versus `Approx(Float)`. No silent conversion.
+This is an **opt-in host-side numeric prototype** and portability test suite,
+not yet a replacement for the main Nail compiler's floating `Number`. A
+complete 0.29 implementation must still wire exact numbers through parsing,
+typing, the Nail-written compiler, both execution engines, serialization and
+bootstrap fixed-point tests. Nothing in this experiment silently upgrades
+existing programs.
 
-## Tentative preference (not yet a language decision)
+## Value representation
 
-Prefer **one exact Number domain plus an explicit approximate Float domain**
-unless representative application workloads reveal an unacceptable overhead or
-an inference/interop problem. Make integers an optimized representation of
-exact rationals internally *before* multiplying public numeric types.
+`FastValue = Small(Int) | Fraction(Rational) | Approximate(Float)`
 
-### Required correctness rules
+The `Small` range is **[-2²⁶, 2²⁶]**, deliberately smaller than Haxe's
+signed 32-bit Int. All computations that would escape the range are sent to
+`Rational` *before* native arithmetic that might overflow; a rational with
+denominator 1 and magnitude back in range is demoted automatically. No
+distinction between compact and large representation should be observable to
+Nail code: exact comparison, equality, serialization and division agree.
 
-- `0.1 + 0.2` evaluates exactly to `3/10` in an opted-in dialect.
-- `1 / 3` is exact; division by zero fails in either domain.
-- Fraction equality is canonical, ordered comparison exact.
-- Floats are IEEE 754 finite values with observable rounding.
-- Never silently promote exact arithmetic into `Float`; mixed operations
-  require a deliberate conversion.
-- Collection indexes are integral, nonnegative and in-range. Never truncate a
-  rational index, and make approximate-to-index conversion explicit.
-- Exact arithmetic must have operand/output digit and work budgets.
-- Source-language dialect version, compiler version and bytecode image
-  format must be independent.
+The compact limit is an **implementation detail**, not a language-level
+`Int` maximum. No public separate `Int` type has been chosen.
 
-### Language surface yet to design
+## Dialect opt-in
 
-- How to spell an explicit approximate literal or conversion (e.g.,
-  `float 1.0` vs `1.0f`).
-- Whether numeric operators are overloaded using constrained inference,
-  or Float receives distinct operators/functions. Avoid silently changing the
-  inferred type of existing programs.
-- How `Number`, a potential `Int`, and `Float` compose in collections,
-  structural records and future public type annotations.
-- Mixed-version module imports and literal-version migration.
-- Canonical serialization of exact numbers in syntax/bytecode, without
-  JSON number precision loss; transport exact digits as text.
-- Rounding policy at explicit conversion boundaries, particularly overflows,
-  extremely small subnormals and huge ratios whose numerator/denominator
-  cannot separately be represented by `Float`.
+- Unmarked source and `# nail: 0.27` select legacy floating behavior in the
+  **NumericDialect laboratory adapter only**.
+- `# nail: 0.29` on the first nonempty line selects exact arithmetic.
+- Unsupported headers are rejected instead of falling back.
+- A later header cannot retroactively change the version of a file.
+- Compiler release, source dialect, numeric wire representation and bytecode
+  format remain separately versioned.
+- Mixed-dialect imports are **not yet supported**: before runtime migration,
+  specify explicit conversion or reject cross-dialect numeric APIs.
 
-### Engineering risks to measure
+The first-line parser prototype intentionally supports a subset of the full
+language literal grammar. Actual source compilation must run its existing
+parser, and must not treat this adapter as that integration.
 
-- Pure-Haxe BigNat uses decimal digit strings and grade-school multiplication/
-  division/GCD. The algorithms are intentionally simple but may be slow.
-- Exact fractions can create unexpectedly large intermediate numerators and
-  denominators. Budget preflight is needed *before* expensive work in a
-  production implementation, not just post-operation size checks.
-- A runtime `Number` representation change touches parsing, the checker,
-  both VMs, equality, serialization, indexed primitives, bootstrap and host
-  APIs. Do not implement any of those piecemeal in an existing dialect.
+## Exact serialization
 
-## Acceptance for moving from 0.28 to 0.29
+Canonical wire format `E:[-]numerator/denominator`, where both magnitudes
+are base-ten ASCII integers, denominator positive, gcd=1, zero represented
+`E:0/1`, and signs never appear on a zero value. The compact/large variant
+is excluded from the wire to make its optimization transparent.
 
-1. Independent reference vectors and cross-target model tests green.
-2. Document precision, comparison, indexing, conversion, error behavior.
-3. Time representative arithmetic on Haxe/JS/PHP without imposing arbitrary
-   performance claims. Investigate optimized integer fast paths.
-4. Decide exact-unified vs separate numeric types, with written rationale.
-5. Introduce source-dialect opt-in and stable bootstrap serialization tests
-   **before** changing execution semantics.
-6. Include at least one real numeric workload and an adversarial big-number
-   workload. Performance and memory bounds need their own acceptance limits.
+Never encode large exact values through JSON numeric fields; use text.
+The current canonical format is experimental, not the final bytecode format.
+A future bytecode version marker must prevent legacy readers from silently
+interpreting exact numbers as binary Float.
 
-This lab is evidence for a decision, not proof that a new number model is
-ready for the full Nail compiler.
+## Precision and safety
+
+- All four basic operators are exact for exact operands.
+- For division, an exact integer quotient remains `Small` if it fits.
+  Nonintegral results become canonical `Fraction`.
+- Comparing or operating on exact and approximate values requires a
+  deliberate conversion. No automatic widening to Float.
+- Indexing requires a nonnegative exact integer strictly below the
+  collection length. Approximate and fractional indices are rejected.
+- Approximate results are restricted to finite Float; neither NaN nor
+  Infinity is silently accepted here.
+- `FastNumber` retains a bounded digit budget and conservative preflight
+  before BigNat work. This is *not* a total time/space budget; a production VM
+  will need instruction/heap limits and optimized big-integer algorithms.
+
+## Tests and decision gate
+
+Haxe interpreter, Node.js and PHP must agree on:
+
+1. Exact canonical results, mixed small/large arithmetic and comparison.
+2. Input/operation size errors and index semantics.
+3. Explicit source-dialect selection and strict version failures.
+4. Stable round-trip wire encoding, with invalid/noncanonical input rejected.
+5. Independent `Rational` and Python Fraction oracle parity.
+6. Ordinary Small arithmetic measurements vs pure Rational/Float on all
+   three targets, plus a real numeric workload, multiple warmups and
+   allocation measures before deciding whether to switch the VM.
+
+## Architecture work remaining
+
+The first compiler-enabled exact dialect should add a new `Value` variant
+and a bytecode numeric tag *behind* the opt-in source dialect rather than
+reinterpret the existing `Number` constructor. That allows old compiled
+images to remain valid and makes explicit conversions visible in typing.
+
+Until those integration tests pass, this snapshot is not the full 0.29
+language milestone; it is the validated numerical substrate.

@@ -1,0 +1,3 @@
+-cp src
+-main NumericFastTestMain
+-php build/php-fast-numeric

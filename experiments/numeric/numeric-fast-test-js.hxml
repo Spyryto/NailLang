@@ -1,0 +1,3 @@
+-cp src
+-main NumericFastTestMain
+-js build/fast-numeric.js
