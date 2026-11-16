@@ -1,3 +1,66 @@
+# v0.43 delta — Exact-rational integer rounding
+
+## Why
+
+The opt-in numeric dialect `# nail: 0.29` already represents integers
+and rational values exactly using a small-integer fast path and normalized
+arbitrary-precision fractions. Converting to a binary Float to find a
+floor, ceiling or rounded tick would silently lose precision and defeat
+that representation. This release adds five pure functions **without
+changing the source dialect, grammar, core AST, bytecode, or module ABI**.
+
+## Typed functions
+
+| Name | Signature | Semantics |
+| --- | --- | --- |
+| `exactFloor` | `Exact -> Exact` | Greatest integer not exceeding input |
+| `exactCeil` | `Exact -> Exact` | Least integer not below input |
+| `exactTruncate` | `Exact -> Exact` | Integer part toward zero |
+| `exactRoundEven` | `Exact -> Exact` | Nearest integer; halfway selects even |
+| `exactIsInteger` | `Exact -> Bool` | True iff reduced denominator equals 1 |
+
+All results from the first four functions remain `Exact`, not `Number`
+and not a new integer subtype. The TypeChecker rejects Float arguments;
+no hidden type widening or cross-dialect conversion is permitted.
+`exactFromText` is an existing explicit conversion available to callers
+in the default dialect as well.
+
+## Numerical algorithm
+
+For an exact fraction `n / d` with unsigned positive magnitudes and a
+separate sign, compute `q, r = divmod(n,d)` using `BigNat`:
+- Truncate: `q`, with the original sign.
+- Floor: on negative non-integrals, `-(q+1)`; otherwise `q`.
+- Ceil: on positive non-integrals, `q+1`; otherwise `-q`.
+- Half-even: compare `2r` to `d`; on equality choose `q` if its
+  decimal units digit is even, or `q+1` if odd; restore original sign.
+
+Normalized exact integer input returns unchanged, including the
+small-integer fast representation. Zero has no negative sign.
+Work budgets and output digit budgets are enforced. The algorithm never
+converts the fraction to IEEE-754 Float, works on all Haxe/JS/PHP backends
+and rejects an Approximate-valued host input.
+
+## Invariants and compatibility
+
+- The legacy `Number` (Float) dialect remains unchanged.
+- The exact-number source header is still `# nail: 0.29`; the runtime
+  version advancing to v0.43 does not reassign the meaning of that header.
+- Haxe AST evaluator, reference bytecode compiler, Nail-written compiler,
+  source-free bootstrap and Haxe/Node/PHP runtimes must agree.
+- Round-to-nearest has **one documented tie rule**; there is no
+  platform-specific `Math.round` or rounding-mode default.
+
+## Tests
+
+`haxe exact-rounding-test-interp.hxml`, followed by the JS and PHP
+variants, exercise positive/negative fractions, exact half ties, large
+integers, type-checking, rejected Float values, serialization and the
+self-hosted compiler fixed point. The release workflow runs the same tests
+before publishing distributions.
+
+---
+
 # v0.31 delta — Independently compiled runtime modules
 
 ## Module unit contract

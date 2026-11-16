@@ -42,6 +42,9 @@ class Vm {
       root.bind('#exact' + name, Native('#exact' + name, 2, []));
     root.bind('#exactEncode', Native('#exactEncode', 1, []));
     root.bind('exactEncode', Native('exactEncode', 1, []));
+    for (name in ['exactFloor', 'exactCeil', 'exactTruncate',
+        'exactRoundEven', 'exactIsInteger'])
+      root.bind(name, Native(name, 1, []));
     for (name in ['textLengthExact', 'vectorLengthExact', 'exactFromText', 'exactToFloat'])
       root.bind(name, Native(name, 1, []));
     for (name in ['textAtExact', 'vectorGetExact'])
@@ -183,6 +186,11 @@ class Vm {
     var b = args.length > 1 ? args[1] : Nil;
     return switch (name) {
       case 'exactFromText': ExactNumber(numeric.FastNumber.exact(text(a)));
+      case 'exactFloor': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'floor'));
+      case 'exactCeil': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'ceil'));
+      case 'exactTruncate': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'truncate'));
+      case 'exactRoundEven': ExactNumber(numeric.FastNumber.roundInteger(exact(a), 'half-even'));
+      case 'exactIsInteger': Boolean(numeric.FastNumber.isInteger(exact(a)));
       case 'exactToFloat':
         var value = numeric.FastNumber.rational(exact(a));
         var numerator = Std.parseFloat(value.numerator);

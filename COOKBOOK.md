@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.42
+# Nail Cookbook — v0.43
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -115,3 +115,36 @@ fidarsi della chiave pubblica trovata nello stesso bundle non attendibile.
 Per fare pratica guarda `src/SignedManifestsTestMain.hx`: il seed
 Ed25519 del test è pubblicato intenzionalmente e **non deve essere
 usato per distribuzioni reali**.
+
+## Ricetta 8 — Quantizzare una durata musicale esatta
+
+Per convertire una durata esatta in un numero intero di battiti o tick
+senza introdurre errori di virgola mobile:
+
+```nail
+# nail: 0.29
+
+def barsToBeats bars = bars * 4 ;
+def nearestTick beats ticksPerBeat =
+  exactRoundEven ( beats * ticksPerBeat ) ;
+
+nearestTick ( 1 / 3 ) 960 ;  # Exact 320
+nearestTick ( 1 / 4 ) 960 ;  # Exact 240
+nearestTick ( 1 / 2 ) 3 ;    # Exact 2 (1.5, ties-to-even)
+```
+
+La quantizzazione è un'operazione **esplicita**: prima della chiamata
+`exactRoundEven`, il risultato può ancora essere una frazione esatta.
+Per la durata di una battuta puoi mantenere i razionali e arrotondare
+soltanto nel passaggio finale verso una griglia con tick interi.
+
+```nail
+# nail: 0.29
+def wholeBeats beats = exactFloor beats ;
+def isWholeBeat beats = exactIsInteger beats ;
+wholeBeats ( -7 / 3 ) ;  # -3
+isWholeBeat ( 8 / 2 ) ;  # true
+```
+
+Questo evita sia troncamenti impliciti sia la perdita di precisione con
+numeri molto grandi.
