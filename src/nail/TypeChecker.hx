@@ -402,6 +402,15 @@ private class Inference {
 
   function fresh():NType return TVariable(nextId++);
 
+  /** A hygienic macro global reference cannot bypass a constrained call. */
+  function constrainedName(name:String, scope:StringMap<TypeScheme>):Null<String> {
+    var base = MacroExpander.globalName(name);
+    if (!relations.exists(base)) return null;
+    if (StringTools.startsWith(name, MacroExpander.GLOBAL) ||
+        scope.get(base) == globals.get(base)) return base;
+    return null;
+  }
+
   static function fun(a:NType, b:NType):NType return TFunction(a, b);
   static function mono(t:NType):TypeScheme return {term:t, quantified:[], comparable:[]};
   static function poly(t:NType, quantified:Array<Int>, comparable:Array<Int> = null):TypeScheme {
@@ -795,7 +804,7 @@ private class Inference {
         case Literal(Nil): results.push(TList(fresh())); work.pop();
         case Literal(_): throw 'Type error: unsupported literal';
         case Var(name):
-          if (relations.exists(name) && frame.scope.get(name) == globals.get(name))
+          if (constrainedName(name, frame.scope) != null)
             throw 'Type error: constrained function requires two directly applied arguments: ' + name;
           var scheme:TypeScheme;
           if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
@@ -821,7 +830,7 @@ private class Inference {
         // Closed, explicit overload set; never infer overloaded operators
         // implicitly. Fully applied calls resolve on both argument types.
         case Apply(Apply(Var(name), firstArg), secondArg)
-          if (relations.exists(name) && frame.scope.get(name) == globals.get(name)):
+          if (constrainedName(name, frame.scope) != null):
           if (frame.phase == 0) {
             frame.phase = 1;
             work.push(new InferFrame(firstArg, frame.scope));
@@ -831,7 +840,8 @@ private class Inference {
             work.push(new InferFrame(secondArg, frame.scope));
           } else {
             var other = results.pop();
-            var ret = numeric.NumericRelation.result(relations.get(name),
+            var ret = numeric.NumericRelation.result(
+              relations.get(MacroExpander.globalName(name)),
               normalize(frame.saved), normalize(other));
             results.push(ret);
             work.pop();

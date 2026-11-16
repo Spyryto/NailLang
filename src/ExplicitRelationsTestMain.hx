@@ -83,6 +83,21 @@ class ExplicitRelationsTestMain {
     ok(numeric.NumericRelation.rows('Div').length == 2,
       'closed relation table contains two supported concrete signatures');
 
+
+    // Successfully declared constraints persist across incremental checks.
+    var incremental = new TypeChecker();
+    incremental.check('def divide x y : Div = x / y ;');
+    same(incremental.check('divide 8 4 ; '
+      + 'divide ( exactFromText " 8 " ) ( exactFromText " 4 " ) ;'),
+      ['Number','Exact'], 'incremental checker remembers Div relation');
+    var copied = incremental.copy();
+    same(copied.check('divide 5 2 ;'), ['Number'],
+      'checker copy preserves relation declaration');
+    fails(() -> incremental.check('def broken x y : Div = x + y ;'),
+      'cannot unify');
+    ok(incremental.names().indexOf('broken') < 0,
+      'failed annotated batch is transactional');
+
     // Normal type inference still works and remains automatic.
     var again=new TypeChecker();
     again.check('def id x = x ;');
