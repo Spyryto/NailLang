@@ -1,3 +1,89 @@
+# v0.31 delta — Independently compiled runtime modules
+
+## Module unit contract
+
+A source module is an ordinary Nail program plus a separate **host manifest**
+consisting of a module name, source text, declared import dependencies and
+declared export signatures. Runtime modules are distinct from the pre-existing
+**compile-time macro modules**: macro `import/export` source forms keep their
+original syntax and meaning.
+
+`SourceModuleSpec` contains the source and fully qualified imports
+`{module, symbol, alias, type:NType}`; exports are
+`{name, type:NType}`. The first module ABI deliberately admits only closed
+monomorphic signatures composed of primitive, function, list and vector
+types. Public nominal and polymorphic type exports are deferred.
+
+## Compile independently
+
+1. Validate identifiers and aliases, reject missing or repeated manifest
+   entries, top-level `Evaluate` expressions and local shadowing of imports.
+   Module source has no ambient dependency imports.
+2. Create a fresh TypeChecker and install *only* explicit import aliases with
+   the corresponding closed types. Check the whole program transactionally.
+3. Every export must name a module-local `Define` and its inferred signature
+   must be exactly the declared public signature. An export may not re-export
+   an imported alias implicitly.
+4. Compile with both independent backends: the Haxe reference compiler and
+   the Nail-written **source-free BootRuntime**. Require byte-for-byte
+   canonical structured-bytecode equivalence.
+5. Serialize a self-contained `nailseed.runtime-module.v1` image containing
+   the module name, `sourceDialect`, canonical import/export signatures, and
+   a versioned Bytecode image. **The source is absent from the artifact.**
+
+Compilation is per-module and can happen in arbitrary order. The linker
+never calls the Haxe parser, Nail source parser, type inference or compiler.
+
+## Link independently
+
+`ModuleLinker.linkImages` decodes compiled images, validates their interfaces
+and permitted top-level bytecode forms, and resolves the dependency graph
+topologically. Cyclic dependencies, unknown modules, missing or unexported
+symbols, signature mismatch, duplicate public names and alias collisions
+are errors. The module graph is bounded in size and depth.
+
+Each module runs exactly once in its **own ByteVm root**. Only explicitly
+imported symbols are bound into that root before module initialization.
+Exported functions retain lexical closures over their **defining module's**
+environment. Module runtime instances are private; `ModuleBundle.read`
+and `invoke` check the public export set rather than permitting arbitrary
+global lookups.
+
+`0.27`/default floating `Number` and `0.29` exact-number source
+dialects remain separate. A runtime dependency edge between the two is
+rejected, even if its imported name or desired signature appears similar.
+An exact module uses the v2-exact image envelope; the legacy module uses
+the legacy v1 bootstrap format. No JSON numeric field transports a large
+exact fraction.
+
+## Security and compatibility bounds
+
+Module images are **trusted build outputs**, not cryptographically signed
+artifacts. Decoding validates the interface and bytecode structure and
+prevents accidental version confusion, but type safety against an
+arbitrarily tampered/replaced bytecode payload requires source provenance or
+authenticated artifacts. The module runtime does not expose host I/O.
+
+This milestone is a working host API, **not new Nail source grammar**:
+runtime imports/exports are supplied as manifest data. Future explicit
+source-level interface syntax should lower to this same loader/linker API.
+Public nominal types, polymorphic promises, controlled recursion between
+modules and generative export inference require subsequent specification.
+The old macro module API is unchanged.
+
+## Acceptance tests
+
+- A three-module legacy application compiles each file independently and
+  executes correctly after linking images out of order.
+- A two-module exact-number music clock computes `30720/97` seconds for
+  128 four-beat bars at 97 BPM without Float conversion.
+- Private symbols cannot be called/imported, import signatures are checked,
+  and cycles, missing modules, duplicates, aliases and dialect mismatch fail.
+- Haxe/JavaScript/PHP agree on results and inferred interfaces; the complete
+  inherited v0.30 bootstrap/fixed-point tests stay green.
+
+---
+
 # v0.30 delta — Typed procedural declaration transformers
 
 This stage exposes Nail-authored `Syntax -> Syntax` functions through

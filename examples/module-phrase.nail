@@ -1,0 +1,3 @@
+# nail: 0.29
+# Import Tempo.secondsPerBeat as tempo_secondsPerBeat.
+def phraseSeconds bars = ( tempo_secondsPerBeat 97 ) * ( bars * 4 ) ;

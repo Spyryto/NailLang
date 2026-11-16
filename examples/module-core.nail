@@ -1,0 +1,3 @@
+# Independent module: only double is exported via the host manifest.
+def double n = n * 2 ;
+def hidden n = n + 100 ;

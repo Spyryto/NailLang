@@ -1,18 +1,18 @@
-# Nail Language Tour — v0.30
+# Nail Language Tour — v0.31
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Trasformatori procedurali tipizzati**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Moduli compilati separatamente**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.29-runtime/LANGUAGE-TOUR.md) → **v0.30** → [versione successiva](../v0.31/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.30/LANGUAGE-TOUR.md) → **v0.31** → [versione successiva](../v0.32/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Trasformatori puri `Syntax -> Syntax` scritti in Nail, registrati tramite l'API tipizzata dell'host, con verifica e igiene dei binding.
+Immagini runtime di moduli, esportazioni dichiarate dall'host, import con alias e linking topologico; non è ancora sintassi `module` nativa.
 
 ```nail
-def twice n = n * 2 ;
-twice 21 ;
+def double n = n + n ;
+double 21 ;
 ```
 
 ## Primo programma
@@ -116,7 +116,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.30 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.30) e cerca il test associato alla feature.
+4. Apri la [versione v0.31 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.31) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

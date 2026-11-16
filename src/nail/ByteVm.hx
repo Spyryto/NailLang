@@ -254,6 +254,25 @@ class ByteVm {
     return compileSyntax(typed);
   }
 
+  /** Link a verified import without altering the compiled module's code.
+      A module gets a fresh ByteVm root; only declared exported values are
+      installed and ordinary global lookup remains private to that module. */
+  public function linkImport(alias:String, value:Value):Void {
+    if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(alias))
+      throw 'Module linker: invalid import alias ' + alias;
+    if (globals.hasHere(alias))
+      throw 'Module linker: duplicate or reserved import alias ' + alias;
+    globals.bind(alias, value);
+  }
+
+  /** The linker calls this only after verifying the symbol was explicitly
+      exported by the compiled module's own source declarations. */
+  public function readExport(name:String):Value {
+    if (!globals.hasHere(name))
+      throw 'Module linker: missing exported binding ' + name;
+    return globals.lookup(name);
+  }
+
   public function names():Array<String> return globals.keys();
   public function runPlain(program:Value):Array<Dynamic> return Vm.plainResults(run(program));
 }

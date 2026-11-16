@@ -1,0 +1,2 @@
+# Import Core.double as core_double in the host manifest.
+def triple n = ( core_double n ) + n ;

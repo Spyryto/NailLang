@@ -1,0 +1,2 @@
+# Import Math.triple as math_triple in the host manifest.
+def compute n = math_triple n ;

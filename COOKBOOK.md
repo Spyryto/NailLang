@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.30
+# Nail Cookbook — v0.31
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,16 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Trasformatori procedurali tipizzati
+## Ricetta 3 — Moduli compilati separatamente
 
 ```nail
-def twice n = n * 2 ;
-twice 21 ;
+def double n = n + n ;
+double 21 ;
 ```
 
-Trasformatori puri `Syntax -> Syntax` scritti in Nail, registrati tramite l'API tipizzata dell'host, con verifica e igiene dei binding.
+Immagini runtime di moduli, esportazioni dichiarate dall'host, import con alias e linking topologico; non è ancora sintassi `module` nativa.
 
-Per creare un trasformatore procedurale, parti dai file `examples/procedural-*.nail` e dal test `procedural-transformer-test-*.hxml`: una semplice `def` non registra da sola un trasformatore nell'host.
+Per compilare e collegare più moduli, esamina `examples/module-*.nail` e `runtime-modules-test-*.hxml`. I manifest di import/export vanno forniti dall'host; non esiste un gestore pacchetti Nail implicito.
 
 ## Allenamento: studiare l'implementazione
 

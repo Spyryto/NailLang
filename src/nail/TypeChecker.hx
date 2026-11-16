@@ -77,6 +77,27 @@ class TypeChecker {
     return solver.verifyGenerated(SyntaxBridge.forms(generated), contracts);
   }
 
+  /** A separately compiled module may refer only to explicitly imported
+      monomorphic symbols. The caller provides an already verified interface
+      (not an inferred or arbitrary polymorphic promise). */
+  public function importSignature(name:String, type:NType):Void {
+    if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(name))
+      throw 'Module type error: invalid import alias ' + name;
+    if (global.exists(name))
+      throw 'Module type error: duplicate or reserved import alias ' + name;
+    var pending:Array<NType> = [type];
+    while (pending.length > 0) switch (pending.pop()) {
+      case TNumber | TExact | TBoolean | TText | TSyntax:
+      case TList(child) | TVector(child): pending.push(child);
+      case TFunction(a, b): pending.push(b); pending.push(a);
+      case TVariable(_):
+        throw 'Module type error: polymorphic import signatures are not yet supported';
+      case TRecord(_) | TSum(_, _):
+        throw 'Module type error: cross-module nominal types require public interfaces';
+    }
+    global.set(name, {term:type, quantified:[], comparable:[]});
+  }
+
   /** No mutation of this checker: useful for IDEs and preflight checks. */
   public function preview(source:String, ?modules:String->Null<String>):Array<String>
     return copy().check(source, modules);

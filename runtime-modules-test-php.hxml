@@ -1,0 +1,10 @@
+-cp src
+-main RuntimeModulesTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/module-core.nail@module_core
+-resource examples/module-math.nail@module_math
+-resource examples/module-app.nail@module_app
+-resource examples/module-tempo.nail@module_tempo
+-resource examples/module-phrase.nail@module_phrase
+-php build/tests/php-runtime-modules

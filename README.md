@@ -1,108 +1,139 @@
-# NailSeed v0.30 — Typed procedural transformers written in Nail
+# NailSeed v0.31 — Runtime modules and separate compilation
 
-v0.30 adds a **public, opt-in transformer API** to the independent v0.29-runtime
-snapshot. Existing expression-template macros, exact-number dialect support,
-the five-form expression core and the source-free compiler remain intact.
+This snapshot adds a **first working, explicitly typed runtime module linker**
+to the v0.30 Nail compiler. Earlier snapshots remain unchanged.
 
-A procedural transformer is an ordinary pure Nail function:
+## What works
 
-```nail
-def emit program =
-  if syntaxTag program == " Program " then
-    syntaxNode " Program " [ ...new definition Syntax nodes... ]
-  else syntaxNode " Program " [] ;
+- Independently compile ordinary Nail source files into portable, versioned
+  `nailseed.runtime-module.v1` images, each containing **bytecode plus public
+  imports/exports and their monomorphic type signatures**. Module linking
+  requires no source parser, Nail source, or Haxe compiler.
+- Each module executes in a **fresh, isolated ByteVm lexical environment**.
+  Imports are bound by explicit aliases, and the consumer sees **only named
+  exports**. Unexported declarations remain private; exported functions keep
+  their own module's lexical environment when called from another module.
+- Dependencies are resolved topologically. Missing modules/exports,
+  duplicate aliases, duplicate modules, cycles and source-name shadowing
+  are rejected. Module evaluation is initialization once, not global
+  concatenation of all program definitions.
+- Each source is checked by Hindley–Milner with imported names installed
+  from explicitly declared **closed, monomorphic signatures**. Exported
+  declarations are checked against their promised public signatures.
+- The Haxe reference compiler and **Nail-written source-free bootstrap
+  compiler must emit identical canonical bytecode** for each module.
+- A legacy `Number` module and an opted-in `Exact` module get independent
+  bytecode image envelopes (v1 vs v2-exact). Imports between distinct
+  numeric dialects are explicitly rejected to prevent silent type changes.
+
+## Module source files
+
+The source files below are normal Nail files. They deliberately contain no
+new runtime-module keywords. **The explicit import/export manifest is supplied
+through the host API**; this is a staging step before choosing Nail-native
+module syntax and typed source declarations.
+
+<details>
+<summary>Example module layout</summary>
+
+```text
+examples/
+  module-core.nail      # private hidden, public double
+  module-math.nail      # imports Core.double as core_double; exports triple
+  module-app.nail       # imports Math.triple as math_triple; exports compute
+  module-tempo.nail     # Exact rational seconds per beat
+  module-phrase.nail    # imports Tempo.secondsPerBeat
 ```
+</details>
 
-Its required inferred signature is `Syntax -> Syntax`. Unlike the existing
-`macro name ... = quote (...)` syntax, it may **compute Syntax dynamically**
-using Nail functions, recursion, conditions and the existing immutable
-`SyntaxLeaf`/`SyntaxNode` APIs. No new interpreter opcode, object model,
-fexpr, or privileged compilation primitive is introduced.
-
-## Example
-
-See [examples/procedural-plus-ten.nail](examples/procedural-plus-ten.nail).
-The Nail function `emitPlusTen` generates a `plusTen` declaration with a
-fresh local variable, and returns a `Program` containing only that definition.
-
-A second example, [examples/procedural-identity.nail](examples/procedural-identity.nail),
-shows that the generator can use the ordinary **Nail standard library's**
-`syntaxDefine`, `syntaxLambda` and `syntaxVar` helpers. The host contract
-checker reads the bundled stdlib's inferred signatures once and reuses an
-isolated copy for each transformer. In a minimal custom host build without
-that resource, transformers may still use the core Syntax primitives, but
-stdlib-only helper names must be provided by the host.
-
-Host integration (Haxe, with the same API on JS and PHP):
+To compile and link the first three files, a host provides manifests:
 
 ```haxe
-var original = SyntaxEncoder.program(
-  new Parser('def base = 32 ;').parse());
-var transformerSource = /* contents of procedural-plus-ten.nail */;
-var contracts = [{
-  name: 'plusTen', type: TFunction(TNumber, TNumber)
-}];
+var numberFn = TFunction(TNumber, TNumber);
+var core:SourceModuleSpec = {
+  name: 'Core',
+  source: coreSource,
+  imports: [],
+  exports: [{name:'double', type:numberFn}]
+};
+var math:SourceModuleSpec = {
+  name: 'Math',
+  source: mathSource,
+  imports: [{
+    module:'Core', symbol:'double', alias:'core_double', type:numberFn
+  }],
+  exports: [{name:'triple', type:numberFn}]
+};
+var app:SourceModuleSpec = {
+  name: 'Application',
+  source: appSource,
+  imports: [{
+    module:'Math', symbol:'triple', alias:'math_triple', type:numberFn
+  }],
+  exports: [{name:'compute', type:numberFn}]
+};
 
-var emitted = ProceduralTransformer.generateHost(
-  original, transformerSource, 'emitPlusTen', contracts);
+// Source is checked and compiled once. Images may be saved independently.
+var artifacts = [core,math,app].map(spec ->
+  ModuleImage.encode(ModuleLinker.compile(spec)));
 
-// Or run the *same Nail transformer* with the source-free bootstrap:
-var fromBootstrap = ProceduralTransformer.generateBoot(
-  original, transformerSource, 'emitPlusTen', contracts);
-
-var bytecode = ProceduralTransformer.compile(original, emitted, contracts);
-// bytecode contains both def base and def plusTen; plusTen base evaluates to 42
+// Source-free runtime: a different process can decode these images and link
+// them in any order. The private Core.hidden symbol never becomes visible.
+var bundle = ModuleLinker.linkImages([
+  artifacts[2], artifacts[0], artifacts[1]
+]);
+var value = bundle.invoke('Application', 'compute', Number(14));
+// Vm.toPlain(value) == 42
 ```
 
-### Contract and hygiene
+For the **music timing example**, the `Tempo` and `Phrase` modules opt into
+`# nail: 0.29`, export/import `Exact -> Exact`, and evaluate
+`phraseSeconds 128` as **`E:30720/97`**, exactly.
 
-- The caller supplies a validated source `Syntax.Program`, transformer source,
-  transformer entry name and an **explicit closed monomorphic signature** for
-  each emitted definition. No unchecked generated declarations can enter
-  `ProceduralTransformer.compile`.
-- The generated result must be another `Syntax.Program` of **fresh definitions
-  only**; unexpected forms, duplicate names, wrong result types and unknown
-  references are errors. The original Program is never mutated.
-- A generated lambda must bind `#proc_local_<name>`, referring to that binder
-  using the same private marker. The hygiene pass deterministically rewrites
-  every marker to a fresh `#proc_gensym_<id>_<name>`, preserving caller free
-  variables. Bare `x` binders, dangling markers and fabricated/duplicate
-  private IDs are rejected.
-- The public compile boundary verifies already-prepared IDs again, and checks
-  types again, so directly supplying arbitrary Syntax cannot bypass it.
-- Type-contract errors can include an optional source call-site span. Complete
-  nested source-origin maps for arbitrary procedural transformations are not
-  yet implemented.
-- The transformer runs as an ordinary Nail closure, under the existing
-  evaluator instruction budget, with **no I/O or privileged callbacks**.
+## Compiled interface and runtime guarantees
 
-## Test and runtime compatibility
+`ModuleImage` records module name, dialect, import aliases, exported names,
+canonical signatures and a versioned bytecode envelope. `ModuleLinker.link`
+can also work with in-memory compiled units, while
+`ModuleLinker.linkImages` accepts only serialized images. No source-code
+strings are supplied at link time.
+
+Interfaces remain explicit **monomorphic** `NType` contracts. The first
+version supports primitive and function/list/vector signatures. Public
+nominal and polymorphic type interfaces need further design; local record or
+sum type definitions are therefore deliberately excluded from this module
+compilation entry point. This does not remove record/ADT support from the
+ordinary Nail compiler.
+
+The compiled unit is currently a **trusted build artifact**. ModuleImage
+validates structural metadata and canonical bytecode serialization but
+does **not** cryptographically verify publisher authenticity or prove that
+arbitrary modified bytecode satisfies its advertised type signature.
+
+## Run the tests
+
+From `v0.31/`, after building the bootstrap image:
 
 ```sh
-# In v0.30/, after generating the bootstrap image:
 haxe seed-image.hxml
-haxe procedural-transformer-test-interp.hxml
-haxe procedural-transformer-test-js.hxml && node build/tests/procedural-transformer.js
-haxe procedural-transformer-test-php.hxml &&
-  php build/tests/php-procedural-transformer/index.php
+haxe runtime-modules-test-interp.hxml
+haxe runtime-modules-test-js.hxml && node build/tests/runtime-modules.js
+haxe runtime-modules-test-php.hxml && php build/tests/php-runtime-modules/index.php
 ```
 
-GitHub Actions additionally runs the inherited v0.29-runtime regression,
-type inference, expression macro, module macro, exact-number, fixed-point
-bootstrap, stress and distribution checks on Haxe, Node and PHP. The new
-tests compare the Haxe AST VM, the Nail-written reference compiler and the
-source-free compiled Nail compiler, plus malformed/unsafe outputs.
+The GitHub Actions workflow additionally runs the inherited v0.30 procedural
+transformer, macro, exact-number, type checker, source-free bootstrap,
+fixed-point, stress, CLI and distribution tests.
 
-## Deliberate limits
+## Boundaries and next work
 
-This is **Nail-authored procedural declaration generation through a public
-host API**, not user-defined `macro` registrations directly in the Nail
-source grammar. It does not yet support arbitrary program rewrites, automatic
-type inference of promised polymorphic declarations, phase-specific I/O,
-mixed-version module linking or complete inferred hygiene for unmarked syntax
-splices. Procedural transformers must explicitly mark the bindings they
-introduce. These boundaries make the first reusable API predictable and
-testable without expanding the trusted runtime core.
+This is a **host-manifest module API**, not source-native
+`import/export` syntax for runtime values. Existing `import ... from ...`
+and `export ...` forms retain their established **compile-time macro**
+meaning and are not reinterpreted. The next logical changes are a compact
+source-language surface (or generated interface files), public polymorphic
+and nominal signatures, then richer cross-module diagnostics and incremental
+recompilation. The runtime still has no ambient file/network I/O capability.
 
-See [SPEC.md](SPEC.md), the previous [v0.29-runtime](../v0.29-runtime/) and
-the repository's [roadmap](../ROADMAP.md).
+See [SPEC.md](SPEC.md), the [v0.30 snapshot](../v0.30/) and
+[the roadmap](../ROADMAP.md).
