@@ -403,7 +403,7 @@ class Vm {
               root.bind(generatedName, evaluate(body, root));
             case _: throw 'Invalid sum lowering';
           }
-        case RecordType(name, fields):
+        case RecordType(name, _, fields):
           for (definition in RecordLowering.definitions(name, fields)) switch (definition) {
             case Define(generatedName, body):
               if (root.hasHere(generatedName)) throw 'Already defined: ' + generatedName;

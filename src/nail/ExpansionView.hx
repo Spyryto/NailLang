@@ -10,8 +10,8 @@ class ExpansionView {
     return forms.map(form -> switch (form) {
       case Define(name, body): 'def ' + name + ' = ' + expr(body) + ' ;';
       case Evaluate(body): expr(body) + ' ;';
-      case RecordType(name, fields):
-        'type ' + name + ' { ' + fields.map(f -> f.name + ' ' + f.typeName).join(' ') + ' } ;';
+      case RecordType(name, params, fields):
+        'type ' + [name].concat(params).join(' ') + ' { ' + fields.map(f -> f.name + ' ' + f.typeName).join(' ') + ' } ;';
       case SumType(name, params, constructors):
         'type ' + [name].concat(params).join(' ') + ' = '
           + constructors.map(c -> [c.name].concat(c.fieldTypes).join(' ')).join(' | ') + ' ;';

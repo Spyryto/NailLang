@@ -16,14 +16,14 @@ import nail.Value;
  */
 class TypeChecker {
   var global:StringMap<TypeScheme>;
-  var records:StringMap<Bool>;
+  var records:StringMap<Int>;
   var sums:StringMap<Int>;
   var sumCases:StringMap<Array<{name:String, arity:Int}>>;
   var constructorOwners:StringMap<String>;
   var nextId:Int;
 
   public function new() {
-    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Bool>(), new StringMap<Int>(),
+    var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Int>(), new StringMap<Int>(),
       new StringMap<Array<{name:String, arity:Int}>>(), new StringMap<String>());
     solver.installPrimitives();
     global = solver.globals;
@@ -92,10 +92,168 @@ class TypeChecker {
       case TFunction(a, b): pending.push(b); pending.push(a);
       case TVariable(_):
         throw 'Module type error: polymorphic import signatures are not yet supported';
-      case TRecord(_) | TSum(_, _):
+      case TRecord(_) | TRecordApplied(_, _) | TSum(_, _):
         throw 'Module type error: cross-module nominal types require public interfaces';
     }
     global.set(name, {term:type, quantified:[], comparable:[]});
+  }
+
+  /** Read the fully inferred closed public type of an ordinary definition.
+      Unlike a string signature, the returned NType can be used to build a
+      checked module manifest. Only ground non-nominal types are accepted
+      until the public type/interface identity ABI is defined. */
+  public function closedPublicType(name:String):NType {
+    var found = global.get(name);
+    if (found == null) throw 'Public interface: unknown export ' + name;
+    if (found.quantified.length > 0 || found.comparable.length > 0)
+      throw 'Public interface: polymorphic export requires a quantified ABI: ' + name;
+    var work:Array<NType> = [found.term];
+    while (work.length > 0) switch (work.pop()) {
+      case TNumber | TExact | TBoolean | TText | TSyntax:
+      case TList(item) | TVector(item): work.push(item);
+      case TFunction(a, b): work.push(b); work.push(a);
+      case TVariable(_):
+        throw 'Public interface: unconstrained type variable in export ' + name;
+      case TRecord(_) | TRecordApplied(_, _) | TSum(_, _):
+        throw 'Public interface: nominal types require public type identity: ' + name;
+    }
+    return found.term;
+  }
+
+
+  /** A fully quantified, non-nominal Hindley-Milner scheme is an explicit
+      public contract, not a type inferred from an untrusted module image.
+      Free variables, phantom quantifiers and malformed Eq constraints are
+      rejected rather than implicitly specialized. */
+  public static function validatePublicScheme(scheme:TypeScheme,
+      allowQualifiedRecords:Bool = false):TypeScheme {
+    if (scheme == null || scheme.term == null || scheme.quantified == null ||
+        scheme.comparable == null || scheme.quantified.length > 64 ||
+        scheme.comparable.length > 64)
+      throw 'Public interface: invalid quantified scheme';
+    var quantified = new IntMap<Bool>();
+    for (id in scheme.quantified) {
+      if (id < 0 || quantified.exists(id))
+        throw 'Public interface: duplicate or invalid type quantifier';
+      quantified.set(id, true);
+    }
+    var comparable = new IntMap<Bool>();
+    for (id in scheme.comparable) {
+      if (!quantified.exists(id) || comparable.exists(id))
+        throw 'Public interface: invalid Eq constraint';
+      comparable.set(id, true);
+    }
+    var used = new IntMap<Bool>();
+    var pending:Array<NType> = [scheme.term];
+    var nodes = 0;
+    while (pending.length > 0) {
+      if (++nodes > 2048) throw 'Public interface: type scheme size limit exceeded';
+      switch (pending.pop()) {
+        case TNumber | TExact | TBoolean | TText | TSyntax:
+        case TList(t) | TVector(t): pending.push(t);
+        case TFunction(a, b): pending.push(b); pending.push(a);
+        case TVariable(id):
+          if (!quantified.exists(id))
+            throw 'Public interface: free type variable in public scheme';
+          used.set(id, true);
+        case TRecord(name):
+          if (!allowQualifiedRecords ||
+              !~/^[A-Z][A-Za-z0-9]*_[A-Z][A-Za-z_0-9]*$/.match(name))
+            throw 'Public interface: nominal types require public type identity';
+        case TRecordApplied(name, args):
+          if (!allowQualifiedRecords ||
+              !~/^[A-Z][A-Za-z0-9]*_[A-Z][A-Za-z_0-9]*$/.match(name) ||
+              args.length == 0 || args.length > 16)
+            throw 'Public interface: nominal types require public type identity';
+          for (arg in args) pending.push(arg);
+        case TSum(_, _):
+          throw 'Public interface: algebraic public type identity is not implemented';
+      }
+    }
+    for (id in scheme.quantified) if (!used.exists(id))
+      throw 'Public interface: unused public quantifier';
+    return {
+      term:scheme.term,
+      quantified:scheme.quantified.copy(),
+      comparable:scheme.comparable.copy()
+    };
+  }
+
+  static function rebasePublicType(term:NType, mapping:IntMap<NType>):NType {
+    var work:Array<{type:NType, end:Bool}> = [{type:term, end:false}];
+    var results:Array<NType> = [];
+    while (work.length > 0) {
+      var frame = work.pop();
+      if (frame.end) {
+        switch (frame.type) {
+          case TList(_): results.push(TList(results.pop()));
+          case TVector(_): results.push(TVector(results.pop()));
+          case TFunction(_, _):
+            var result = results.pop(), argument = results.pop();
+            results.push(TFunction(argument, result));
+          case TRecordApplied(name, args):
+            var parameters:Array<NType> = [];
+            for (i in 0...args.length) parameters.push(results.pop());
+            parameters.reverse();
+            results.push(TRecordApplied(name, parameters));
+          case _: throw 'Public interface: malformed type scheme';
+        }
+      } else switch (frame.type) {
+        case TVariable(id): results.push(mapping.get(id));
+        case TList(t) | TVector(t):
+          work.push({type:frame.type, end:true});
+          work.push({type:t, end:false});
+        case TFunction(a, b):
+          work.push({type:frame.type, end:true});
+          work.push({type:b, end:false});
+          work.push({type:a, end:false});
+        case TRecordApplied(_, args):
+          work.push({type:frame.type, end:true});
+          var i = args.length;
+          while (i > 0) work.push({type:args[--i], end:false});
+        case TRecord(name): results.push(TRecord(name));
+        case TSum(_, _):
+          throw 'Public interface: algebraic public type identity is not implemented';
+        case _: results.push(frame.type);
+      }
+    }
+    return results.pop();
+  }
+
+  /** Return an exportable HM contract, including quantified variables and
+      Eq constraints, without changing the inference environment. */
+  public function publicScheme(name:String,
+      allowQualifiedRecords:Bool = false):TypeScheme {
+    var found = global.get(name);
+    if (found == null) throw 'Public interface: unknown export ' + name;
+    return validatePublicScheme(found, allowQualifiedRecords);
+  }
+
+  /** Import an independently supplied scheme with FRESH variable identities.
+      Rebinding is essential: type IDs in two separate source modules may
+      overlap, yet their universally quantified variables must remain
+      independent. Every reference instantiates the imported scheme. */
+  public function importPublicScheme(name:String, scheme:TypeScheme,
+      allowQualifiedRecords:Bool = false):Void {
+    if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(name) || global.exists(name))
+      throw 'Module type error: duplicate, invalid or reserved import alias ' + name;
+    var safe = validatePublicScheme(scheme, allowQualifiedRecords);
+    var mapping = new IntMap<NType>();
+    var variables:Array<Int> = [];
+    for (old in safe.quantified) {
+      var fresh = nextId++;
+      mapping.set(old, TVariable(fresh));
+      variables.push(fresh);
+    }
+    var constraints:Array<Int> = [];
+    for (old in safe.comparable) switch (mapping.get(old)) {
+      case TVariable(id): constraints.push(id);
+      case _: throw 'Public interface: malformed Eq constraint';
+    }
+    global.set(name, {
+      term:rebasePublicType(safe.term, mapping),
+      quantified:variables, comparable:constraints
+    });
   }
 
   /** No mutation of this checker: useful for IDEs and preflight checks. */
@@ -106,8 +264,8 @@ class TypeChecker {
     var instance = new TypeChecker();
     instance.global = new StringMap<TypeScheme>();
     for (name in global.keys()) instance.global.set(name, global.get(name));
-    instance.records = new StringMap<Bool>();
-    for (name in records.keys()) instance.records.set(name, true);
+    instance.records = new StringMap<Int>();
+    for (name in records.keys()) instance.records.set(name, records.get(name));
     instance.sums = new StringMap<Int>();
     for (name in sums.keys()) instance.sums.set(name, sums.get(name));
     instance.sumCases = new StringMap<Array<{name:String, arity:Int}>>();
@@ -146,7 +304,7 @@ private class InferFrame {
 /** Per-call unifier and program checker. It only mutates its private copy of globals. */
 private class Inference {
   public var globals(default, null):StringMap<TypeScheme>;
-  public var records(default, null):StringMap<Bool>;
+  public var records(default, null):StringMap<Int>;
   public var sums(default, null):StringMap<Int>;
   public var sumCases(default, null):StringMap<Array<{name:String, arity:Int}>>;
   public var constructorOwners(default, null):StringMap<String>;
@@ -154,14 +312,14 @@ private class Inference {
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
-  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Bool>,
+  public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
       knownOwners:StringMap<String>) {
     nextId = start;
     globals = new StringMap<TypeScheme>();
     for (name in initial.keys()) globals.set(name, initial.get(name));
-    records = new StringMap<Bool>();
-    for (name in knownRecords.keys()) records.set(name, true);
+    records = new StringMap<Int>();
+    for (name in knownRecords.keys()) records.set(name, knownRecords.get(name));
     sums = new StringMap<Int>();
     for (name in knownSums.keys()) sums.set(name, knownSums.get(name));
     sumCases = new StringMap<Array<{name:String, arity:Int}>>();
@@ -252,7 +410,7 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TVariable(other): if (id == other) return true;
         case TList(a) | TVector(a): stack.push(a);
-        case TSum(_, items): for (item in items) stack.push(item);
+        case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -266,7 +424,7 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TNumber | TExact | TBoolean | TText | TSyntax | TRecord(_):
         case TList(a) | TVector(a): stack.push(a);
-        case TSum(_, items): for (item in items) stack.push(item);
+        case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
       }
@@ -294,6 +452,9 @@ private class Inference {
         case [_, TVariable(j)]: bindVariable(j, a);
         case [TNumber, TNumber] | [TExact, TExact] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
         case [TRecord(leftName), TRecord(rightName)] if (leftName == rightName):
+        case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
+          if (nx == ny && xs.length == ys.length):
+          for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
         case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
@@ -314,11 +475,14 @@ private class Inference {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
           case TVector(_): results.push(TVector(results.pop()));
-          case TSum(name, types):
+          case TSum(name, types) | TRecordApplied(name, types):
             var newArgs:Array<NType> = [];
             for (i in 0...types.length) newArgs.push(results.pop());
             newArgs.reverse();
-            results.push(TSum(name, newArgs));
+            results.push(switch (frame.type) {
+              case TSum(_, _): TSum(name, newArgs);
+              case _: TRecordApplied(name, newArgs);
+            });
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -328,7 +492,7 @@ private class Inference {
         case TVariable(id):
           var current = mapping.get(id);
           results.push(current == null ? frame.type : current);
-        case TSum(_, types):
+        case TSum(_, types) | TRecordApplied(_, types):
           stack.push({type:frame.type, finish:true});
           var i = types.length;
           while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
@@ -361,7 +525,8 @@ private class Inference {
       switch (prune(stack.pop())) {
         case TVariable(id): result.set(id, true);
         case TList(item) | TVector(item): stack.push(item);
-        case TSum(_, types): for (item in types) stack.push(item);
+        case TSum(_, types) | TRecordApplied(_, types):
+          for (item in types) stack.push(item);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -377,11 +542,14 @@ private class Inference {
         switch (frame.type) {
           case TList(_): results.push(TList(results.pop()));
           case TVector(_): results.push(TVector(results.pop()));
-          case TSum(name, types):
+          case TSum(name, types) | TRecordApplied(name, types):
             var newArgs:Array<NType> = [];
             for (i in 0...types.length) newArgs.push(results.pop());
             newArgs.reverse();
-            results.push(TSum(name, newArgs));
+            results.push(switch (frame.type) {
+              case TSum(_, _): TSum(name, newArgs);
+              case _: TRecordApplied(name, newArgs);
+            });
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -390,7 +558,7 @@ private class Inference {
       } else {
         var normalized = prune(frame.type);
         switch (normalized) {
-          case TSum(_, types):
+          case TSum(_, types) | TRecordApplied(_, types):
             stack.push({type:normalized, finish:true});
             var i = types.length;
             while (i > 0) { i--; stack.push({type:types[i], finish:false}); }
@@ -443,7 +611,7 @@ private class Inference {
   function projectField(receiver:NType, field:String):NType {
     var recordName:Null<String> = null;
     switch (prune(receiver)) {
-      case TRecord(name): recordName = name;
+      case TRecord(name) | TRecordApplied(name, _): recordName = name;
       case TVariable(_):
         var matches:Array<String> = [];
         for (name in records.keys()) if (globals.exists(name + '.' + field)) matches.push(name);
@@ -453,14 +621,13 @@ private class Inference {
           throw 'Type error: ambiguous record field ' + field + ' (' + matches.join(', ') + ')';
         }
         recordName = matches[0];
-        unify(receiver, TRecord(recordName));
       case _: throw 'Type error: expected record before . ' + field;
     }
     var name:String = recordName;
     var accessor = globals.get(name + '.' + field);
     if (accessor == null) throw 'Type error: record ' + name + ' has no field ' + field;
     var fieldType = fresh();
-    unify(instantiate(accessor), fun(TRecord(name), fieldType));
+    unify(instantiate(accessor), fun(receiver, fieldType));
     return fieldType;
   }
 
@@ -556,15 +723,22 @@ private class Inference {
     return results.pop();
   }
 
-  function fieldType(name:String):NType return switch (name) {
-    case 'Number': TNumber;
-    case 'Exact': TExact;
-    case 'Bool': TBoolean;
-    case 'Text' | 'String': TText;
-    case 'Syntax': TSyntax;
-    case _: if (!records.exists(name)) throw 'Type error: unknown record field type ' + name;
-      TRecord(name);
-  };
+  function fieldType(name:String, ?params:StringMap<NType>):NType {
+    var variable = params == null ? null : params.get(name);
+    if (variable != null) return variable;
+    return switch (name) {
+      case 'Number': TNumber;
+      case 'Exact': TExact;
+      case 'Bool': TBoolean;
+      case 'Text' | 'String': TText;
+      case 'Syntax': TSyntax;
+      case _:
+        if (!records.exists(name)) throw 'Type error: unknown record field type ' + name;
+        if (records.get(name) != 0)
+          throw 'Type error: parameterized record field type requires explicit application: ' + name;
+        TRecord(name);
+    };
+  }
 
   /** Only atomic field types in this iteration. Parameters are lowercase names;
       nominal recursive sums without parameters are supported. */
@@ -578,7 +752,7 @@ private class Inference {
       case 'Text' | 'String': TText;
     case 'Syntax': TSyntax;
       case _: if (name == self && !sums.exists(self)) TSum(self, [])
-        else if (records.exists(name)) TRecord(name)
+        else if (records.exists(name) && records.get(name) == 0) TRecord(name)
         else if (sums.exists(name) && sums.get(name) == 0) TSum(name, [])
         else throw 'Type error: unknown or parameterized sum field type ' + name;
     };
@@ -682,8 +856,12 @@ private class Inference {
           case TVariable(_):
             throw 'Generated type contract: polymorphic signatures require a separate validation rule';
           case TRecord(owner):
-            if (!records.exists(owner))
+            if (!records.exists(owner) || records.get(owner) != 0)
               throw 'Generated type contract: unknown record type ' + owner;
+          case TRecordApplied(owner, arguments):
+            if (!records.exists(owner) || records.get(owner) != arguments.length)
+              throw 'Generated type contract: unknown record type or arity ' + owner;
+            for (arg in arguments) pending.push(arg);
           case TSum(owner, arguments):
             if (!sums.exists(owner) || sums.get(owner) != arguments.length)
               throw 'Generated type contract: unknown sum type or arity ' + owner;
@@ -760,32 +938,42 @@ private class Inference {
         sumCases.set(name, [for (ctor in constructors) {name:ctor.name, arity:ctor.fieldTypes.length}]);
         for (ctor in constructors) constructorOwners.set(ctor.name, name);
         for (entry in proposed) globals.set(entry.name, entry.signature);
-      case RecordType(name, fields):
+      case RecordType(name, params, fields):
         if (globals.exists(name) || records.exists(name) || sums.exists(name)) throw 'Type error: already defined ' + name;
         if (fields.length == 0 || fields.length > 128) throw 'Type error: invalid record field count';
-        var result:NType = TRecord(name);
+        if (params.length > 16) throw 'Type error: too many record type parameters';
+        var parameterTypes = new StringMap<NType>();
+        var quantified:Array<Int> = [];
+        var parameters:Array<NType> = [];
+        for (param in params) {
+          if (!~/^[a-z][a-z0-9_]*$/.match(param) || parameterTypes.exists(param))
+            throw 'Type error: invalid or duplicate record type parameter ' + param;
+          var id = nextId++;
+          quantified.push(id);
+          var variable = TVariable(id);
+          parameterTypes.set(param, variable);
+          parameters.push(variable);
+        }
+        var result:NType = params.length == 0 ? TRecord(name) : TRecordApplied(name, parameters);
         var accessors:Array<{name:String, ty:NType}> = [];
-        // Names must be checked before any mutation. Forward/self-reference is
-        // postponed until algebraic types, so the field set is finite/acyclic.
+        var constructorArgs:Array<NType> = [];
+        // Fields remain atomic; nested applied types need a later syntax.
         var used = new StringMap<Bool>();
         for (field in fields) {
           if (used.exists(field.name)) throw 'Type error: duplicate record field ' + field.name;
           used.set(field.name, true);
           var getter = name + '.' + field.name;
           if (globals.exists(getter)) throw 'Type error: already defined ' + getter;
-          var ty = fieldType(field.typeName);
+          var ty = fieldType(field.typeName, parameterTypes);
+          constructorArgs.push(ty);
           accessors.push({name:getter, ty:fun(result, ty)});
         }
         var constructor:NType = result;
-        var i = accessors.length;
-        while (i > 0) {
-          i--;
-          // getter type is Record -> Field; re-use the parsed field position.
-          constructor = fun(fieldType(fields[i].typeName), constructor);
-        }
-        globals.set(name, mono(constructor));
-        for (entry in accessors) globals.set(entry.name, mono(entry.ty));
-        records.set(name, true);
+        var i = constructorArgs.length;
+        while (i > 0) constructor = fun(constructorArgs[--i], constructor);
+        globals.set(name, poly(constructor, quantified));
+        for (entry in accessors) globals.set(entry.name, poly(entry.ty, quantified));
+        records.set(name, params.length);
       case Define(name, expr):
         if (globals.exists(name)) throw 'Type error: already defined ' + name;
         // Recursive name is monomorphic during inference; generalized afterwards.
@@ -837,7 +1025,7 @@ private class Inference {
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);
-        case TSum(name, args):
+        case TSum(name, args) | TRecordApplied(name, args):
           if (args.length == 0) output.add(name);
           else {
             stack.push({type:null, text:']', parens:false});

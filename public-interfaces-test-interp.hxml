@@ -1,0 +1,7 @@
+-cp src
+-main PublicInterfacesTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/interface-core.nail@interface_core
+-resource examples/interface-client.nail@interface_client
+--interp

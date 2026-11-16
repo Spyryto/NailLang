@@ -101,7 +101,7 @@ class BindingAnalysis {
           result.globals.set(name, symbol);
           result.walk(body);
         case Evaluate(body): result.walk(body);
-        case RecordType(_, _) | SumType(_, _, _):
+        case RecordType(_, _, _) | SumType(_, _, _):
           // Type and constructor namespaces are checked separately.
       }
     }

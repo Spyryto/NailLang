@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.32
+# Nail Language Tour — v0.33
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Errori recuperabili con Result**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Interfacce pubbliche polimorfiche e record generici**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.31/LANGUAGE-TOUR.md) → **v0.32** → [versione successiva](../v0.33/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.32/LANGUAGE-TOUR.md) → **v0.33** → [versione successiva](../v0.34/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-`Result` è definito in Nail e composto mediante pattern esaustivi; `ModuleBundle.tryInvoke` distingue errori di lookup host da guasti inattesi della VM.
+Il linker supporta schemi HM inferiti/esportati e identità nominali; `Box a`/`Pair a b` sono dichiarazioni di record parametrici.
 
 ```nail
-type Result a e = Ok a | Err e ;
-def safeDivide n d = if d == 0 then Err " zero " else Ok ( n / d ) ;
-safeDivide 10 2 ;
+type Box a { value a } ;
+def numberBox = Box 42 ;
+numberBox . value ;
 ```
 
 ## Primo programma
@@ -117,7 +117,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.32 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.32) e cerca il test associato alla feature.
+4. Apri la [versione v0.33 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.33) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

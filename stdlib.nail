@@ -494,15 +494,15 @@ def parseRecordFields tokens reversed =
 def parseRecordDefinition tokens =
   let name = parsePeek tokens in
   if isRecordTypeName name then
-    let rest = tail tokens in
-    if parsePeek rest == " { " then
-      let fields = parseRecordFields ( tail rest ) [] in
+    let params = parseParams " { " ( tail tokens ) [] in
+    if parseFailed params then params
+    else let fields = parseRecordFields ( parseRest params ) [] in
       if parseFailed fields then fields
       else if parsePeek ( parseRest fields ) != " ; " then parseError " Expected ; after record "
       else parsePair
-        ( syntaxNode " RecordType " [ syntaxName name , parseTree fields ] )
+        ( syntaxNode " RecordType "
+          [ syntaxName name , parseTree params , parseTree fields ] )
         ( tail ( parseRest fields ) )
-    else parseError " Expected { in record "
   else parseError " Expected record type name " ;
 
 # Closed sum declarations: type Option a = None | Some a ;
@@ -542,8 +542,14 @@ def parseSumDefinition tokens =
         ( parseRest ctors )
   else parseError " Expected algebraic type name " ;
 
+def hasRecordHeader tokens =
+  if isEmpty tokens then false
+  else if parsePeek tokens == " { " then true
+  else if parsePeek tokens == " = " then false
+  else if parsePeek tokens == " ; " then false
+  else hasRecordHeader ( tail tokens ) ;
 def parseTypeDefinition tokens =
-  if parsePeek ( tail tokens ) == " { " then parseRecordDefinition tokens
+  if hasRecordHeader ( tail tokens ) then parseRecordDefinition tokens
   else parseSumDefinition tokens ;
 
 def isFormKeyword tokens word =
@@ -803,7 +809,7 @@ def recordAccessorDefinition name field =
 def recordDefinitions form =
   let parts = syntaxChildren form in
   let name = syntaxText ( head parts ) in
-  let fields = syntaxChildren ( head ( tail parts ) ) in
+  let fields = syntaxChildren ( head ( tail ( tail parts ) ) ) in
   cons ( syntaxDefine name ( recordConstructor name fields ) )
     ( map ( fun field -> recordAccessorDefinition name field ) fields ) ;
 

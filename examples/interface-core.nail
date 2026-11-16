@@ -1,0 +1,3 @@
+def double n = n + n ;
+def identity value = value ;
+def secret n = n - 1 ;

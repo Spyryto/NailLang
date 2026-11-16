@@ -18,6 +18,6 @@ typedef SumConstructor = { name:String, fieldTypes:Array<String> };
 enum Form {
   Define(name:String, body:Expr);
   Evaluate(body:Expr);
-  RecordType(name:String, fields:Array<RecordField>);
+  RecordType(name:String, params:Array<String>, fields:Array<RecordField>);
   SumType(name:String, params:Array<String>, constructors:Array<SumConstructor>);
 }

@@ -33,7 +33,7 @@ class RecordExpansionTestMain {
   static function oracle(source:String):Value {
     var out:Array<Form> = [];
     for (form in new Parser(source).parse()) switch form {
-      case RecordType(name, fields): for (definition in RecordLowering.definitions(name, fields)) out.push(definition);
+      case RecordType(name, _, fields): for (definition in RecordLowering.definitions(name, fields)) out.push(definition);
       case _: out.push(form);
     }
     return SyntaxEncoder.program(out);
@@ -59,7 +59,7 @@ class RecordExpansionTestMain {
       same(plan[0], SyntaxEncoder.program(new Parser(source).parse()), 'source declarations preserved');
       same(plan[1], oracle(source), 'Nail transformer equals independent Haxe lowering');
       for (form in SyntaxBridge.forms(plan[1])) switch form {
-        case RecordType(_, _): throw 'record declaration survived transformation';
+        case RecordType(_, _, _): throw 'record declaration survived transformation';
         case _:
       }
       var reference = BytecodeCompiler.compileSource(source);

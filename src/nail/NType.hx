@@ -8,6 +8,8 @@ enum NType {
   TBoolean;
   TText;
   TRecord(name:String);
+  /** Applied nominal record: Box[a], Pair[a,b]. */
+  TRecordApplied(name:String, parameters:Array<NType>);
   TSum(name:String, parameters:Array<NType>);
   TSyntax;
   TVector(element:NType);

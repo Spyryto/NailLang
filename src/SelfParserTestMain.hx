@@ -38,7 +38,7 @@ class SelfParserTestMain {
       switch (form) {
         case Define(name, body): forms.push(node('Define', [leaf('Name', name), expression(body)]));
         case Evaluate(body): forms.push(node('Evaluate', [expression(body)]));
-        case RecordType(_, _) | SumType(_, _, _): throw 'No record declarations in legacy parser tests';
+        case RecordType(_, _, _) | SumType(_, _, _): throw 'No record declarations in legacy parser tests';
       }
     }
     return node('Program', forms);

@@ -46,7 +46,7 @@ class GeneratedDeclarationValidator {
     var expected:Array<Form> = [];
     var owners:Array<String> = [];
     for (form in original) switch (form) {
-      case RecordType(name, fields):
+      case RecordType(name, _, fields):
         var definitions = RecordLowering.definitions(name, fields);
         for (definition in definitions) {
           expected.push(definition);

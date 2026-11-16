@@ -71,10 +71,11 @@ class SyntaxEncoder {
     return switch (form) {
       case Define(name, body): node('Define', [leaf('Name', name), expr(body)]);
       case Evaluate(body): node('Evaluate', [expr(body)]);
-      case RecordType(name, fields):
+      case RecordType(name, params, fields):
         var nodes:Array<Value> = [];
         for (field in fields) nodes.push(node('Field', [leaf('Name', field.name), leaf('Type', field.typeName)]));
-        node('RecordType', [leaf('Name', name), node('Fields', nodes)]);
+        node('RecordType', [leaf('Name', name),
+          node('Params', [for (param in params) leaf('Name', param)]), node('Fields', nodes)]);
       case SumType(name, params, constructors):
         var variants:Array<Value> = [];
         for (ctor in constructors) {

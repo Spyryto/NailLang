@@ -137,15 +137,21 @@ class SyntaxBridge {
               }
               SumType(typeName, params, ctors);
             case SyntaxNode('RecordType', _):
-              var parts = children(form, 'RecordType', 2);
+              var parts = children(form, 'RecordType', -1);
+              if (parts.length != 2 && parts.length != 3)
+                throw 'Invalid Syntax RecordType arity';
               var typeName = label(parts[0], 'Name');
-              var raw = children(parts[1], 'Fields', -1);
+              var params:Array<String> = [];
+              if (parts.length == 3)
+                for (item in children(parts[1], 'Params', -1))
+                  params.push(label(item, 'Name'));
+              var raw = children(parts[parts.length - 1], 'Fields', -1);
               var fields:Array<nail.Ast.RecordField> = [];
               for (field in raw) {
                 var pair = children(field, 'Field', 2);
                 fields.push({name:label(pair[0], 'Name'), typeName:label(pair[1], 'Type')});
               }
-              RecordType(typeName, fields);
+              RecordType(typeName, params, fields);
             case _: throw 'Invalid Syntax program form';
           });
         }

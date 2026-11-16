@@ -3,6 +3,7 @@ package nail;
 import haxe.ds.StringMap;
 import nail.Ast.Form;
 import nail.NType;
+import nail.TypeScheme;
 import nail.Value;
 import nail.ModuleImage.CompiledModule;
 import nail.ModuleImage.LinkedModuleImport;
@@ -27,6 +28,35 @@ typedef SourceModuleSpec = {
   var source:String;
   var imports:Array<SourceModuleImport>;
   var exports:Array<SourceModuleExport>;
+}
+
+/** Optional export signature manifest: exported names are checked
+    against the inferred closed source types rather than manually duplicated
+    NType declarations. Polymorphic and nominal interfaces remain opt-in
+    future work and are rejected instead of given an unsound signature. */
+typedef InferredSourceModuleSpec = {
+  var name:String;
+  var source:String;
+  var imports:Array<SourceModuleImport>;
+  var exports:Array<String>;
+}
+
+
+/** Opt-in polymorphic import manifests keep the full typed HM scheme at
+    compile time. The compiled image still uses the existing canonical
+    string ABI; link time never needs source text or type inference. */
+typedef PublicSourceModuleImport = {
+  var module:String;
+  var symbol:String;
+  var alias:String;
+  var scheme:TypeScheme;
+}
+
+typedef PublicSourceModuleSpec = {
+  var name:String;
+  var source:String;
+  var imports:Array<PublicSourceModuleImport>;
+  var exports:Array<String>;
 }
 
 /** Explicitly recoverable lookup outcomes at the host/module boundary.
@@ -111,6 +141,153 @@ class ModuleLinker {
     return checker.signature('_moduleInterface');
   }
 
+
+  /** Validate record type provenance at the *import provider* boundary.
+      Re-exporting somebody else's nominal type is deliberately unsupported
+      in this initial opaque-record slice. */
+  static function requireRecordOwner(type:NType, module:String):Void {
+    var pending:Array<NType> = [type];
+    while (pending.length > 0) switch (pending.pop()) {
+      case TRecord(name):
+        if (!~/^[A-Z][A-Za-z0-9]*$/.match(module) ||
+            !StringTools.startsWith(name, module + '_') ||
+            !~/^[A-Z][A-Za-z_0-9]*$/.match(name.substr(module.length + 1)))
+          throw 'Module compiler: imported nominal owner mismatch for '
+            + name + ' from ' + module;
+      case TRecordApplied(name, args):
+        if (!~/^[A-Z][A-Za-z0-9]*$/.match(module) ||
+            !StringTools.startsWith(name, module + '_') ||
+            !~/^[A-Z][A-Za-z_0-9]*$/.match(name.substr(module.length + 1)))
+          throw 'Module compiler: imported nominal owner mismatch for '
+            + name + ' from ' + module;
+        if (args.length == 0 || args.length > 16)
+          throw 'Module compiler: invalid generic record arity';
+        for (arg in args) pending.push(arg);
+      case TList(t) | TVector(t): pending.push(t);
+      case TFunction(a, b): pending.push(b); pending.push(a);
+      case TSum(_, _):
+        throw 'Module compiler: algebraic public type identity is not implemented';
+      case _:
+    }
+  }
+
+  /** Public schemes support polymorphic exports and imports with quantified
+      variables and Eq constraints. The module-image format, VM and source
+      language stay unchanged. This does not admit nominal public types. */
+  public static function compilePublic(spec:PublicSourceModuleSpec,
+      maxSteps:Int = DEFAULT_STEPS):CompiledModule {
+    if (spec == null || spec.name == null || spec.source == null ||
+        spec.imports == null || spec.exports == null)
+      throw 'Module compiler: incomplete public interface manifest';
+    requireName(spec.name, 'module name');
+    if (spec.imports.length > 512 || spec.exports.length > 512)
+      throw 'Module compiler: interface size limit exceeded';
+    var checker = new TypeChecker();
+    var aliases = new StringMap<Bool>();
+    var imports:Array<LinkedModuleImport> = [];
+    for (item in spec.imports) {
+      if (item == null) throw 'Module compiler: invalid public import';
+      requireName(item.module, 'import module');
+      requireName(item.symbol, 'import symbol');
+      requireName(item.alias, 'import alias');
+      if (aliases.exists(item.alias))
+        throw 'Module compiler: duplicate import alias ' + item.alias;
+      aliases.set(item.alias, true);
+      TypeChecker.validatePublicScheme(item.scheme, true);
+      requireRecordOwner(item.scheme.term, item.module);
+      checker.importPublicScheme(item.alias, item.scheme, true);
+      imports.push({
+        module:item.module, symbol:item.symbol, alias:item.alias,
+        signature:checker.signature(item.alias)
+      });
+    }
+
+    var defined = new StringMap<Bool>();
+    function declare(name:String):Void {
+      if (aliases.exists(name))
+        throw 'Module compiler: declaration shadows imported alias ' + name;
+      if (defined.exists(name))
+        throw 'Module compiler: duplicate declaration ' + name;
+      defined.set(name, true);
+    }
+    for (form in new Parser(spec.source).parse()) switch (form) {
+      case Define(name, _): declare(name);
+      case RecordType(name, _, fields):
+        if (!~/^[A-Z][A-Za-z0-9]*$/.match(spec.name) ||
+            !StringTools.startsWith(name, spec.name + '_') ||
+            !~/^[A-Z][A-Za-z_0-9]*$/.match(name.substr(spec.name.length + 1)))
+          throw 'Module compiler: nominal record owner mismatch: ' + name
+            + ' must be qualified as ' + spec.name + '_Type';
+        for (generated in RecordLowering.definitions(name, fields)) switch (generated) {
+          case Define(symbol, _): declare(symbol);
+          case _: throw 'Module compiler: malformed record lowering';
+        }
+      case SumType(_, _, _):
+        throw 'Module compiler: algebraic public type identity is not implemented';
+      case Evaluate(_):
+        throw 'Module compiler: top-level expressions are not permitted';
+    }
+
+    checker.check(spec.source);
+    var exports:Array<LinkedModuleExport> = [];
+    var seen = new StringMap<Bool>();
+    for (name in spec.exports) {
+      requireName(name, 'export');
+      if (seen.exists(name)) throw 'Module compiler: duplicate export ' + name;
+      seen.set(name, true);
+      if (!defined.exists(name))
+        throw 'Module compiler: export must be a local definition ' + name;
+      checker.publicScheme(name, true);  // qualified records; sums still gated
+      exports.push({name:name, signature:checker.signature(name)});
+    }
+
+    var reference = BytecodeCompiler.compileSource(spec.source);
+    var boot = new BootRuntime(maxSteps);
+    var sourceFree = boot.compile(spec.source);
+    if (BootstrapImage.encode(reference) != BootstrapImage.encode(sourceFree))
+      throw 'Module compiler: reference and source-free Nail bytecode disagree';
+    var module:CompiledModule = {
+      name:spec.name,
+      dialect:numeric.NumericDialect.isExact(spec.source) ? '0.29' : '0.27',
+      imports:imports, exports:exports, code:sourceFree
+    };
+    return ModuleImage.decode(ModuleImage.encode(module));
+  }
+
+  /** Derive monomorphic public signatures from source with the existing
+      Hindley-Milner checker. The normal compile and link safety gates are
+      retained, and no separate signature parser is introduced. */
+  public static function compileInferred(spec:InferredSourceModuleSpec,
+      maxSteps:Int = DEFAULT_STEPS):CompiledModule {
+    if (spec == null || spec.name == null || spec.source == null ||
+        spec.imports == null || spec.exports == null)
+      throw 'Module compiler: incomplete inferred export manifest';
+    requireName(spec.name, 'module name');
+    if (spec.imports.length > 512 || spec.exports.length > 512)
+      throw 'Module compiler: interface size limit exceeded';
+
+    var checker = new TypeChecker();
+    for (item in spec.imports) {
+      if (item == null) throw 'Module compiler: invalid imported signature';
+      checker.importSignature(item.alias, item.type);
+    }
+    checker.check(spec.source);
+    var seen = new StringMap<Bool>();
+    var generated:Array<SourceModuleExport> = [];
+    for (name in spec.exports) {
+      requireName(name, 'export');
+      if (seen.exists(name)) throw 'Module compiler: duplicate export ' + name;
+      seen.set(name, true);
+      generated.push({name:name, type:checker.closedPublicType(name)});
+    }
+    // compile() still requires the export to be a genuine local definition,
+    // rechecks it against the derived contract, and compares both compilers.
+    return compile({
+      name:spec.name, source:spec.source, imports:spec.imports,
+      exports:generated
+    }, maxSteps);
+  }
+
   /** Compile source in isolation against its declared imports. Then compare
       the independent Haxe and self-hosted Nail compiler outputs. */
   public static function compile(spec:SourceModuleSpec,
@@ -149,7 +326,7 @@ class ModuleLinker {
         if (defined.exists(name))
           throw 'Module compiler: duplicate declaration ' + name;
         defined.set(name, true);
-      case RecordType(_, _) | SumType(_, _, _):
+      case RecordType(_, _, _) | SumType(_, _, _):
         throw 'Module compiler: exported nominal type interfaces are not yet supported';
       case Evaluate(_):
         throw 'Module compiler: top-level expressions are not permitted';
@@ -199,6 +376,13 @@ class ModuleLinker {
     }
   }
 
+  /** Record lowering generates private dotted getters. They are local
+      bytecode names, never public manifest symbols or imported aliases. */
+  static function validLocalBytecodeName(name:String):Bool {
+    return ModuleImage.validName(name) ||
+      ~/^[A-Z][A-Za-z_0-9]*\.[A-Za-z_][A-Za-z_0-9]*$/.match(name);
+  }
+
   /** A compiled module can initialize only its own declarations: no EVAL
       forms that could perform work before dependency imports are installed. */
   static function inspect(module:CompiledModule):Void {
@@ -211,7 +395,7 @@ class ModuleLinker {
     };
     for (form in forms) switch (form) {
       case SyntaxNode('DEFINE', Cons(SyntaxLeaf('Name', name), Cons(_, Nil))):
-        if (!ModuleImage.validName(name))
+        if (!validLocalBytecodeName(name))
           throw 'Module linker: invalid local definition ' + name;
         if (names.exists(name) || aliases.exists(name))
           throw 'Module linker: duplicate or shadowed definition ' + name;

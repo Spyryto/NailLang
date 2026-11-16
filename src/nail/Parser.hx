@@ -344,6 +344,14 @@ class Parser {
   function parseRecordType(typeName:String):Form {
     if (!isName(typeName) || !recordTypePattern.match(typeName))
       throw 'Expected uppercase record type name';
+    var params:Array<String> = [];
+    while (peek() != '{') {
+      var p = take();
+      if (!isName(p) || !typeParamPattern.match(p) || params.indexOf(p) >= 0)
+        throw 'Invalid or duplicate record type parameter';
+      params.push(p);
+      if (params.length > 16) throw 'Too many record type parameters';
+    }
     expect('{');
     var fields:Array<nail.Ast.RecordField> = [];
     while (peek() != '}') {
@@ -358,7 +366,7 @@ class Parser {
     expect('}');
     expect(';');
     if (fields.length == 0) throw 'Record requires at least one field';
-    return RecordType(typeName, fields);
+    return RecordType(typeName, params, fields);
   }
 
   public function parse(?modules:String->Null<String>):Array<Form> {
@@ -394,7 +402,11 @@ class Parser {
         take();
         var typeName = take();
         if (!isName(typeName) || !recordTypePattern.match(typeName)) throw 'Expected uppercase record type name or sum type';
-        forms.push(peek() == '{' ? parseRecordType(typeName) : parseSumType(typeName));
+        var cursor = at;
+        while (cursor < tokens.length && tokens[cursor] != '{' &&
+            tokens[cursor] != '=' && tokens[cursor] != ';') cursor++;
+        forms.push(cursor < tokens.length && tokens[cursor] == '{'
+          ? parseRecordType(typeName) : parseSumType(typeName));
       } else if (peek() == 'import' || peek() == 'export') {
         var importing = take() == 'import';
         var name = take();

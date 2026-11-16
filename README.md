@@ -1,64 +1,140 @@
-# NailSeed v0.32 — recoverable Result slice
+# NailSeed v0.33 — inferred and polymorphic public interfaces (second slice)
 
-This independent snapshot builds on v0.31. It adds a **typed recovery
-boundary**, without changing the five-expression AST, bytecode format, or
-default numeric semantics.
+This is an **independent v0.33 development snapshot** of v0.32.
+The first slice removes duplicate monomorphic export types from host manifests;
+the second adds an opt-in public scheme API for polymorphic imports/exports.
 
-## What is implemented
+The new `ModuleLinker.compileInferred` accepts only export **names**,
+reads their precise source types from the existing Hindley–Milner checker,
+and creates canonical type signatures for the unchanged module-image ABI.
+The existing `compile` API with explicit contracts remains supported.
+Import signatures are still supplied explicitly and checked at link time.
 
-- `examples/error-results.nail` is a real, checked Nail program defining
-  `Result a e = Ok a | Err e` and a finite error ADT.
-- Ordinary functions implement `resultMap`, `resultBind`, `resultMapError`,
-  `unwrapOr`, domain error reporting and safe division. A normal
-  zero denominator is represented by `Err DivideByZero`; it is not
-  an exception. Function application and pattern matching need no new opcode.
-- `ModuleBundle.tryInvoke(module, symbol, argument)` returns the Haxe
-  `ModuleCallOutcome` tagged union: `CallSuccess(Value)`,
-  `MissingModule(name)`, or `MissingExport(module, symbol)`.
-  `ModuleBundle.invoke` remains unchanged.
-- **Runtime faults propagate.** Neither a VM budget breach nor a bad
-  image nor a division-by-zero thrown by a function is caught and
-  disguised as a domain-level `Err`. Host callers must treat compiled
-  images as trusted and uphold typed exported contracts.
-- Cross-target tests compare AST and source-free/bytecode execution, typed
-  inference, and separately compiled host module lookup outcomes.
+## Example
 
-### Example
-
-```nail
-type Result a e = Ok a | Err e ;
-type MathError = DivideByZero | NegativeInput ;
-
-def safeDivide n d =
-  if d == 0 then Err DivideByZero else Ok ( n / d ) ;
-
-def resultBind r next =
-  match r with
-  | Ok value -> next value
-  | Err error -> Err error ;
+```haxe
+var image = ModuleImage.encode(ModuleLinker.compileInferred({
+  name:'Core',
+  source:'def double n = n + n ; def identity x = x ;',
+  imports:[],
+  exports:['double']       // no repeated Number -> Number signature!
+}));
 ```
 
-A full example with safe composition is in
-[examples/error-results.nail](examples/error-results.nail).
+The compiler verifies `double` is an actual local definition,
+infers `Number -> Number`, checks both compiler implementations agree,
+and exposes only that public name. `identity` remains private.
 
-## Checks
+`closedPublicType` refuses unresolved type variables, polymorphic
+schemes, and nominal types; it never silently specializes such a value.
+The tests include cross-module calls, rejection of private imports,
+exact-number dialects, unknown/duplicate exports and nominal errors.
 
-After `haxe seed-image.hxml`, run:
+Run the new Haxe/JS/PHP tests after `haxe seed-image.hxml`:
 
 ```sh
-haxe result-test-interp.hxml
-haxe result-test-js.hxml && node build/tests/result.js
-haxe result-test-php.hxml && php build/tests/php-result/index.php
+haxe public-interfaces-test-interp.hxml
+haxe public-interfaces-test-js.hxml && node build/tests/public-interfaces.js
+haxe public-interfaces-test-php.hxml && php build/tests/php-public-interfaces/index.php
 ```
 
-The v0.32 workflow also inherits the entire v0.31 regression suite.
+The CI also runs the entire inherited v0.32 suite.
 
-## Deliberate limits
+## Remaining v0.33 goals
 
-This milestone is a **first slice**, not a claim of complete error effects.
-Nail's `Result` is defined by each program, not a prelude namespace.
-Module manifests still forbid cross-module nominal ADTs, so a public
-`Result[T,E]` module ABI must follow public nominal type interfaces.
-The host `tryInvoke` union is not a new Nail expression or a blanket
-exception catcher. Rich diagnostic spans and capability-based I/O remain
-future work.
+- Public **nominal type identity** across module boundaries, including
+  constructor ownership and canonical wire representation.
+- **Machine-readable portable HM schemes** in compiled module images;
+  the second slice checks them but serializes only canonical ABI text.
+- **Generic nominal records** and optional source-level type annotations,
+  with parity across the reference and Nail-written compilers.
+
+These remaining features are **not** claimed here. Cross-module nominal
+restrictions remain in force.
+
+## Second slice: checked polymorphic interfaces
+
+The opt-in `ModuleLinker.compilePublic` accepts full Hindley–Milner
+`TypeScheme` contracts on imports, **rebinds quantified IDs** when imported
+and infers export schemes from Nail code. The public ABI is still the
+canonical signature string in `runtime-module.v1`: no new VM instructions,
+no changes to the five expression forms or to the bootstrap compiler.
+
+```haxe
+var checker = new TypeChecker();
+checker.check('def identity x = x ;');
+var publicIdentity = checker.publicScheme('identity');
+// The consumer can import this explicitly-quantified contract.
+var module = ModuleLinker.compilePublic({
+  name:'Example',
+  source:'def run n = foreign_identity n ;',
+  imports:[{module:'Core', symbol:'identity', alias:'foreign_identity',
+    scheme:publicIdentity}],
+  exports:['run']
+});
+```
+
+Universal quantifiers must cover **all** type variables; every Eq
+constraint must bind an existing quantifier; nominal types are rejected.
+Each identifier occurrence is independently instantiated, so an imported
+`a -> a` may be used at multiple concrete types. Link-time exact signature
+comparison rejects weakened or forged contracts. Haxe, JavaScript and PHP
+test the same behavior with source-free parity.
+
+This slice does not yet serialize structured schemes in module images
+(images store the canonical text ABI), provide cross-module nominal type
+identity, or implement generic records / source annotations. The existing
+`compile` and `compileInferred` APIs remain backward compatible.
+
+## Third slice: opaque cross-module nominal records
+
+`compilePublic` now accepts record declarations only when their type name
+has the explicit provider prefix: `type People_Person { name Text age Number } ;`
+in module `People`. For this interim wire convention, record-owning module
+names must start with an uppercase letter and contain only letters/digits
+(no underscores), so splitting the nominal identity is unambiguous. This makes `People_Person` and `Calendar_Person`
+distinct even if their fields are identical. The existing `Value.Record`
+runtime tag is that same qualified identity; no new runtime instruction
+or bytecode format is introduced. Record constructors and ordinary helper
+definitions can be exported; generated `Type.field` getters remain
+private internal definitions.
+
+A consumer imports the provider's inferred `TypeScheme` for public
+constructor/helper functions. A qualified opaque record type can be
+passed between separately compiled modules, and mismatched provider
+ownership is rejected before linking. Importing a record does **not**
+expose its field layout: a consumer uses explicitly exported helper
+functions, rather than `person . field`. Nominal identity is **not**
+structural equality.
+
+This is an opt-in, deliberately restricted identity convention, not yet
+the ergonomic source-native `module People; type Person` syntax.
+Cross-module sums, generic nominal records, import of opaque record
+field metadata and nominal re-exports through third-party modules
+are still future work. The legacy monomorphic module compiler keeps its
+existing restrictions.
+
+## Fourth slice: parametric nominal records
+
+The syntax `type Box a { value a } ;` and
+`type Pair a b { first a second b } ;` is understood by **both**
+the Haxe and Nail-written parsers. Nominal constructors and field accessors
+are polymorphic: `Box : a -> Box[a]`, `Box.value : Box[a] -> a`.
+Ordinary `box . value` projection infers the applied type; different
+instantiations cannot be mixed accidentally. Static equality checks carry
+any relevant `Eq` constraints through generic arguments.
+
+The opt-in public module API supports provider-qualified generic records
+like `Store_Box[a]`. The module's Haxe `TypeScheme` exposes the same
+generics to separately compiled consumers, which use explicitly exported
+functions to manipulate opaque records. Link-time canonical signatures
+still protect compatibility. Runtime record tags retain a stable
+`Store_Box` owner name; type arguments are enforced by HM checking rather
+than stored as new bytecode instructions.
+
+**Boundaries:** field declarations are atomic types or declared type
+parameters, not nested applications (`List a`, `Box (List a)`) or recursive
+generic records. This slice does not add source-native runtime imports,
+exported record layouts, quantified structured image metadata or generic
+cross-module sum type ownership. The original monomorphic record syntax
+remains supported.
