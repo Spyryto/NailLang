@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.19
+# Nail Language Tour — v0.20
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **ADT nel parser/compilatore Nail**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **AST espresso in Nail**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.18/LANGUAGE-TOUR.md) → **v0.19** → [versione successiva](../v0.20/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.19/LANGUAGE-TOUR.md) → **v0.20** → [versione successiva](../v0.21/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Il parser e il compilatore scritti in Nail gestiscono i costruttori; il checker controlla esaustività e arità.
+Le espressioni del compilatore sono rappresentate come normali ADT Nail; il compilatore legge ADT della libreria standard (già dichiarati in stdlib.nail); l'esempio costruisce un piccolo AST ed emette istruzioni.
 
 ```nail
-type Option a = None | Some a ;
-def valueOrZero o = match o with | None -> 0 | Some n -> n ;
-valueOrZero ( Some 9 ) ;
+def identityAst = CoreLambda " x " ( CoreVar " x " ) ;
+def answerAst = CoreApply identityAst ( CoreLit ( CoreNumber " 42 " ) ) ;
+coreCompileTail answerAst ;
 ```
 
 ## Primo programma
@@ -78,11 +78,11 @@ La struttura ha un'identità nominale; la proiezione `person . field` è disponi
 ## Somme algebriche e `match` (v0.18+)
 
 ```nail
-type Option a = None | Some a ;
-def valueOrZero o = match o with
- | None -> 0
- | Some x -> x ;
-valueOrZero ( Some 9 ) ;
+type TourMaybe a = TourNone | TourSome a ;
+def tourValueOrZero o = match o with
+ | TourNone -> 0
+ | TourSome x -> x ;
+tourValueOrZero ( TourSome 9 ) ;
 ```
 
 I costruttori sono valori e si possono decostruire tramite pattern. Il checker verifica l'esaustività dei casi.
@@ -92,7 +92,7 @@ I costruttori sono valori e si possono decostruire tramite pattern. Il checker v
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.19 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.19) e cerca il test associato alla feature.
+4. Apri la [versione v0.20 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.20) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

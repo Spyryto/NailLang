@@ -96,12 +96,14 @@ class BytecodeTestMain {
     ];
     for (item in invalid) badBytecode(item.value, item.message);
 
-    // Limited compiler bootstrap: compile the 14 compiler definitions
+    // Limited compiler bootstrap: compile the compiler and its ADT dependencies
     // (including compileExpr itself) to bytecode using Nail, load them
     // in ByteVm, then have that compiled compiler generate another program.
     // Haxe supplies the initial Syntax AST, not the emitted instructions.
     var libraryText = Resource.getString('stdlib');
     var compilerNames = [
+      'fold', 'length', 'syntaxLiteral', 'syntaxVar', 'syntaxName', 'syntaxNil',
+      'coreReadLiteral', 'coreRead', 'coreLiteralSyntax', 'coreCompileGo',
       'append', 'bcCode', 'bcInstruction0', 'bcInstruction1',
       'bcInstruction2', 'bcReturn', 'bcCall', 'bcTailCall', 'compileGo', 'compileExpr', 'compileTail',
       'compileForm', 'compileForms', 'compileSyntax'
@@ -109,6 +111,8 @@ class BytecodeTestMain {
     var boot = new ByteVm(15000000);
     for (form in new Parser(libraryText).parse()) {
       switch (form) {
+        case SumType(name, _, _) if (["CoreLiteral", "CoreExpr", "CoreRead"].indexOf(name) >= 0):
+          boot.run(compiler.compileSyntaxWithNail(SyntaxEncoder.program([form])));
         case Define(name, _) if (compilerNames.indexOf(name) >= 0):
           var single = SyntaxEncoder.program([form]);
           boot.run(compiler.compileSyntaxWithNail(single));
@@ -164,3 +168,4 @@ class BytecodeTestMain {
     trace('NailSeed v0.11: ' + (examples.length + invalid.length + 6) + ' bytecode/TCO tests passed');
   }
 }
+

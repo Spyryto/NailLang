@@ -23,6 +23,8 @@ class BootstrapDepthTestMain {
 
   static function bootstrap(compiler:Vm):ByteVm {
     var selected = [
+      'fold', 'length', 'syntaxLiteral', 'syntaxVar', 'syntaxName', 'syntaxNil',
+      'coreReadLiteral', 'coreRead', 'coreLiteralSyntax', 'coreCompileGo',
       'append', 'bcCode', 'bcInstruction0', 'bcInstruction1',
       'bcInstruction2', 'bcReturn', 'bcCall', 'bcTailCall',
       'compileGo', 'compileExpr', 'compileTail', 'compileForm',
@@ -31,6 +33,8 @@ class BootstrapDepthTestMain {
     var vm = new ByteVm(25000000);
     for (form in new Parser(Resource.getString('stdlib')).parse()) {
       switch (form) {
+        case SumType(name, _, _) if (["CoreLiteral", "CoreExpr", "CoreRead"].indexOf(name) >= 0):
+          vm.run(compiler.compileSyntaxWithNail(SyntaxEncoder.program([form])));
         case Define(name, _) if (selected.indexOf(name) >= 0):
           vm.run(compiler.compileSyntaxWithNail(SyntaxEncoder.program([form])));
         case _:
@@ -105,3 +109,4 @@ class BootstrapDepthTestMain {
     trace('NailSeed v0.12: ' + tests + ' iterative bootstrap/depth tests passed');
   }
 }
+

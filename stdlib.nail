@@ -639,36 +639,101 @@ def bcReturn = bcInstruction0 " RETURN " ;
 def bcCall = bcInstruction0 " CALL " ;
 def bcTailCall = bcInstruction0 " TAIL_CALL " ;
 
-# A single recursive implementation prevents forward type references: Haxe's
-# HM checker can infer compileGo without mutually recursive top-level defs.
-def compileGo tree tailMode =
+# v0.20: expression IR is ordinary Nail ADT data. No Syntax payloads.
+# Numeric/boolean spellings stay textual to preserve the bytecode tape exactly.
+type CoreLiteral = CoreNumber Text | CoreBoolean Text | CoreText Text | CoreNil ;
+type CoreExpr = CoreLit CoreLiteral | CoreVar Text | CoreLambda Text CoreExpr | CoreApply CoreExpr CoreExpr | CoreIf CoreExpr CoreExpr CoreExpr ;
+type CoreRead = CoreReadOk CoreExpr | CoreReadError Text ;
+
+def coreReadLiteral literal =
+  let tag = syntaxTag literal in
+  if tag == " Number " then CoreReadOk ( CoreLit ( CoreNumber ( syntaxText literal ) ) )
+  else if tag == " Bool " then
+    let value = syntaxText literal in
+    if value == " true " then CoreReadOk ( CoreLit ( CoreBoolean value ) )
+    else if value == " false " then CoreReadOk ( CoreLit ( CoreBoolean value ) )
+    else CoreReadError " Invalid core boolean "
+  else if tag == " Text " then CoreReadOk ( CoreLit ( CoreText ( syntaxText literal ) ) )
+  else if tag == " Nil " then
+    if syntaxText literal == " nil " then CoreReadOk ( CoreLit CoreNil )
+    else CoreReadError " Invalid core nil "
+  else CoreReadError " Unsupported core literal " ;
+
+# The adapter is the only expression-tree reader that knows Syntax.
+# Tags/arity errors are explicit results; malformed leaf/node shapes are
+# rejected by the existing Syntax primitives.
+def coreRead tree =
   let tag = syntaxTag tree in
-  if tag == " Literal " then
-    append [ bcInstruction1 " CONST " tree ] ( if tailMode then [ bcReturn ] else [] )
-  else if tag == " Var " then
-    append [ bcInstruction1 " LOAD " tree ] ( if tailMode then [ bcReturn ] else [] )
+  if tag == " Var " then CoreReadOk ( CoreVar ( syntaxText tree ) )
+  else if tag == " Literal " then
+    let children = syntaxChildren tree in
+    if length children == 1 then coreReadLiteral ( head children )
+    else CoreReadError " Invalid Literal arity "
   else if tag == " Lambda " then
     let children = syntaxChildren tree in
-    let param = head children in
-    let body = head ( tail children ) in
-    append [ bcInstruction2 " CLOSURE " param ( bcCode ( compileGo body true ) ) ]
-      ( if tailMode then [ bcReturn ] else [] )
+    if length children != 2 then CoreReadError " Invalid Lambda arity "
+    else if syntaxTag ( head children ) != " Name " then CoreReadError " Invalid Lambda name "
+    else match coreRead ( head ( tail children ) ) with
+      | CoreReadError message -> CoreReadError message
+      | CoreReadOk body -> CoreReadOk ( CoreLambda ( syntaxText ( head children ) ) body )
   else if tag == " Apply " then
     let children = syntaxChildren tree in
-    let fn = head children in
-    let arg = head ( tail children ) in
-    append ( compileGo fn false )
-      ( append ( compileGo arg false ) [ if tailMode then bcTailCall else bcCall ] )
+    if length children != 2 then CoreReadError " Invalid Apply arity "
+    else match coreRead ( head children ) with
+      | CoreReadError message -> CoreReadError message
+      | CoreReadOk fn -> ( match coreRead ( head ( tail children ) ) with
+        | CoreReadError message -> CoreReadError message
+        | CoreReadOk arg -> CoreReadOk ( CoreApply fn arg ) )
   else if tag == " If " then
     let children = syntaxChildren tree in
-    let condition = head children in
-    let yes = head ( tail children ) in
-    let no = head ( tail ( tail children ) ) in
-    append ( compileGo condition false )
+    if length children != 3 then CoreReadError " Invalid If arity "
+    else match coreRead ( head children ) with
+      | CoreReadError message -> CoreReadError message
+      | CoreReadOk condition -> ( match coreRead ( head ( tail children ) ) with
+        | CoreReadError message -> CoreReadError message
+        | CoreReadOk yes -> ( match coreRead ( head ( tail ( tail children ) ) ) with
+          | CoreReadError message -> CoreReadError message
+          | CoreReadOk no -> CoreReadOk ( CoreIf condition yes no ) ) )
+  else CoreReadError " Unsupported core expression " ;
+
+def coreLiteralSyntax literal = match literal with
+  | CoreNumber value -> syntaxLiteral " Number " value
+  | CoreBoolean value -> syntaxLiteral " Bool " value
+  | CoreText value -> syntaxLiteral " Text " value
+  | CoreNil -> syntaxNil ;
+
+# Useful for tooling/roundtrip tests. Compilation does not call this adapter.
+def coreToSyntax tree = match tree with
+  | CoreLit literal -> coreLiteralSyntax literal
+  | CoreVar name -> syntaxVar name
+  | CoreLambda name body -> syntaxLambda name ( coreToSyntax body )
+  | CoreApply fn arg -> syntaxApply ( coreToSyntax fn ) ( coreToSyntax arg )
+  | CoreIf condition yes no -> syntaxIf ( coreToSyntax condition ) ( coreToSyntax yes ) ( coreToSyntax no ) ;
+
+# Exhaustive constructor matching replaces string-tag dispatch in the compiler.
+# Syntax here is only the existing bytecode output format.
+def coreCompileGo tree tailMode = match tree with
+  | CoreLit literal -> append [ bcInstruction1 " CONST " ( coreLiteralSyntax literal ) ]
+      ( if tailMode then [ bcReturn ] else [] )
+  | CoreVar name -> append [ bcInstruction1 " LOAD " ( syntaxVar name ) ]
+      ( if tailMode then [ bcReturn ] else [] )
+  | CoreLambda name body -> append
+      [ bcInstruction2 " CLOSURE " ( syntaxName name ) ( bcCode ( coreCompileGo body true ) ) ]
+      ( if tailMode then [ bcReturn ] else [] )
+  | CoreApply fn arg -> append ( coreCompileGo fn false )
+      ( append ( coreCompileGo arg false ) [ if tailMode then bcTailCall else bcCall ] )
+  | CoreIf condition yes no -> append ( coreCompileGo condition false )
       [ bcInstruction2 " BRANCH "
-          ( bcCode ( compileGo yes tailMode ) )
-          ( bcCode ( compileGo no tailMode ) ) ]
-  else [] ;
+          ( bcCode ( coreCompileGo yes tailMode ) )
+          ( bcCode ( coreCompileGo no tailMode ) ) ] ;
+
+def coreCompileExpr tree = coreCompileGo tree false ;
+def coreCompileTail tree = coreCompileGo tree true ;
+
+# Compatibility boundary for the parser, declarations and compileSource.
+def compileGo tree tailMode = match coreRead tree with
+  | CoreReadOk expression -> coreCompileGo expression tailMode
+  | CoreReadError message -> [ syntaxLeaf " Error " message ] ;
 
 def compileExpr tree = compileGo tree false ;
 def compileTail tree = compileGo tree true ;
@@ -799,3 +864,4 @@ def compileSyntax program =
   else program ;
 
 def compileSource source = compileSyntax ( parseSource source ) ;
+

@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.19
+# Nail Cookbook — v0.20
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — ADT nel parser/compilatore Nail
+## Ricetta 3 — AST espresso in Nail
 
 ```nail
-type Option a = None | Some a ;
-def valueOrZero o = match o with | None -> 0 | Some n -> n ;
-valueOrZero ( Some 9 ) ;
+def identityAst = CoreLambda " x " ( CoreVar " x " ) ;
+def answerAst = CoreApply identityAst ( CoreLit ( CoreNumber " 42 " ) ) ;
+coreCompileTail answerAst ;
 ```
 
-Il parser e il compilatore scritti in Nail gestiscono i costruttori; il checker controlla esaustività e arità.
+Le espressioni del compilatore sono rappresentate come normali ADT Nail; il compilatore legge ADT della libreria standard (già dichiarati in stdlib.nail); l'esempio costruisce un piccolo AST ed emette istruzioni.
 
 ## Allenamento: studiare l'implementazione
 
