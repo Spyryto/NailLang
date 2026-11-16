@@ -1,0 +1,48 @@
+name: Publish tagged NailLang distributions
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ensure the tag matches the source version
+        shell: bash
+        run: |
+          test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
+      - name: Compile and validate current runtime
+        run: |
+          haxe seed-image.hxml
+          haxe host-text-writes-test-interp.hxml
+          haxe host-text-writes-test-js.hxml
+          node build/tests/host-text-writes.js
+          haxe host-text-writes-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-host-text-writes/index.php
+          haxe rebootstrap-image.hxml
+          haxe js.hxml
+          haxe php.hxml
+      - name: Package runtime distributions
+        shell: bash
+        run: |
+          mkdir -p dist
+          (cd build/js && zip -q ../../dist/naillang-$GITHUB_REF_NAME-js.zip nailseed.js)
+          (cd build && zip -qr ../dist/naillang-$GITHUB_REF_NAME-php.zip php)
+          cp build/bootstrap/stdlib-image.json dist/naillang-$GITHUB_REF_NAME-bootstrap-image.json
+      - name: Create release with permanent assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "NailLang $GITHUB_REF_NAME" --generate-notes

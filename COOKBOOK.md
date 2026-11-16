@@ -1,6 +1,6 @@
-# Nail Cookbook — v0.38
+# Nail Cookbook — v0.39
 
-[Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
+[Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
 Ricette progressive per usare **questa** versione, non le feature delle release successive. Separare gli snippet in file diversi quando ridefiniscono lo stesso nome; leggere sempre i risultati come valori restituiti dalla VM, non come output automatico della pagina web.
 
@@ -24,17 +24,29 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Capability host esplicite e CoreResult
+## Ricetta 3 — Lettura con risultato tipizzato
 
 ```nail
 def songOrError key =
-  let r = readAsset key in
-  if r . ok then r . value else r . error ;
+  match readAsset key with
+  | CoreOk contents -> contents
+  | CoreErr reason -> reason ;
 ```
 
-`readAsset` funziona SOLO se l'host concede un lettore di risorse; moduli con import `NailHost` e `CoreResult[a,e]` condiviso hanno autorizzazione esplicita.
+`readAsset` non esiste senza grant host: deve provenire da `NailHost.readTextResult`.
 
-**Questa terza ricetta non funziona in una VM senza concessione host.** Segui [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md) e il test host per creare `readAsset`. Non esiste lettura ambientale di file o rete in Nail.
+## Ricetta 4 — Scrittura con permessi separati (v0.39)
+
+```nail
+def save key contents =
+  match writeAsset key contents with
+  | CoreOk savedKey -> savedKey
+  | CoreErr reason -> reason ;
+```
+
+`writeAsset` è importato come `NailHost.writeTextResult`: una firma `Text -> Text -> CoreResult[Text, Text]` più un grant host dedicato. Non è eseguibile direttamente nella demo browser priva di permessi.
+
+Prova i casi `denied`, `too-large` e `quota-exhausted` con `haxe host-text-writes-test-interp.hxml` dopo `haxe seed-image.hxml`. Il test usa uno store in memoria, non scrive file reali. Consulta [la specifica](./HOST-CAPABILITIES.md) prima di implementare una callback.
 
 ## Allenamento: studiare l'implementazione
 

@@ -1,29 +1,51 @@
-name: Build NailLang (Haxe to JavaScript and PHP)
+name: NailLang current compiler and capability regressions
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'js.hxml'
-      - 'php.hxml'
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+
 jobs:
-  compile:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: krdlab/setup-haxe@v2
         with:
           haxe-version: '4.3.7'
-      - name: Compile JavaScript runtime
-        run: haxe js.hxml
-      - name: Compile PHP runtime
-        run: haxe php.hxml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate source-free standard library image
+        run: haxe seed-image.hxml
+      - name: Run text-write tests on Haxe, JS and PHP
+        run: |
+          haxe host-text-writes-test-interp.hxml
+          haxe host-text-writes-test-js.hxml
+          node build/tests/host-text-writes.js
+          haxe host-text-writes-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-host-text-writes/index.php
+      - name: Check inherited read capability and shared-result ABI
+        run: |
+          haxe host-capabilities-test-interp.hxml
+          haxe shared-result-test-interp.hxml
+          haxe module-host-grants-test-interp.hxml
+          haxe shared-result-test-js.hxml
+          node build/tests/shared-result.js
+          haxe shared-result-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-shared-result/index.php
+      - name: Check Nail-written compiler fixed point
+        run: haxe rebootstrap-image.hxml
+      - name: Compile JavaScript and PHP distributions
+        run: |
+          haxe js.hxml
+          haxe php.hxml
       - uses: actions/upload-artifact@v4
         with:
-          name: naillang-compiled-js-php
+          name: naillang-current-js-php
           path: |
             build/js/nailseed.js
             build/php/**
+          if-no-files-found: error

@@ -1,4 +1,4 @@
-# NailSeed v0.38 — first host capability slice
+# NailLang host capabilities — v0.38 to v0.39
 
 This snapshot is independent from `v0.37`. It introduces **explicit,
 read-only host capabilities** as first-class functions. The Nail compiler,
@@ -83,14 +83,13 @@ missing/too-long content, sanitized backend failures, no-grant rejection,
 alias validation, Hindley–Milner type errors, VM/bytecode/compiler parity
 and source-free bootstrapping across Haxe/JS/PHP.
 
-## Next acceptance boundaries
+## First-tranche acceptance list (historical)
 
-- Capability imports in separately compiled module manifests, with host
-  signatures verified at link time and no ambient fallback.
-- Typed `Result`-style capability outcome and compositional IO programs.
-- Write capability with explicit separate authorization and safe atomicity.
-- Concrete filesystem and HTTP adapters scoped to named resources, with
-  time/resource budgets; never bundle network or host access in VM defaults.
+The first tranche identified capability imports, a typed `Result` outcome,
+a separately authorized writer, and concrete file/network adapters as follow-up
+work. The first three are implemented in tranches two through four below.
+Concrete filesystem/HTTP adapters, authenticated module identities, revocation
+and host execution-time budgets remain unimplemented.
 
 
 ## Second v0.38 slice — separately compiled modules
@@ -139,15 +138,14 @@ trust the compiled module image before granting authority by module name.
 Image decoding is structural validation, *not* cryptographic integrity;
 an attacker able to replace the `Songs` image could exercise the same grant.
 Host callbacks themselves remain responsible for sandboxing, resource
-limits and blocking operations. This slice does not provide capability
-revocation, audit hooks, asynchronous execution, concrete filesystem/HTTP
-adapters, arbitrary host function signatures or a cross-module nominal
-`Result` type.
+limits and blocking operations. This second tranche did not yet provide capability revocation, audit
+hooks, asynchronous execution, concrete filesystem/HTTP adapters, arbitrary
+host function signatures or a cross-module nominal `CoreResult` type.
+`CoreResult` was subsequently introduced in the third tranche below.
 
-For typed applications, the capability outcome is already a structural
-record with a checked failure channel. Applications can convert that to a
-local `Result` ADT if desired; sharing generic algebraic sum identities
-across compiled modules remains a separate language milestone.
+The legacy capability outcome is a structural record with a checked failure
+channel. The third tranche below adds the optional `readTextResult` import
+using the shared `CoreResult` type without breaking that legacy interface.
 
 ```sh
 haxe seed-image.hxml
@@ -230,6 +228,118 @@ haxe shared-result-test-php.hxml && php build/tests/php-shared-result/index.php
 haxe rebootstrap-image.hxml
 ```
 
-**Remaining v0.38 work:** separate write grants, explicit failure/
-resource budgets for write adapters, module identity authentication and
-general user-defined nominal sum identity (the latter may fit v0.39).
+**After the third tranche:** separate writer authorization was the next
+milestone; the fourth tranche below implements it with a host callback
+contract. Module identity authentication, robust execution-time budgets and
+general user-defined nominal sum identity are still future milestones.
+
+
+## v0.39 — separate controlled text writes
+
+A module can request the **opt-in, write-only host import**
+`NailHost.writeTextResult` with the following canonical curried type:
+
+```text
+Text -> Text -> CoreResult[Text, Text]
+```
+
+The first argument is a named resource key; the second is its complete
+replacement text. On success the host returns `CoreOk key`. On expected
+failure it returns `CoreErr reason`, where the reason is one of
+`denied`, `invalid-text`, `too-large`, `quota-exhausted`, `not-committed`,
+`busy` (reentrant call), or `backend-failure`. Host exception messages
+are suppressed.
+
+A standalone Nail program can write without adding I/O primitives to
+the language:
+
+```nail
+def save key contents =
+  match writeAsset key contents with
+  | CoreOk savedKey -> savedKey
+  | CoreErr why -> why ;
+```
+
+An embedding host grants authority **separately per consumer module**:
+
+```haxe
+var stored = new haxe.ds.StringMap<String>();
+stored.set('song', 'old text');
+var writer = new nail.TextWriteCapability(
+  ['song'],
+  (key, value) -> {
+    // Virtual in-memory resource: one synchronous complete replacement.
+    stored.set(key, value);
+    return true;
+  },
+  65536, 128 // max Unicode scalars per write; max successful commits
+);
+var manifest:nail.ModuleLinker.PublicSourceModuleSpec = {
+  name:'Composer',
+  source:'def save value = writeAsset " song " value ;',
+  imports:[{module:'NailHost', symbol:'writeTextResult',
+    alias:'writeAsset', scheme:{
+      term:nail.TextWriteCapability.signature(),
+      quantified:[], comparable:[]
+    }}],
+  exports:['save']
+};
+var image = nail.ModuleImage.encode(
+  nail.ModuleLinker.compilePublic(manifest));
+var grants = new nail.HostTextGrants();
+grants.grantWriteText('Composer', writer);
+var linked = nail.ModuleLinker.linkImages([image], 25000000, grants);
+```
+
+A `grantReadText` does **not** authorize `writeTextResult` and a
+`grantWriteText` does **not** authorize `readText` or
+`readTextResult`. Resource names are allowlisted before the host callback.
+Text is measured in Unicode scalar values using an early-exit scan that
+does not allocate an array for oversized payloads. Invalid Unicode scalars
+return `invalid-text` without calling the host, and a quota counts *successful*
+commits only. Disallowed, too-long, quota-exhausted or reentrant calls never
+reach the host's replacement callback. Rejected/exceptional callbacks
+return sanitized, typed errors. Both the AST VM and the bytecode VM support
+direct grants via `grantTextWriter`; source-free `BootRuntime` does too.
+No global `writeFile`, filesystem path, network primitive, opcode or
+module-image version is added.
+
+### Atomicity is a contract on the embedding host
+
+**The capability cannot guarantee atomic file writes by itself.**
+Its callback `replaceAtomically(key, text):Bool` must obey all of the
+following for a concrete resource: on `true`, publish a complete replacement
+exactly once; on `false` or an exception, leave the resource untouched;
+never expose intermediate partial content. For physical files, the embedder
+would typically write to a temporary file on the same filesystem, flush
+as required, then atomically rename into place using target-appropriate APIs.
+Crash durability, directory sync, concurrent writes, timeouts and path
+traversal protection are also host responsibilities, and their guarantees
+vary by OS and filesystem. **No concrete disk adapter is bundled in this
+tranche**, so do not assume durable, crash-safe or cross-process atomic
+writes merely because a callback was provided. A callback that mutates a
+file and then throws violates the contract; the capability cannot undo it.
+
+The quota is scoped to the particular `TextWriteCapability` instance,
+including when several modules deliberately share that instance. A grant
+alone does not imply safe concurrency, cancellation or robust transaction
+isolation. The resource store's initial contents and visibility rules
+remain host-controlled. Compiled module images must be trusted before
+binding host grants, as in the previous tranche.
+
+```sh
+haxe seed-image.hxml
+haxe host-text-writes-test-interp.hxml
+haxe host-text-writes-test-js.hxml && node build/tests/host-text-writes.js
+haxe host-text-writes-test-php.hxml && php build/tests/php-host-text-writes/index.php
+```
+
+Tests cover read/write privilege separation, module-level typed imports,
+quota and scalar boundaries, denied writes before callback invocation,
+callback rejection and exception sanitization, reentrancy prevention,
+source-free compiler parity and an in-memory atomic replacement fixture.
+
+**Remaining work:** authenticated/verified module identity before granting
+capabilities, production-ready filesystem/HTTP adapters with explicit
+platform-specific security policies, write revocation, cancellation and
+concurrency control. These are not implicitly supplied by the Nail VM.

@@ -1,55 +1,49 @@
-# Come eseguire NailSeed — v0.38
+# Eseguire NailLang — v0.39
 
-[Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
+[Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
-**Natura dell'artefatto:** snapshot Haxe compilabile per JavaScript e PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.38/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
-
-## Compilare e usare JS e PHP dalla CLI
-
-Prérequisiti: Haxe 4.3.x, Node.js, PHP 8. I target JS e PHP sono **compilazioni dell'interprete Haxe** (non traduzioni del file `.nail` in JS/PHP). Nella cartella della versione:
+Dalla **radice del repository**. Requisiti per compilare: Haxe 4.3.x. Per eseguire: Node.js 22 o PHP 8.
 
 ```sh
-cd v0.38
+haxe seed-image.hxml
 haxe js.hxml
 haxe php.hxml
+```
+
+Sono i runtime/interpreti **scritti in Haxe**, compilati in JS e PHP, non un transpiler sorgente Nail → JS/PHP.
+
+## JavaScript da riga di comando
+
+```sh
 node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
+```
+
+Il nome esportato `NailSeed` è conservato temporaneamente per compatibilità, benché il repository si chiami NailLang.
+
+## PHP da riga di comando
+
+```sh
 php build/php/index.php examples/cookbook-start.nail
+php build/php/index.php --types examples/cookbook-start.nail
 ```
 
-`NailSeed.create()` crea un interprete; `loadStdlib()` carica il codice Nail incorporato come risorsa Haxe; `runPlain(source)` restituisce dati serializzabili. Il binario PHP `build/php/index.php` legge il/i file passati come argomenti ed emette una rappresentazione JSON per ogni risultato.
+## JavaScript in una pagina web
 
-### Verifica dei tipi
+`examples/browser.html` carica `../build/js/nailseed.js`. Dopo la compilazione, dalla radice avvia:
 
-Il checker è separato dall'esecuzione: si può usare l'API `NailSeed.createTypeChecker()` quando esposta dallo snapshot, oppure il runner di inferenza `type-test-*.hxml`. Per il supporto preciso ai flag CLI consulta `src/Main.hx`, senza presupporre che tutte le versioni accettino gli stessi argomenti.
-
-### Percorsi del bytecode e del bootstrap
-
-La v0.10 introduce ByteVM e compilatore Nail. Per studiare questo percorso usa `bytecode-test-interp.hxml` e, se presenti, i corrispondenti `bytecode-test-js.hxml` / `bytecode-test-php.hxml`. Per le immagini bootstrap, genera prima con `haxe seed-image.hxml` e usa i test `boot-test-*`; non confondere il boot bundle con il normale `build/js/nailseed.js`.
-
-## Aprire il runtime in una pagina web
-
-Un esempio già pronto si trova in [`examples/browser.html`](./examples/browser.html). **Prima esegui `haxe js.hxml`**, perché la pagina referenzia `build/js/nailseed.js`. Il bundle JS espone un API JavaScript, ma non crea pulsanti o input da solo: la pagina chiama esplicitamente `run` / `runPlain`.
-
-```html
-<script src="build/js/nailseed.js"></script>
-<button id="go">Esegui Nail</button><pre id="result"></pre>
-<script>
-document.getElementById('go').addEventListener('click', () => {
-  const vm = NailSeed.create();
-  vm.loadStdlib();
-  const output = vm.runPlain('def twice x = x * 2 ; twice 21 ;');
-  document.getElementById('result').textContent = JSON.stringify(output);
-});
-</script>
+```sh
+php -S localhost:8000
 ```
 
-Apri con un browser moderno. Per risorse caricate con `fetch` (es. moduli o sorgenti esterni) usa un server HTTP statico anziché il protocollo `file://`; ad esempio `php -S localhost:8000` dalla cartella della versione. Per v0.38, le capability host non vengono concesse automaticamente dal browser.
+Apri <http://localhost:8000/examples/browser.html>. Per incorporare il runtime altrove, includi lo script generato e chiama `NailSeed.create().runPlain(source)`, caricando la libreria standard tramite `vm.loadStdlib()` quando necessaria.
 
-## Macro e moduli
+## Test mirati v0.39
 
-Le macro importate da file richiedono che il modulo sia risolvibile dall'host/CLI; vedi `src/Main.hx` e gli esempi in `examples/`. I moduli runtime compilati separatamente (da v0.31) richiedono invece l'API Haxe del linker: non basta includere più script `.nail` nel browser.
+```sh
+haxe seed-image.hxml
+haxe host-text-writes-test-interp.hxml
+haxe host-text-writes-test-js.hxml && node build/tests/host-text-writes.js
+haxe host-text-writes-test-php.hxml && php build/tests/php-host-text-writes/index.php
+```
 
-## Permessi host nella v0.38
-
-Un programma che usa `readAsset`, `NailHost.readText` o `CoreResult` richiede API host e grant espliciti. Consulta [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md); non interpretare il test del browser come accesso automatico a file o rete.
-
+`NailHost.readTextResult` e `NailHost.writeTextResult` richiedono grant espliciti e isolati per modulo. Non sono disponibili automaticamente nella CLI o nel browser; vedi [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md). Le build e i test delle versioni storiche restano nei tag rispettivi.
