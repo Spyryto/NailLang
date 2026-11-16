@@ -1,0 +1,29 @@
+name: Build NailLang (Haxe to JavaScript and PHP)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'js.hxml'
+      - 'php.hxml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - name: Compile JavaScript runtime
+        run: haxe js.hxml
+      - name: Compile PHP runtime
+        run: haxe php.hxml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naillang-compiled-js-php
+          path: |
+            build/js/nailseed.js
+            build/php/**
