@@ -1,35 +1,21 @@
-# Nail Language Tour — v0.39
+# Nail Language Tour — v0.40
 
-[Indice delle versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Specifiche host](./HOST-CAPABILITIES.md)
+[Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
-**Novità della v0.39:** capability di scrittura del testo separate dalle letture, con autorizzazione esplicita dell'host e risultati tipizzati `CoreResult`. La grammatica Nail e la VM non acquisiscono un accesso implicito ai file.
+La v0.40 non cambia la grammatica Nail. Aggiunge un confine di **integrità dei moduli compilati**, lato host. La v0.39 aveva introdotto la scrittura controllata; la v0.40 impedisce che un'immagine sostitutiva non autorizzata si presenti con lo stesso nome di un modulo autorizzato.
 
-## Primo programma
+## Sintassi: funzioni, record, risultati
 
 ```nail
 def twice x = x * 2 ;
 twice 21 ;
+
+type Song { title Text bpm Number } ;
+def song = Song " Samba " 96 ;
+song . title ;
 ```
 
-Risultato: `42`. Nail applica funzioni per giustapposizione e richiede token separati da spazi. Le funzioni sono currificate:
-
-```nail
-def add a b = a + b ;
-def addTen = add 10 ;
-addTen 32 ;
-```
-
-## Collezioni, record e somme
-
-```nail
-map ( fun x -> x * 2 ) [ 1 , 2 , 3 ] ;
-type Person { name Text age Number } ;
-( Person " Ada " 32 ) . age ;
-```
-
-I record hanno accesso `value . field`; le somme algebriche si analizzano con `match`. Il tipo standard `CoreResult[ok,err]` ha due costruttori: `CoreOk` e `CoreErr`.
-
-## Scritture: dichiarare l'intenzione non concede il permesso
+Le funzioni sono currificate, i token vanno separati da spazi, e l'accesso ai record usa `value . field`. Per i fallimenti recuperabili si usa il risultato tipizzato:
 
 ```nail
 def save key contents =
@@ -38,21 +24,26 @@ def save key contents =
   | CoreErr reason -> reason ;
 ```
 
-`writeAsset` **non è una primitiva globale**. Deve essere concesso da un'applicazione ospite; un modulo compilato richiede esplicitamente `NailHost.writeTextResult` con firma:
+`writeAsset` è un import concesso dall'host con firma `Text -> Text -> CoreResult[Text, Text]`, non una funzione globale accessibile indiscriminatamente.
 
-```text
-Text -> Text -> CoreResult[Text, Text]
+## Novità per l'host: pin di integrità SHA-256
+
+```haxe
+var pinned = new nail.ModuleImageTrust();
+pinned.pin('Saver', digestAffidabileDallaDistribuzione);
+var app = nail.ModuleLinker.linkTrustedImages(
+  immaginiDaVerificare, pinned, 25000000, grants);
 ```
 
-Il primo `Text` è un identificatore di risorsa autorizzato dall'host, il secondo è il contenuto sostitutivo. Un modulo con solo `readTextResult` non ha automaticamente il permesso di scrivere. Gli errori previsti arrivano come `CoreErr`, non come eccezioni dell'host esposte al codice Nail.
+Ogni immagine deve essere ammessa tramite digest atteso, ottenuto da una fonte indipendente dalle immagini che verranno caricate. Le immagini vengono verificate **tutte prima** dell'inizializzazione dei moduli o del collegamento delle capability.
 
-## Come provarlo
+**Non confondere digest e firma:** SHA-256 protegge l'integrità rispetto a un riferimento già affidabile; non dimostra chi ha prodotto il modulo. Se viene alterato anche il riferimento affidabile, la verifica non protegge.
 
-1. Esegui il [cookbook](./COOKBOOK.md) per valori, funzioni e liste.
-2. Consulta [RUNNING.md](./RUNNING.md) per compilare JS/PHP ed eseguire la demo browser.
-3. Per gli effetti host, leggi `src/nail/TextWriteCapability.hx`, `src/nail/HostTextGrants.hx` e [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
-4. Esegui i test `host-text-writes-test-*.hxml` sui tre target: coprono separazione dei privilegi, quote, codici d'errore, VM AST, bytecode e bootstrap.
+## Laboratorio
 
-**Limite fondamentale:** la sostituzione atomica è un *contratto* richiesto alla callback dell'host. Nail non garantisce la transazionalità di un filesystem o la durabilità di una scrittura; la v0.39 non fornisce un adattatore file/rete.
+1. `haxe seed-image.hxml` genera l'immagine di bootstrap.
+2. `haxe trusted-module-images-test-interp.hxml` verifica le accettazioni e i rifiuti delle immagini.
+3. Ripeti su JavaScript/PHP seguendo [RUNNING.md](./RUNNING.md).
+4. Confronta `src/nail/ModuleImageTrust.hx`, `src/nail/ModuleLinker.hx` e [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
 
-Le versioni fino a v0.38 restano consultabili dai rispettivi tag. Il runtime Haxe compilato espone ancora il nome API `NailSeed` in JS per compatibilità.
+Le versioni precedenti restano consultabili tramite tag. L'API JS continua a esportare `NailSeed` per compatibilità.

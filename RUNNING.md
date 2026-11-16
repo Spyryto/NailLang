@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.39
+# Eseguire NailLang — v0.40
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -47,3 +47,16 @@ haxe host-text-writes-test-php.hxml && php build/tests/php-host-text-writes/inde
 ```
 
 `NailHost.readTextResult` e `NailHost.writeTextResult` richiedono grant espliciti e isolati per modulo. Non sono disponibili automaticamente nella CLI o nel browser; vedi [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md). Le build e i test delle versioni storiche restano nei tag rispettivi.
+
+## Test di integrità delle immagini v0.40
+
+```sh
+haxe seed-image.hxml
+haxe trusted-module-images-test-interp.hxml
+haxe trusted-module-images-test-js.hxml && node build/tests/trusted-module-images.js
+haxe trusted-module-images-test-php.hxml && php build/tests/php-trusted-module-images/index.php
+```
+
+La CLI ordinaria esegue programmi Nail. Per collegare moduli compilati con
+capability host protette da pin, integra la API Haxe
+`ModuleLinker.linkTrustedImages`. Vedi [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).

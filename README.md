@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.39** — opt-in typed text-write host capabilities, separate from read grants. Historical v0.38 remains immutable at its release tag; v0.39 is a development milestone until tested and tagged.
+**Current development: v0.40** — opt-in SHA-256 pinned module images verified before any host capability is linked; the v0.39 write-grant implementation remains available. Old version tags are immutable. A hash pin is **not** a publisher signature.
 
 This repository reconstructs the original NailSeed prototype as a clean, version-by-version public Git history. Each historic version has its own commit and tag. The current branch contains a single src/ directory, rather than numbered version folders.
 
