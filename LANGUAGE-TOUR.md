@@ -1,40 +1,58 @@
-# Nail Language Tour — v0.2
+# Nail Language Tour — v0.3
 
-> prototipo JavaScript + PHP indipendenti · Argomento distintivo: **Funzioni, closure e pipeline**.
+> interpreter JavaScript, senza target PHP · Argomento distintivo: **Functional core in cinque forme**.
 
-[Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [SPEC](./SPEC.md)
+[Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.1/LANGUAGE-TOUR.md) → **v0.2** → [versione successiva](../v0.3/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.2/LANGUAGE-TOUR.md) → **v0.3** → [versione successiva](../v0.4/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-La superficie passa a `def`, applicazione curried, `fun`, `if` e `|>`; niente operazioni esplicite di stack.
+Cinque forme di espressione nel core; `map`, `filter` e `fold` sono implementate nella libreria Nail. Solo runtime JavaScript.
 
 ```nail
 def twice x = x * 2 ;
-[ 1 , 2 , 3 ] |> map twice ;
+map twice [ 1 , 2 , 3 ] ;
 ```
 
-## Dalla pila alle funzioni
+## Primo programma
 
 ```nail
-def inc = + 1 ;
-def makeAdder x = fun y -> x + y ;
-[ 1 , 2 , 3 ] |> map inc ;
+def twice x = x * 2 ;
+twice 21 ;
 ```
 
-Le funzioni catturano l'ambiente lessicale e supportano l'applicazione parziale. `if ... then ... else ...`, operatori con precedenza e `|>` sono sintassi di superficie; `s:Ciao%20mondo` è la stringa codificata del prototipo.
+I delimitatori e gli operatori vanno separati da spazi: `f ( x + 1 ) ;` è corretto. Il punto e virgola termina una definizione o un'espressione top-level. `def` introduce una funzione; l'applicazione è per giustapposizione (`twice 21`).
 
-## Implementazione
+## Funzioni e valori
 
-Confronta i due interpreti AST indipendenti in `NailSeed.js` e `NailSeed.php`. Non c'è ancora la VM Haxe, né un checker HM.
+```nail
+def add a b = a + b ;
+def addTen = add 10 ;
+addTen 32 ;
+```
+
+Le funzioni sono currificate: `add 10` restituisce una funzione che accetta il secondo argomento. Non serve gestire manualmente lo stack, anche se VM e bytecode possono farlo internamente.
+
+## Liste e libreria standard
+
+```nail
+def twice x = x * 2 ;
+map twice [ 1 , 2 , 3 ] ;
+```
+
+La `stdlib.nail` è caricata negli esempi host delle release Haxe via `vm.loadStdlib()`. In JS v0.3 va caricata esplicitamente. `map` non è necessariamente una primitiva della VM: verifica il suo codice in `stdlib.nail`.
+
+## Core AST
+
+Sotto la superficie restano cinque varianti: Literal, Var, Lambda, Apply, If. Le definizioni top-level e i costrutti di comodità si traducono in queste forme. Leggi `NailSeed.js` per il core e `stdlib.nail` per le funzioni di lista.
 
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
-3. Confronta il risultato con la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.2 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.2) e cerca il test associato alla feature.
+3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
+4. Apri la [versione v0.3 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.3) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

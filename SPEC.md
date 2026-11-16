@@ -1,81 +1,108 @@
-# NailSeed 0.2 — Functional source syntax (experimental)
+# NailSeed v0.3 — Minimal Functional Core
 
-## Design decision
+Versione sperimentale: una semantica funzionale piccola, scritta e testata prima in JavaScript. Le versioni precedenti restano indipendenti. Il codice non è ancora self-hosted né compatibile a livello di bytecode con NailVM 0.1.
 
-Named parameters and ordinary functional expressions are the **only** user-facing model. There are no `dup`, `swap`, `rot`, or implicit stack effects to reason about. A stack may still implement an internal VM, but it is not a part of the language semantics.
+## Principio
 
-This is a proof-of-concept language and not a finished replacement for NailVM 0.1. The 0.2 prototypes directly evaluate an AST rather than compile to 0.1 bytecode.
+**Variabili e funzioni con nome in superficie; nessuno stack visibile.** Il parser usa solo token separati da spazi e trasforma lo zucchero sintattico in cinque nodi espressivi:
 
-## Token rule
+1. `literal(value)` — numero finito, booleano o lista vuota.
+2. `var(name)` — risoluzione di nome in ambiente lessicale.
+3. `lambda(parameter, body)` — funzione di un solo argomento con closure.
+4. `apply(function, argument)` — applicazione di funzione (valutazione eager).
+5. `if(condition, then, else)` — solo un ramo viene valutato.
 
-**Every token must be whitespace-delimited**, including punctuation:
+`def` è una forma di programma esterna alle espressioni: aggiunge un nome al dizionario globale; più argomenti diventano lambda annidate. `+`, `-`, `*`, `/`, i confronti e gli elenchi `[ ... ]` sono **desugaring** verso `apply` di primitive currificate. Il parser non produce nodi `binary`, `list`, `section` o `pipe`.
 
-    def twice x = x * 2 ;
-    twice ( 5 + 1 ) ;
+## Esempio
 
-In this version, `twice(5+1);` is deliberately invalid. The tokenizer is essentially `source.trim().split(/\s+/)` after stripping standalone `#` line comments. Each definition/expression is terminated by `;`; a newline alone does not end a definition. Strings with spaces are temporarily written as URI-encoded `s:Ciao%20mondo` (to be redesigned).
+```nail
+# Spazi intorno a ogni delimitatore e operatore.
+def twice x = x * 2 ;
+def square x = x * x ;
+def add a b = a + b ;
+def inc = add 1 ;
 
-## Surface examples
+def factorial n =
+  if n < 2 then 1
+  else n * factorial ( n - 1 ) ;
 
-    def twice x = x * 2 ;
-    def twice2 = * 2 ;         # operator section (shorthand)
-    def square x = x * x ;
+map twice [ 1 , 2 , 3 ] ;  # dopo il caricamento di stdlib.nail
+```
 
-    def add a b = a + b ;
-    def add3 = add 3 ;         # partial application
+`[]` è uno speciale **singolo token** accettato come lista vuota, alternativo a `[ ]`. `#` introduce un commento fino a fine riga, se preceduto da spazio o inizio riga. Non esistono stringhe letterali in questa versione.
 
-    def factorial n =
-      if n < 2 then 1 else n * factorial ( n - 1 ) ;
+## Tokenizzazione e precedenza
 
-    def makeAdder x = fun y -> x + y ;
-    def add10 = makeAdder 10 ;
+- Tokenizzazione con divisione per whitespace: `source.match(/\S+/g)` dopo rimozione dei commenti.
+- Sono richiesti spazi attorno a `(`, `)`, `[`, `]`, `,`, `;`, `=`, infissi e `->`.
+- Precedenza: applicazione (70) > `* /` (50) > `+ -` (40) > confronti/uguaglianza (30).
+- Applicazione e operatori infissi associativi a sinistra; parentesi per raggruppare.
+- `fun x y -> e` e `def f x y = e ;` vengono desugared in `fun x -> fun y -> e`.
+- `if` richiede un booleano reale, mai truthiness JS.
+- `def f x = ... ;` ammette ricorsione tramite risoluzione delle definizioni globali.
+- Il valore di un'espressione terminata da `;` viene restituito da `run()` in un array di risultati. Le definizioni non producono risultati.
 
-    map square [ 1 , 2 , 3 ] ;
-    fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 ] ;
-    [ 1 , 2 , 3 ] |> map twice ;
+### Esempio di desugaring
 
-The section `* 2` means `fun x -> x * 2`. This convention also makes `/ 2` mean `fun x -> x / 2`. In particular it is **not** ordinary left currying of the binary operator: the surface syntax intentionally binds the implicit argument on the **left**. Named arguments remain canonical and are less surprising for noncommutative operators.
+```text
+def twice x = x * 2 ;
+```
 
-## Grammar sketch
+Il corpo di `twice` è sostanzialmente:
 
-    program      = (definition | expression ';')*
-    definition   = 'def' name name* '=' expression ';'
-    expression   = atom (application-argument | infix-op expression)*
-    atom         = number | boolean | encoded-string | name
-                 | '(' expression ')'
-                 | '[' (expression (',' expression)*)? ']'
-                 | 'fun' name+ '->' expression
-                 | 'if' expression 'then' expression 'else' expression
-                 | binary-operator atom
+```text
+lambda("x", apply(apply(var("*"), var("x")), literal(2)))
+```
 
-The actual parser uses precedence climbing (Pratt-like), with function application > multiplication/division > addition/subtraction > comparison > pipeline. `|>` is left associative; ordinary operators are left associative. Explicit parentheses are separate tokens.
+Per una lista, `[ a , b ]` diventa una catena di applicazioni a un `cons` interno non nominabile da sorgente, terminata da un valore vuoto. Questo evita che una variabile utente chiamata `cons` cambi il significato della sintassi delle liste.
 
-## Runtime prototype
+## Primitive host: minime, esplicite
 
-- Pure first-class functions, closure capture, single-argument currying, recursive global definitions.
-- Host `map`, `filter`, `fold`; immutable list values in JS.
-- Small arithmetic/comparison vocabulary and `if then else`.
-- No `dup`, `rot`, `swap` or other stack operations in source code.
-- Runs under Node.js and PHP 8. JS code targets Scriptable too, but was only tested in Node.js.
-- 15 identical smoke tests passed in Node.js and PHP 8 in the authoring environment.
-- Has a simple step budget but is **not** hardened to run arbitrary untrusted programs.
+- Numeriche binarie (argomenti numerici finiti): `+`, `-`, `*`, `/`.
+- Confronti numerici binari: `<`, `<=`, `>`, `>=`.
+- Uguaglianza strutturale (numeri, booleani e liste annidate): `==`, `!=`.
+- Liste: `nil` (lista vuota), `cons`, `head`, `tail`, `isEmpty`.
 
-## Unimplemented / intentionally postponed
+`head` e `tail` su lista vuota producono errore; anche divisione per zero, `if` con condizione non booleana, applicazione a non-funzione, nomi sconosciuti e definizioni duplicate producono errore. In v0.3 i numeri sono IEEE 754 double finiti; l'aritmetica che produce `Infinity` o `NaN` viene rifiutata. Non c'è ancora un type checker statico.
 
-- Static type inference, user-defined algebraic data types and pattern matching.
-- Module system and error spans.
-- Natural quoted strings, Unicode syntax, tail-call optimization.
-- Effect handling; PHP persistent immutable data representation.
-- Compilation of source AST to the earlier NailVM bytecode.
-- A self-hosting parser/compiler written in Nail itself.
+Le liste sono array JavaScript congelati (copia ad ogni `cons` e `tail`), non una struttura persistent-linked ottimizzata. **Limite intenzionale:** su liste lunghe alcune funzioni sono quadratiche; la rappresentazione potrà cambiare senza modificare il codice Nail.
 
-## Architectural direction
+## Libreria standard scritta in Nail
 
-    source language (named parameters, pure expressions)
-        -> whitespace tokens
-        -> tiny precedence parser
-        -> small lambda/closure-based core AST
-        -> [next] NailVM 0.1 compatible bytecode compiler
-        -> JavaScript / PHP runtimes
+`stdlib.nail` definisce `id`, `compose`, `map`, `filter`, `fold`, `reverse`, `length`. Nessuna di queste funzioni è implementata come primitiva JS. `map`, `filter` e `fold` sono già ricorsivi e di ordine superiore.
 
-Keep syntax sugar (`def`, `if`, infix operators, `|>`, operator sections) out of the semantic core. Core operations need only literals, variable lookup, lambda/closure, application, conditional and selected primitives; lexical environments hide all internal stack bookkeeping. This deliberately exchanges the absolute minimal grammar of Forth for an ordinary expression language with far lower cognitive burden for the author.
+## Esecuzione e test
+
+Con Node.js:
+
+```sh
+node v0.3/test.js
+```
+
+I file `cases.json` raccolgono 24 test positivi e 12 test negativi condivisibili con una futura implementazione PHP. `test.js` aggiunge una verifica strutturale dell'AST: **37 test** totali, verificati con Node.js 22.
+
+Per l'uso programmatico:
+
+```js
+const { NailSeed3 } = require('./NailSeed.js');
+const fs = require('node:fs');
+const vm = NailSeed3.create();
+vm.run(fs.readFileSync('./stdlib.nail', 'utf8'));
+console.log(vm.run('map ( fun x -> x * 2 ) [ 1 , 2 , 3 ] ;'));
+```
+
+La versione JavaScript non dipende da Node per il runtime ed è pensata anche per Scriptable, ma **non è ancora stata verificata su iOS**. Il test harness usa invece Node (`assert`, `fs`).
+
+## Limiti consapevoli
+
+- Niente `dup`, `swap`, `rot` (non esistono operazioni stack nel linguaggio).
+- Niente sections `* 2`, pipe `|>`, stringhe `s:...`, pattern matching, ADT, tipi statici o moduli.
+- Niente ricorsione ottimizzata in coda: la profondità dipende dallo stack JavaScript. `maxSteps` limita il lavoro, ma non rende sicura l'esecuzione di sorgente non attendibile.
+- L'ambiente globale è estensibile tra le chiamate `run`: le chiusure vedono le definizioni globali aggiunte successivamente; i parametri sono catturati lessicalmente.
+- Le definizioni sono sequenziali, e in caso di errore `run` non effettua rollback delle definizioni già registrate.
+- Solo JavaScript per ora: PHP tornerà dopo aver stabilizzato i test semantici.
+
+## Prossimo esperimento
+
+Studiare `let` locale, dati algebrici/pattern matching e una rappresentazione efficiente delle liste, **senza ampliare i cinque nodi espressivi se non necessario**. Poi costruire interprete PHP contro `cases.json` e passare dal valutatore AST a una VM o a un compilatore minimale senza bloccarci all'ISA storica.

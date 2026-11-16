@@ -1,20 +1,18 @@
-# Come eseguire NailSeed — v0.2
+# Come eseguire NailSeed — v0.3
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Indice](../docs/README.md)
 
-**Natura dell'artefatto:** prototipo JavaScript + PHP indipendenti. Tutti i comandi seguenti si eseguono nella cartella `v0.2/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
+**Natura dell'artefatto:** interpreter JavaScript, senza target PHP. Tutti i comandi seguenti si eseguono nella cartella `v0.3/`, dopo aver clonato il repository. Gli esempi usano i nomi di file realmente presenti nello snapshot.
 
-## Node.js e PHP 8
+## Node.js (nessun target PHP in questa versione)
 
 ```sh
-cd v0.2
-node NailSeed.js             # self-test JS
-php NailSeed.php             # self-test PHP
-node -e 'const fs=require("node:fs"); const {NailSeed2}=require("./NailSeed.js"); console.log(NailSeed2.create().run(fs.readFileSync("examples/cookbook-start.nail","utf8")))'
-php -r 'require "NailSeed.php"; echo json_encode((new NailSeed2())->run(file_get_contents("examples/cookbook-start.nail")));'
+cd v0.3
+node test.js
+node -e 'const fs=require("node:fs"); const {NailSeed3}=require("./NailSeed.js"); const vm=NailSeed3.create(); vm.run(fs.readFileSync("stdlib.nail","utf8")); console.log(vm.run(fs.readFileSync("examples/cookbook-start.nail","utf8")));'
 ```
 
-Sono due interpreti di riferimento indipendenti, non compilati Haxe. `run(source)` restituisce una lista di risultati.
+La `stdlib.nail` non viene caricata automaticamente dall'interprete JS v0.3. Qui **non** esiste un runtime PHP: passa alla v0.4 per i target generati da Haxe.
 
 ## Aprire il runtime in una pagina web
 
@@ -25,7 +23,7 @@ Un esempio già pronto si trova in [`examples/browser.html`](./examples/browser.
 <button id="go">Esegui Nail</button><pre id="result"></pre>
 <script>
 document.getElementById('go').addEventListener('click', () => {
-  const vm = NailSeed2.create();
+  const vm = NailSeed3.create();
   const output = vm.run('def twice x = x * 2 ; twice 21 ;');
   document.getElementById('result').textContent = JSON.stringify(output);
 });

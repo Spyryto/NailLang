@@ -1,7 +1,26 @@
-# NailLang — historical prototypes
+# NailSeed v0.3
 
-The first two reconstructed revisions of NailLang (originally NailSeed) were standalone JavaScript and PHP interpreters. The source programs and examples in this revision are preserved as they were in the original snapshot.
+**Minimal Functional Core** — primo esperimento progettato principalmente per sottrazione.
 
-For each version, see [Language Tour](LANGUAGE-TOUR.md), [Cookbook](COOKBOOK.md) and [Running](RUNNING.md). The files are arranged by Git version, **not** one folder per release. Select a Git tag to see the corresponding source.
+- `NailSeed.js`: interprete di riferimento JavaScript, senza dipendenze, AST di **cinque espressioni**.
+- `stdlib.nail`: `map`, `filter`, `fold`, `compose`, `reverse`, `length`, `id` scritti interamente in Nail.
+- `cases.json`: 36 casi di prova portabili (24 positivi e 12 negativi).
+- `test.js`: runner Node con un controllo addizionale sull'AST (**37 test**).
+- `SPEC.md`: grammatica, semantica, limitazioni e prospettive.
 
-These Git commits will be reconstructed from the snapshots of the private NailSeed repository. They do not reproduce its original Git commit history or authorship metadata.
+Per provare:
+
+```sh
+node test.js
+```
+
+Esempio Nail:
+
+```nail
+def twice x = x * 2 ;
+map twice [ 1 , 2 , 3 ] ;
+```
+
+Caricare `stdlib.nail` prima di eseguire `map`. Le primitive dello stack di Forth non fanno parte della sintassi, e `map` non è una primitiva della VM.
+
+**Nota:** questa versione non ha ancora un runtime PHP; è volutamente un esperimento JS-first. La compatibilità Scriptable è progettuale, non ancora testata sul dispositivo.

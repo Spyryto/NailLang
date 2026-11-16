@@ -1,0 +1,26 @@
+# NailSeed 0.3 standard library: all definitions in Nail itself.
+# No host-provided map/filter/fold/compose.
+
+def id x = x ;
+
+def compose f g x = f ( g x ) ;
+
+def map f xs =
+  if isEmpty xs then []
+  else cons ( f ( head xs ) ) ( map f ( tail xs ) ) ;
+
+def filter f xs =
+  if isEmpty xs then []
+  else if f ( head xs ) then
+    cons ( head xs ) ( filter f ( tail xs ) )
+  else filter f ( tail xs ) ;
+
+def fold f init xs =
+  if isEmpty xs then init
+  else fold f ( f init ( head xs ) ) ( tail xs ) ;
+
+def reverse xs =
+  fold ( fun acc x -> cons x acc ) [] xs ;
+
+def length xs =
+  fold ( fun n x -> n + 1 ) 0 xs ;

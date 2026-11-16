@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.2
+# Nail Cookbook — v0.3
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -15,26 +15,26 @@ twice 21 ;
 
 **Risultato atteso:** `42` come valore dell'espressione. Per usarlo da Node/PHP segui [RUNNING.md](./RUNNING.md).
 
-## Ricetta 2 — trasformare una lista senza stack
+## Ricetta 2 — trasformare un elenco
 
 ```nail
 def twice x = x * 2 ;
-[ 1 , 2 , 3 ] |> map twice ;
+map twice [ 1 , 2 , 3 ] ;
 ```
 
-**Risultato atteso:** `[2, 4, 6]`. `|>` rende leggibile la pipeline.
+**Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Funzioni, closure e pipeline
+## Ricetta 3 — Functional core in cinque forme
 
 ```nail
 def twice x = x * 2 ;
-[ 1 , 2 , 3 ] |> map twice ;
+map twice [ 1 , 2 , 3 ] ;
 ```
 
-La superficie passa a `def`, applicazione curried, `fun`, `if` e `|>`; niente operazioni esplicite di stack.
+Cinque forme di espressione nel core; `map`, `filter` e `fold` sono implementate nella libreria Nail. Solo runtime JavaScript.
 
 ## Allenamento: studiare l'implementazione
 
-- Trova il percorso dal sorgente al valore usando [SPEC](./SPEC.md).
+- Trova il percorso dal sorgente al valore usando [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [stdlib.nail](./stdlib.nail).
 - Riscrivi l'esempio usando una funzione ausiliaria, poi verifica un caso negativo (nome non definito, tipo incompatibile, pattern non esaustivo quando applicabile).
 - Nelle release Haxe, confronta `test-interp.hxml`, `test-js.hxml` e `test-php.hxml`; una build riuscita non prova automaticamente il funzionamento della demo browser.

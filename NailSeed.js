@@ -1,195 +1,231 @@
-/* NailSeed 0.2 — experimental F#-style source language, JS edition.
- * Whitespace separates EVERY token. For example: f ( x + 1 ) ;
- * Definitions: def f x = x * 2 ;
- * The source language exposes no stack manipulation.
- * No dependencies; works in Scriptable, Node.js and browsers.
- * Experimental AST interpreter: not yet a compiler to NailVM 0.1.
+/* NailSeed 0.3 — minimal functional core, JS reference runtime.
+ * Every source token MUST be separated by whitespace, including punctuation.
+ * No external dependencies. Designed for Node.js and Scriptable.
+ * Expression AST: literal, var, lambda, apply, if.
  */
-const NailSeed2 = (() => {
-  const binaryPrecedence = { '|>': 10, '==': 30, '!=': 30, '<': 30, '<=': 30,
-    '>': 30, '>=': 30, '+': 40, '-': 40, '*': 50, '/': 50 };
-  const op = (kind, ...args) => ({ kind, args });
-  const isName = s => /^[A-Za-z_][A-Za-z_0-9]*$/.test(s) &&
-    !['def','if','then','else','fun','true','false'].includes(s);
-  const isNum = s => /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(s);
-  const isAtomStart = t => t === '(' || t === '[' || t === 'if' || t === 'fun' ||
-    t === 'true' || t === 'false' || t?.startsWith('s:') || isName(t) || isNum(t);
+var NailSeed3 = (() => {
+  'use strict';
+  const EMPTY = Object.freeze([]);
+  const OWN = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const PREC = Object.freeze({
+    '==': 30, '!=': 30, '<': 30, '<=': 30, '>': 30, '>=': 30,
+    '+': 40, '-': 40, '*': 50, '/': 50
+  });
+  const APP_PREC = 70;
+  const RESERVED = new Set(['def', 'if', 'then', 'else', 'fun', 'true', 'false']);
+  const isName = t => typeof t === 'string' && /^[A-Za-z_][A-Za-z_0-9]*$/.test(t) && !RESERVED.has(t);
+  const isNumber = t => typeof t === 'string' && /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t);
+  const isAtom = t => t === '(' || t === '[' || t === '[]' || t === 'fun' || t === 'if' ||
+    t === 'true' || t === 'false' || isName(t) || isNumber(t);
+  const node = (kind, ...items) => ({ kind, items });
+  const literal = v => node('literal', v);
+  const variable = n => node('var', n);
+  const apply = (f, x) => node('apply', f, x);
+  const lambda = (params, body) => params.reduceRight((b, p) => node('lambda', p, b), body);
+  const privateCons = '#cons'; // cannot occur in user-written source
 
   function parse(source) {
-    const clean = source.split(/\r?\n/).map(x => x.replace(/(^|\s)#(?:\s|$).*$/, '$1')).join(' ');
-    const ts = clean.trim().match(/\S+/g) || [];
+    const clean = source.split(/\r?\n/).map(line => line.replace(/(^|\s)#.*$/, '$1')).join(' ');
+    const tokens = clean.match(/\S+/g) || [];
     let i = 0;
-    const peek = () => ts[i];
-    const take = () => ts[i++];
-    const need = token => { if (take() !== token) throw Error(`Expected ${token} at token ${i}`); };
-
-    function expression(min = 0) {
-      let lhs;
+    const peek = () => tokens[i];
+    const take = () => tokens[i++];
+    const expect = token => {
+      if (take() !== token) throw Error(`Expected '${token}' at token ${i}`);
+    };
+    function atom() {
       const t = take();
       if (t === undefined) throw Error('Unexpected end of input');
-      if (t === '(') { lhs = expression(); need(')'); }
-      else if (t === '[') {
+      if (t === '[]') return literal(EMPTY);
+      if (t === '(') {
+        const e = expression(); expect(')'); return e;
+      }
+      if (t === '[') {
         const elements = [];
         if (peek() !== ']') {
-          do { elements.push(expression()); if (peek() !== ',') break; take(); } while (true);
+          while (true) {
+            elements.push(expression());
+            if (peek() !== ',') break;
+            take();
+          }
         }
-        need(']'); lhs = op('list', elements);
-      } else if (t === 'if') {
-        const test = expression(); need('then');
-        const yes = expression(); need('else');
-        lhs = op('if', test, yes, expression());
-      } else if (t === 'fun') {
+        expect(']');
+        return elements.reduceRight((xs, x) =>
+          apply(apply(variable(privateCons), x), xs), literal(EMPTY));
+      }
+      if (t === 'if') {
+        const test = expression(); expect('then');
+        const yes = expression(); expect('else');
+        return node('if', test, yes, expression());
+      }
+      if (t === 'fun') {
         const params = [];
         while (peek() !== '->') {
-          const p = take(); if (!p || !isName(p)) throw Error('Expected function parameter');
+          const p = take();
+          if (!isName(p) || params.includes(p)) throw Error('Invalid or duplicate function parameter');
           params.push(p);
         }
-        if (!params.length) throw Error('Function needs parameters');
-        need('->'); lhs = op('lambda', params, expression());
-      } else if (Object.hasOwn(binaryPrecedence, t) && t !== '|>' && t !== '==' && t !== '!=') {
-        // Optional F#-like operator section: * 2 means fun x -> x * 2.
-        lhs = op('section', t, expression(60));
-      } else if (isNum(t)) lhs = op('literal', Number(t));
-      else if (t === 'true' || t === 'false') lhs = op('literal', t === 'true');
-      else if (t.startsWith('s:')) lhs = op('literal', decodeURIComponent(t.slice(2)));
-      else if (isName(t)) lhs = op('name', t);
-      else throw Error(`Unexpected token ${t}`);
-      while (i < ts.length) {
-        const next = peek();
-        // Application binds tighter than multiplication (F# convention).
-        if (isAtomStart(next) && min <= 70) {
-          lhs = op('apply', lhs, expression(71)); continue;
+        if (!params.length) throw Error('Function needs at least one parameter');
+        expect('->');
+        return lambda(params, expression());
+      }
+      if (isNumber(t)) {
+        const n = Number(t);
+        if (!Number.isFinite(n)) throw Error('Number out of range: ' + t);
+        return literal(n);
+      }
+      if (t === 'true' || t === 'false') return literal(t === 'true');
+      if (isName(t)) return variable(t);
+      throw Error(`Unexpected token '${t}' at token ${i}`);
+    }
+    function expression(min = 0) {
+      let left = atom();
+      while (peek() !== undefined) {
+        if (isAtom(peek()) && min <= APP_PREC) {
+          left = apply(left, expression(APP_PREC + 1));
+          continue;
         }
-        const prec = binaryPrecedence[next];
+        const op = peek();
+        const prec = OWN(PREC, op) ? PREC[op] : undefined;
         if (prec === undefined || prec < min) break;
         take();
-        lhs = next === '|>'
-          ? op('apply', expression(prec + 1), lhs)
-          : op('binary', next, lhs, expression(prec + 1));
+        left = apply(apply(variable(op), left), expression(prec + 1));
       }
-      return lhs;
+      return left;
     }
     const forms = [];
-    while (i < ts.length) {
+    while (i < tokens.length) {
       if (peek() === 'def') {
-        take(); const name = take();
+        take();
+        const name = take();
         if (!isName(name)) throw Error('Expected definition name');
         const params = [];
         while (peek() !== '=') {
-          if (i >= ts.length || !isName(peek())) throw Error('Expected parameter or =');
-          params.push(take());
+          const p = take();
+          if (!isName(p) || params.includes(p)) throw Error('Invalid or duplicate definition parameter');
+          params.push(p);
+          if (p === undefined) throw Error('Expected =');
         }
-        need('='); const body = expression(); need(';');
-        forms.push(op('def', name, params, body));
+        expect('=');
+        const body = lambda(params, expression());
+        expect(';');
+        forms.push({ kind: 'def', name, body });
       } else {
-        const e = expression(); need(';'); forms.push(op('expr', e));
+        const expr = expression(); expect(';');
+        forms.push({ kind: 'expr', body: expr });
       }
     }
     return forms;
   }
 
   function create(options = {}) {
-    const globals = Object.create(null);
+    const limit = options.maxSteps === undefined ? 100000 : options.maxSteps;
+    if (!Number.isSafeInteger(limit) || limit < 1) throw Error('maxSteps must be a positive integer');
+    const root = { parent: null, values: Object.create(null) };
     let steps = 0;
-    const limit = options.maxSteps || 100000;
-    function native(name, n, fn) {
-      globals[name] = { kind: 'native', name, n, fn, got: [] };
+    function tick() {
+      if (++steps > limit) throw Error('Execution budget exceeded');
     }
+    const bind = (env, name, value) => { env.values[name] = value; };
     function lookup(env, name) {
-      if (name in env) return env[name];
-      if (name in globals) return globals[name];
+      for (let e = env; e; e = e.parent) {
+        if (OWN(e.values, name)) return e.values[name];
+      }
       throw Error('Unknown name: ' + name);
     }
-    function apply(f, x) {
-      if (!f || (f.kind !== 'closure' && f.kind !== 'native')) throw Error('Value is not callable');
-      if (f.kind === 'native') {
-        const got = [...f.got, x];
-        return got.length === f.n ? f.fn(...got) : { ...f, got };
-      }
-      const local = Object.create(f.env);
-      local[f.params[0]] = x;
-      return f.params.length === 1
-        ? evalExpr(f.body, local)
-        : { ...f, params: f.params.slice(1), env: local };
+    function unary(name, arity, fn) {
+      bind(root, name, Object.freeze({ tag: 'native', name, arity, args: EMPTY, fn }));
     }
-    function binary(symbol, a, b) {
-      switch (symbol) {
-        case '+': return a + b;
-        case '-': return a - b;
-        case '*': return a * b;
-        case '/': return a / b;
-        case '<': return a < b;
-        case '<=': return a <= b;
-        case '>': return a > b;
-        case '>=': return a >= b;
-        case '==': return a === b;
-        case '!=': return a !== b;
-        default: throw Error(`Unknown operator ${symbol}`);
+    const asNumber = v => {
+      if (typeof v !== 'number' || !Number.isFinite(v)) throw Error('Expected finite number');
+      return v;
+    };
+    const asBoolean = v => {
+      if (typeof v !== 'boolean') throw Error('Expected boolean');
+      return v;
+    };
+    const asList = v => {
+      if (!Array.isArray(v)) throw Error('Expected list');
+      return v;
+    };
+    const numberResult = v => {
+      if (!Number.isFinite(v)) throw Error('Nonfinite arithmetic result');
+      return v;
+    };
+    function equal(a, b) {
+      if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every((v, i) => equal(v, b[i]));
+      }
+      if (typeof a === 'number' && typeof b === 'number') return a === b;
+      if (typeof a === 'boolean' && typeof b === 'boolean') return a === b;
+      throw Error('Cannot compare these values');
+    }
+    const numeric = (name, fn) => unary(name, 2, (a, b) => numberResult(fn(asNumber(a), asNumber(b))));
+    numeric('+', (a, b) => a + b);
+    numeric('-', (a, b) => a - b);
+    numeric('*', (a, b) => a * b);
+    numeric('/', (a, b) => { if (b === 0) throw Error('Division by zero'); return a / b; });
+    for (const [name, cmp] of Object.entries({
+      '<': (a, b) => a < b, '<=': (a, b) => a <= b,
+      '>': (a, b) => a > b, '>=': (a, b) => a >= b
+    })) unary(name, 2, (a, b) => cmp(asNumber(a), asNumber(b)));
+    unary('==', 2, equal);
+    unary('!=', 2, (a, b) => !equal(a, b));
+    bind(root, 'nil', EMPTY);
+    const cons = (head, tail) => Object.freeze([head, ...asList(tail)]);
+    unary('cons', 2, cons);
+    unary(privateCons, 2, cons);
+    unary('isEmpty', 1, xs => asList(xs).length === 0);
+    unary('head', 1, xs => {
+      const list = asList(xs);
+      if (!list.length) throw Error('head of empty list');
+      return list[0];
+    });
+    unary('tail', 1, xs => {
+      const list = asList(xs);
+      if (!list.length) throw Error('tail of empty list');
+      return Object.freeze(list.slice(1));
+    });
+    function call(fn, value) {
+      tick();
+      if (!fn || (fn.tag !== 'closure' && fn.tag !== 'native')) throw Error('Value is not a function');
+      if (fn.tag === 'native') {
+        const args = [...fn.args, value];
+        return args.length < fn.arity
+          ? Object.freeze({ ...fn, args: Object.freeze(args) })
+          : fn.fn(...args);
+      }
+      const child = { parent: fn.env, values: Object.create(null) };
+      bind(child, fn.param, value);
+      return evaluate(fn.body, child);
+    }
+    function evaluate(ast, env) {
+      tick();
+      const a = ast.items;
+      switch (ast.kind) {
+        case 'literal': return a[0];
+        case 'var': return lookup(env, a[0]);
+        case 'lambda': return Object.freeze({ tag: 'closure', param: a[0], body: a[1], env });
+        case 'apply': return call(evaluate(a[0], env), evaluate(a[1], env));
+        case 'if': return evaluate(asBoolean(evaluate(a[0], env)) ? a[1] : a[2], env);
+        default: throw Error('Unknown AST node ' + ast.kind);
       }
     }
-    function evalExpr(node, env) {
-      if (++steps > limit) throw Error('Execution budget exceeded');
-      const [a, b, c, d] = node.args;
-      switch (node.kind) {
-        case 'literal': return a;
-        case 'name': return lookup(env, a);
-        case 'binary': return binary(a, evalExpr(b, env), evalExpr(c, env));
-        case 'section': return { kind: 'native', name: `section ${a}`, n: 1,
-          got: [], fn: x => binary(a, x, evalExpr(b, env)) };
-        case 'if': return evalExpr(a, env) ? evalExpr(b, env) : evalExpr(c, env);
-        case 'lambda': return { kind: 'closure', params: a, body: b, env };
-        case 'apply': return apply(evalExpr(a, env), evalExpr(b, env));
-        case 'list': return Object.freeze(a.map(x => evalExpr(x, env)));
-        default: throw Error(`Unrecognized AST node ${node.kind}`);
-      }
-    }
-    native('map', 2, (f, xs) => Object.freeze(xs.map(x => apply(f, x))));
-    native('filter', 2, (f, xs) => Object.freeze(xs.filter(x => apply(f, x))));
-    native('fold', 3, (f, init, xs) => xs.reduce((acc, x) => apply(apply(f, acc), x), init));
     function run(source) {
-      const forms = parse(source), results = [];
+      const results = [];
       steps = 0;
-      for (const form of forms) {
-        const [a, b, c] = form.args;
+      for (const form of parse(source)) {
         if (form.kind === 'def') {
-          if (a in globals) throw Error('Already defined: ' + a);
-          globals[a] = b.length
-            ? { kind: 'closure', params: b, body: c, env: Object.create(null) }
-            : evalExpr(c, Object.create(null));
-        } else results.push(evalExpr(a, Object.create(null)));
+          if (OWN(root.values, form.name)) throw Error('Already defined: ' + form.name);
+          const value = evaluate(form.body, root);
+          bind(root, form.name, value);
+        } else results.push(evaluate(form.body, root));
       }
       return results;
     }
-    return Object.freeze({ run, parse, names: () => Object.keys(globals).sort() });
+    return Object.freeze({ run, names: () => Object.keys(root.values).filter(x => !x.startsWith('#')).sort() });
   }
   return Object.freeze({ create, parse });
 })();
 
-function nailSeed2SelfTest() {
-  const examples = [
-    ['def twice x = x * 2 ; twice 5 ;', '[10]'],
-    ['def square x = x * x ; square 7 ;', '[49]'],
-    ['def twice = * 2 ; twice 5 ;', '[10]'],
-    ['def sub a b = a - b ; sub 10 3 ;', '[7]'],
-    ['def add a b = a + b ; def add3 = add 3 ; add3 8 ;', '[11]'],
-    ['def fact n = if n < 2 then 1 else n * fact ( n - 1 ) ; fact 5 ;', '[120]'],
-    ['def inc = + 1 ; map inc [ 1 , 2 , 3 ] ;', '[[2,3,4]]'],
-    ['fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 ] ;', '[6]'],
-    ['def twice x = x * 2 ; [ 1 , 2 , 3 ] |> map twice ;', '[[2,4,6]]'],
-    ['def choose x = if x > 0 then x else 0 ; choose -4 ;', '[0]'],
-    ['def f x = x + 2 * 3 ; f 1 ;', '[7]'],
-    ['s:Ciao%20mondo ;', '["Ciao mondo"]'],
-    ['def makeAdder x = fun y -> x + y ; def add10 = makeAdder 10 ; add10 8 ;', '[18]'],
-    ['def halve = / 2 ; halve 9 ;', '[4.5]'],
-    ['def twice x = x * 2 ; 3 |> twice |> twice ;', '[12]'],
-  ];
-  for (const [code, expected] of examples) {
-    const actual = JSON.stringify(NailSeed2.create().run(code));
-    if (actual !== expected) throw Error(`FAIL ${code}\n${actual} != ${expected}`);
-  }
-  return `${examples.length} tests passed`;
-}
-if (typeof module !== 'undefined') {
-  module.exports = { NailSeed2, nailSeed2SelfTest };
-  if (require.main === module) console.log(nailSeed2SelfTest());
-}
+if (typeof module !== 'undefined' && module.exports) module.exports = { NailSeed3 };
