@@ -29,6 +29,16 @@ typedef SourceModuleSpec = {
   var exports:Array<SourceModuleExport>;
 }
 
+/** Explicitly recoverable lookup outcomes at the host/module boundary.
+    Once an exported function is called, any VM failure is NOT caught: a
+    malformed image, resource-budget exhaustion or unexpected language bug
+    must never be disguised as an ordinary application error. */
+enum ModuleCallOutcome {
+  CallSuccess(value:Value);
+  MissingModule(name:String);
+  MissingExport(module:String, symbol:String);
+}
+
 private typedef LinkedState = {
   var machine:ByteVm;
   var publicValues:StringMap<Value>;
@@ -59,6 +69,16 @@ class ModuleBundle {
     var value = require(module).signatures.get(symbol);
     if (value == null) throw 'Module linker: ' + module + ' does not export ' + symbol;
     return value;
+  }
+
+  /** A total lookup API for expected missing-module/export errors.
+      Deliberately does not catch exceptions from the VM itself. */
+  public function tryInvoke(module:String, symbol:String, value:Value):ModuleCallOutcome {
+    var state = instances.get(module);
+    if (state == null) return MissingModule(module);
+    if (!state.publicValues.exists(symbol))
+      return MissingExport(module, symbol);
+    return CallSuccess(state.machine.invoke(symbol, value));
   }
 
   public function invoke(module:String, symbol:String, value:Value):Value {

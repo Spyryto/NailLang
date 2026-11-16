@@ -1,18 +1,19 @@
-# Nail Language Tour — v0.31
+# Nail Language Tour — v0.32
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Moduli compilati separatamente**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Errori recuperabili con Result**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.30/LANGUAGE-TOUR.md) → **v0.31** → [versione successiva](../v0.32/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.31/LANGUAGE-TOUR.md) → **v0.32** → [versione successiva](../v0.33/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Immagini runtime di moduli, esportazioni dichiarate dall'host, import con alias e linking topologico; non è ancora sintassi `module` nativa.
+`Result` è definito in Nail e composto mediante pattern esaustivi; `ModuleBundle.tryInvoke` distingue errori di lookup host da guasti inattesi della VM.
 
 ```nail
-def double n = n + n ;
-double 21 ;
+type Result a e = Ok a | Err e ;
+def safeDivide n d = if d == 0 then Err " zero " else Ok ( n / d ) ;
+safeDivide 10 2 ;
 ```
 
 ## Primo programma
@@ -116,7 +117,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.31 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.31) e cerca il test associato alla feature.
+4. Apri la [versione v0.32 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.32) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

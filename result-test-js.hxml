@@ -1,0 +1,6 @@
+-cp src
+-main ResultTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-resource examples/error-results.nail@result_source
+-js build/tests/result.js

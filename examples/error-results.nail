@@ -1,0 +1,44 @@
+# A real Nail program: expected domain errors are typed Result values.
+# Unexpected VM/host faults are never converted to Err by this library.
+type Result a e = Ok a | Err e ;
+type MathError = DivideByZero | NegativeInput ;
+
+def safeDivide numerator denominator =
+  if denominator == 0 then Err DivideByZero
+  else Ok ( numerator / denominator ) ;
+
+def nonnegative n =
+  if n < 0 then Err NegativeInput
+  else Ok n ;
+
+def resultMap f result =
+  match result with
+  | Ok value -> Ok ( f value )
+  | Err error -> Err error ;
+
+def resultBind result next =
+  match result with
+  | Ok value -> next value
+  | Err error -> Err error ;
+
+def resultMapError f result =
+  match result with
+  | Ok value -> Ok value
+  | Err error -> Err ( f error ) ;
+
+def unwrapOr result fallback =
+  match result with
+  | Ok value -> value
+  | Err problem -> fallback ;
+
+def errorName err =
+  match err with
+  | DivideByZero -> " zero "
+  | NegativeInput -> " negative " ;
+
+def explain result =
+  match result with
+  | Ok value -> " ok "
+  | Err error -> errorName error ;
+
+def safeRatio n d = resultBind ( safeDivide n d ) nonnegative ;

@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.31
+# Nail Cookbook — v0.32
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Moduli compilati separatamente
+## Ricetta 3 — Errori recuperabili con Result
 
 ```nail
-def double n = n + n ;
-double 21 ;
+type Result a e = Ok a | Err e ;
+def safeDivide n d = if d == 0 then Err " zero " else Ok ( n / d ) ;
+safeDivide 10 2 ;
 ```
 
-Immagini runtime di moduli, esportazioni dichiarate dall'host, import con alias e linking topologico; non è ancora sintassi `module` nativa.
-
-Per compilare e collegare più moduli, esamina `examples/module-*.nail` e `runtime-modules-test-*.hxml`. I manifest di import/export vanno forniti dall'host; non esiste un gestore pacchetti Nail implicito.
+`Result` è definito in Nail e composto mediante pattern esaustivi; `ModuleBundle.tryInvoke` distingue errori di lookup host da guasti inattesi della VM.
 
 ## Allenamento: studiare l'implementazione
 

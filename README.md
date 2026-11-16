@@ -1,139 +1,64 @@
-# NailSeed v0.31 — Runtime modules and separate compilation
+# NailSeed v0.32 — recoverable Result slice
 
-This snapshot adds a **first working, explicitly typed runtime module linker**
-to the v0.30 Nail compiler. Earlier snapshots remain unchanged.
+This independent snapshot builds on v0.31. It adds a **typed recovery
+boundary**, without changing the five-expression AST, bytecode format, or
+default numeric semantics.
 
-## What works
+## What is implemented
 
-- Independently compile ordinary Nail source files into portable, versioned
-  `nailseed.runtime-module.v1` images, each containing **bytecode plus public
-  imports/exports and their monomorphic type signatures**. Module linking
-  requires no source parser, Nail source, or Haxe compiler.
-- Each module executes in a **fresh, isolated ByteVm lexical environment**.
-  Imports are bound by explicit aliases, and the consumer sees **only named
-  exports**. Unexported declarations remain private; exported functions keep
-  their own module's lexical environment when called from another module.
-- Dependencies are resolved topologically. Missing modules/exports,
-  duplicate aliases, duplicate modules, cycles and source-name shadowing
-  are rejected. Module evaluation is initialization once, not global
-  concatenation of all program definitions.
-- Each source is checked by Hindley–Milner with imported names installed
-  from explicitly declared **closed, monomorphic signatures**. Exported
-  declarations are checked against their promised public signatures.
-- The Haxe reference compiler and **Nail-written source-free bootstrap
-  compiler must emit identical canonical bytecode** for each module.
-- A legacy `Number` module and an opted-in `Exact` module get independent
-  bytecode image envelopes (v1 vs v2-exact). Imports between distinct
-  numeric dialects are explicitly rejected to prevent silent type changes.
+- `examples/error-results.nail` is a real, checked Nail program defining
+  `Result a e = Ok a | Err e` and a finite error ADT.
+- Ordinary functions implement `resultMap`, `resultBind`, `resultMapError`,
+  `unwrapOr`, domain error reporting and safe division. A normal
+  zero denominator is represented by `Err DivideByZero`; it is not
+  an exception. Function application and pattern matching need no new opcode.
+- `ModuleBundle.tryInvoke(module, symbol, argument)` returns the Haxe
+  `ModuleCallOutcome` tagged union: `CallSuccess(Value)`,
+  `MissingModule(name)`, or `MissingExport(module, symbol)`.
+  `ModuleBundle.invoke` remains unchanged.
+- **Runtime faults propagate.** Neither a VM budget breach nor a bad
+  image nor a division-by-zero thrown by a function is caught and
+  disguised as a domain-level `Err`. Host callers must treat compiled
+  images as trusted and uphold typed exported contracts.
+- Cross-target tests compare AST and source-free/bytecode execution, typed
+  inference, and separately compiled host module lookup outcomes.
 
-## Module source files
+### Example
 
-The source files below are normal Nail files. They deliberately contain no
-new runtime-module keywords. **The explicit import/export manifest is supplied
-through the host API**; this is a staging step before choosing Nail-native
-module syntax and typed source declarations.
+```nail
+type Result a e = Ok a | Err e ;
+type MathError = DivideByZero | NegativeInput ;
 
-<details>
-<summary>Example module layout</summary>
+def safeDivide n d =
+  if d == 0 then Err DivideByZero else Ok ( n / d ) ;
 
-```text
-examples/
-  module-core.nail      # private hidden, public double
-  module-math.nail      # imports Core.double as core_double; exports triple
-  module-app.nail       # imports Math.triple as math_triple; exports compute
-  module-tempo.nail     # Exact rational seconds per beat
-  module-phrase.nail    # imports Tempo.secondsPerBeat
-```
-</details>
-
-To compile and link the first three files, a host provides manifests:
-
-```haxe
-var numberFn = TFunction(TNumber, TNumber);
-var core:SourceModuleSpec = {
-  name: 'Core',
-  source: coreSource,
-  imports: [],
-  exports: [{name:'double', type:numberFn}]
-};
-var math:SourceModuleSpec = {
-  name: 'Math',
-  source: mathSource,
-  imports: [{
-    module:'Core', symbol:'double', alias:'core_double', type:numberFn
-  }],
-  exports: [{name:'triple', type:numberFn}]
-};
-var app:SourceModuleSpec = {
-  name: 'Application',
-  source: appSource,
-  imports: [{
-    module:'Math', symbol:'triple', alias:'math_triple', type:numberFn
-  }],
-  exports: [{name:'compute', type:numberFn}]
-};
-
-// Source is checked and compiled once. Images may be saved independently.
-var artifacts = [core,math,app].map(spec ->
-  ModuleImage.encode(ModuleLinker.compile(spec)));
-
-// Source-free runtime: a different process can decode these images and link
-// them in any order. The private Core.hidden symbol never becomes visible.
-var bundle = ModuleLinker.linkImages([
-  artifacts[2], artifacts[0], artifacts[1]
-]);
-var value = bundle.invoke('Application', 'compute', Number(14));
-// Vm.toPlain(value) == 42
+def resultBind r next =
+  match r with
+  | Ok value -> next value
+  | Err error -> Err error ;
 ```
 
-For the **music timing example**, the `Tempo` and `Phrase` modules opt into
-`# nail: 0.29`, export/import `Exact -> Exact`, and evaluate
-`phraseSeconds 128` as **`E:30720/97`**, exactly.
+A full example with safe composition is in
+[examples/error-results.nail](examples/error-results.nail).
 
-## Compiled interface and runtime guarantees
+## Checks
 
-`ModuleImage` records module name, dialect, import aliases, exported names,
-canonical signatures and a versioned bytecode envelope. `ModuleLinker.link`
-can also work with in-memory compiled units, while
-`ModuleLinker.linkImages` accepts only serialized images. No source-code
-strings are supplied at link time.
-
-Interfaces remain explicit **monomorphic** `NType` contracts. The first
-version supports primitive and function/list/vector signatures. Public
-nominal and polymorphic type interfaces need further design; local record or
-sum type definitions are therefore deliberately excluded from this module
-compilation entry point. This does not remove record/ADT support from the
-ordinary Nail compiler.
-
-The compiled unit is currently a **trusted build artifact**. ModuleImage
-validates structural metadata and canonical bytecode serialization but
-does **not** cryptographically verify publisher authenticity or prove that
-arbitrary modified bytecode satisfies its advertised type signature.
-
-## Run the tests
-
-From `v0.31/`, after building the bootstrap image:
+After `haxe seed-image.hxml`, run:
 
 ```sh
-haxe seed-image.hxml
-haxe runtime-modules-test-interp.hxml
-haxe runtime-modules-test-js.hxml && node build/tests/runtime-modules.js
-haxe runtime-modules-test-php.hxml && php build/tests/php-runtime-modules/index.php
+haxe result-test-interp.hxml
+haxe result-test-js.hxml && node build/tests/result.js
+haxe result-test-php.hxml && php build/tests/php-result/index.php
 ```
 
-The GitHub Actions workflow additionally runs the inherited v0.30 procedural
-transformer, macro, exact-number, type checker, source-free bootstrap,
-fixed-point, stress, CLI and distribution tests.
+The v0.32 workflow also inherits the entire v0.31 regression suite.
 
-## Boundaries and next work
+## Deliberate limits
 
-This is a **host-manifest module API**, not source-native
-`import/export` syntax for runtime values. Existing `import ... from ...`
-and `export ...` forms retain their established **compile-time macro**
-meaning and are not reinterpreted. The next logical changes are a compact
-source-language surface (or generated interface files), public polymorphic
-and nominal signatures, then richer cross-module diagnostics and incremental
-recompilation. The runtime still has no ambient file/network I/O capability.
-
-See [SPEC.md](SPEC.md), the [v0.30 snapshot](../v0.30/) and
-[the roadmap](../ROADMAP.md).
+This milestone is a **first slice**, not a claim of complete error effects.
+Nail's `Result` is defined by each program, not a prelude namespace.
+Module manifests still forbid cross-module nominal ADTs, so a public
+`Result[T,E]` module ABI must follow public nominal type interfaces.
+The host `tryInvoke` union is not a new Nail expression or a blanket
+exception catcher. Rich diagnostic spans and capability-based I/O remain
+future work.
