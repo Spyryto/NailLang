@@ -51,6 +51,11 @@ class Vm {
     for (name in ['textAtExact', 'vectorGetExact'])
       root.bind(name, Native(name, 2, []));
     root.bind('vectorSetExact', Native('vectorSetExact', 3, []));
+    for (name in ['textLengthInt','vectorLengthInt'])
+      root.bind(name, Native(name, 1, []));
+    for (name in ['textAtInt','vectorGetInt'])
+      root.bind(name, Native(name, 2, []));
+    root.bind('vectorSetInt', Native('vectorSetInt', 3, []));
     for (name in ['+', '-', '*', '/', '<', '<=', '>', '>='])
       root.bind('#modern' + name, Native('#modern' + name, 2, []));
     for (name in ['toFloat','toRatio','ratioFromText','intFromText'])
@@ -332,10 +337,11 @@ class Vm {
         Vector(items);
       case 'vectorLength': Number(vectorItems(a).length);
       case 'vectorLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(vectorItems(a).length)));
-      case 'vectorGet' | 'vectorGetExact':
+      case 'vectorLengthInt': IntNumber(numeric.FastNumber.exact(Std.string(vectorItems(a).length)));
+      case 'vectorGet' | 'vectorGetExact' | 'vectorGetInt':
         var items = vectorItems(a);
         items[vectorIndex(b, items.length)];
-      case 'vectorSet' | 'vectorSetExact':
+      case 'vectorSet' | 'vectorSetExact' | 'vectorSetInt':
         var items = vectorItems(a);
         var index = vectorIndex(b, items.length);
         var copy = items.copy();
@@ -384,7 +390,8 @@ class Vm {
         }
       case 'textLength': Number(UnicodeText.length(text(a)));
       case 'textLengthExact': ExactNumber(numeric.FastNumber.exact(Std.string(UnicodeText.length(text(a)))));
-      case 'textAt' | 'textAtExact':
+      case 'textLengthInt': IntNumber(numeric.FastNumber.exact(Std.string(UnicodeText.length(text(a)))));
+      case 'textAt' | 'textAtExact' | 'textAtInt':
         var source = text(a);
         Text(UnicodeText.at(source, index(b, UnicodeText.length(source))));
       case 'textConcat': Text(text(a) + text(b));

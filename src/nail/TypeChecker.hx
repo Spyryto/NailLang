@@ -426,12 +426,12 @@ private class Inference {
     globals.set('toFloat', mono(fun(fresh(), TFloat)));
     for (op in ['+', '-', '*', '/', '<', '<=', '>', '>='])
       globals.set('#modern' + op, mono(fun(fresh(), fun(fresh(), fresh()))));
-    globals.set('textLength', mono(fun(string, TInt)));
-    globals.set('textAt', mono(fun(string, fun(TInt, string))));
+    globals.set('textLengthInt', mono(fun(string, TInt)));
+    globals.set('textAtInt', mono(fun(string, fun(TInt, string))));
     var id = nextId++, x = TVariable(id);
-    globals.set('vectorLength', poly(fun(TVector(x), TInt), [id]));
-    globals.set('vectorGet', poly(fun(TVector(x), fun(TInt, x)), [id]));
-    globals.set('vectorSet', poly(fun(TVector(x), fun(TInt, fun(x, TVector(x)))), [id]));
+    globals.set('vectorLengthInt', poly(fun(TVector(x), TInt), [id]));
+    globals.set('vectorGetInt', poly(fun(TVector(x), fun(TInt, x)), [id]));
+    globals.set('vectorSetInt', poly(fun(TVector(x), fun(TInt, fun(x, TVector(x)))), [id]));
   }
 
   function fresh():NType return TVariable(nextId++);

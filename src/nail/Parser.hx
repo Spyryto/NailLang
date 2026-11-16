@@ -97,6 +97,11 @@ class Parser {
     case _: name;
   };
 
+  static function modernBuiltinName(name:String):String return switch (name) {
+    case 'textLength' | 'textAt' | 'vectorLength' | 'vectorGet' | 'vectorSet': name + 'Int';
+    case _: name;
+  };
+
   static function precedence(s:Null<String>):Int {
     return switch (s) {
       case '==' | '!=' | '<' | '<=' | '>' | '>=': 30;
@@ -369,7 +374,7 @@ class Parser {
     if (isName(token)) {
       if (recordTypePattern.match(token) && peek() == '{')
         return parseNamedRecord(token);
-      return Var(exactMode ? exactBuiltinName(token) : token);
+      return Var(modernMode ? modernBuiltinName(token) : exactMode ? exactBuiltinName(token) : token);
     }
     throw 'Unexpected token ' + token + ' at token ' + at;
   }

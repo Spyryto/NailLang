@@ -1186,6 +1186,16 @@ def modernOperator name =
   else if name == " <= " then " #modern<= "
   else if name == " > " then " #modern> "
   else if name == " >= " then " #modern>= "
+  else if name == " textLength " then " textLengthInt "
+  else if name == " textAt " then " textAtInt "
+  else if name == " vectorLength " then " vectorLengthInt "
+  else if name == " vectorGet " then " vectorGetInt "
+  else if name == " vectorSet " then " vectorSetInt "
+  else if name == " #macro_global_textLength " then " #macro_global_textLengthInt "
+  else if name == " #macro_global_textAt " then " #macro_global_textAtInt "
+  else if name == " #macro_global_vectorLength " then " #macro_global_vectorLengthInt "
+  else if name == " #macro_global_vectorGet " then " #macro_global_vectorGetInt "
+  else if name == " #macro_global_vectorSet " then " #macro_global_vectorSetInt "
   else name ;
 
 def modernRewrite tree =
