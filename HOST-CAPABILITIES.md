@@ -449,3 +449,99 @@ haxe revocable-capabilities-test-php.hxml && php build/tests/php-revocable-capab
 Remaining milestones include cryptographic publisher signatures
 (public-key verification), controlled real filesystem/HTTP adapters,
 resource/time budgets for host callbacks and asynchronous cancellation.
+
+## v0.42 — Ed25519 signed distribution manifests
+
+A pinned SHA-256 digest (v0.40) assures integrity **only if** it was obtained
+through a trusted channel. The v0.42 additionally authenticates an entire
+deployment manifest against a trusted publisher **public key**.
+
+The signed manifest has exactly these semantic fields:
+
+```json
+{
+  "format": "naillang.signed-modules.v1",
+  "algorithm": "Ed25519",
+  "release": "v0.42",
+  "keyId": "publisher-2026",
+  "modules": [
+    {"name": "Saver", "sha256": "64 lowercase hexadecimal characters"}
+  ],
+  "signature": "canonical Base64 of a 64-byte detached Ed25519 signature"
+}
+```
+
+The manifest entries MUST be strictly sorted by module name with no
+duplicates. The **signed payload** is an ASCII string with an explicit domain
+separator; the JSON serializer, whitespace and property ordering are NOT
+signed. For the sample metadata, before replacing the SHA-256 placeholder:
+
+```text
+naillang.signed-modules.v1
+release=v0.42
+key=publisher-2026
+count=1
+Saver=<64 lowercase hexadecimal characters>
+```
+
+The payload includes a final newline. The signer's private key is managed
+**outside this repository** and signs the exact bytes returned by
+`SignedModuleManifest.canonicalPayload(release,keyId,entries)`. Neither
+`encode` nor any Nail runtime operation signs messages.
+
+Embedding an authorized module set in Haxe:
+
+```haxe
+var policy = new nail.ModuleSigningPolicy('v0.42');
+policy.trustKey('publisher-2026', publicKeyFromTrustedDeployment);
+var linked = nail.ModuleLinker.linkSignedImages(
+  imagesFromDistribution, manifestJson, policy, 25000000, grants);
+```
+
+`publicKeyFromTrustedDeployment` is canonical standard Base64 of the **raw
+32-byte Ed25519 public key**, held in host-owned trusted configuration.
+The untrusted manifest's `keyId` only selects a key previously registered by
+the host. A digest is not substituted for a signature and the signature
+itself cannot introduce a trusted key.
+
+Validation is fail-closed: exact expected release, trusted key ID, supported
+algorithm, canonical 64-byte detached signature, strictly sorted entries,
+real Ed25519 verification, then SHA-256 matching for *every* module image.
+Only after both gates pass are modules decoded, initialized and linked with
+host capabilities. Tampered manifests, swapped module images, missing images,
+unknown keys, revoked release expectations and unsupported algorithms fail.
+
+**Supported native synchronous verifiers:** Node.js (built-in
+`node:crypto.verify` with RFC 8410 Ed25519 SPKI) and PHP 8 with ext-sodium
+(`sodium_crypto_sign_verify_detached`). Normal browser JS and Haxe
+`--interp` do not have an automatic synchronous native adapter, so
+`NativeEd25519.verify` returns false. A trusted embedder may call
+`ModuleLinker.linkSignedImagesWithVerifier(...,verifier,...)` to inject
+a genuine synchronous signature verifier; providing a permissive stub
+**destroys all authentication**, so use an audited native primitive.
+Tests for `--interp` call Node's actual Ed25519 implementation as a test
+oracle; they do not fake signatures.
+
+**Replay and key rotation:** the host configures the exact expected release,
+so signed manifests for older release labels are rejected. This is NOT a
+complete anti-rollback mechanism if the host itself accepts old release
+labels or if two distinct distributions share a release label. Require
+immutable release IDs and a trusted deployment/version policy. To rotate
+keys, publish a new trusted host keyring, rather than trusting keys declared
+by the manifest. A stolen trusted private key can still sign malicious
+code; publishing keys does not make an untrusted build chain safe.
+
+The API authenticates modules at initial linking. It does not revoke already
+linked VM closures, guarantee host callback atomicity, or provide a
+browser-compatible asynchronous WebCrypto verification path. v0.41 grant
+revocation handles *future* host calls independently.
+
+```sh
+haxe seed-image.hxml
+haxe signed-manifests-test-interp.hxml
+haxe signed-manifests-test-js.hxml && node build/tests/signed-manifests.js
+haxe signed-manifests-test-php.hxml && php build/tests/php-signed-manifests/index.php
+```
+
+The RFC 8032 seed used in the tests is public and must NEVER be installed as
+a real trusted publisher key.

@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.41
+# Eseguire NailLang — v0.42
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -72,3 +72,19 @@ haxe revocable-capabilities-test-php.hxml && php build/tests/php-revocable-capab
 
 Questi test coprono revoca post-link, grant indipendenti, capability
 condivise e funzioni scriventi parzialmente applicate, in Haxe/JS/PHP.
+
+## Test manifest firmati v0.42
+
+```sh
+haxe seed-image.hxml
+haxe signed-manifests-test-interp.hxml
+haxe signed-manifests-test-js.hxml && node build/tests/signed-manifests.js
+haxe signed-manifests-test-php.hxml && php build/tests/php-signed-manifests/index.php
+```
+
+Il test Haxe `--interp` invoca Node.js come verificatore crittografico
+di test. L'API di produzione `linkSignedImages` verifica automaticamente
+Ed25519 solo in Node.js o PHP (con estensione sodium attiva).
+Per applicazioni web/browser o altri host è necessario integrare un
+verificatore Ed25519 sincrono affidabile con
+`linkSignedImagesWithVerifier`, altrimenti il controllo fallisce.

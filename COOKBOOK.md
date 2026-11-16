@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.41
+# Nail Cookbook — v0.42
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -95,3 +95,23 @@ di `OtherSaver`, anche se l'host aveva condiviso lo stesso writer fra moduli.
 Se invece l'host chiama `writer.revoke()`, tutti i riferimenti a
 **quell'istanza** smettono di funzionare. Nessuna di queste operazioni
 ripristina una capability revocata.
+
+## Ricetta 7 — Caricare una distribuzione firmata
+
+Nel programma host, NON nel codice Nail:
+
+```haxe
+var policy = new nail.ModuleSigningPolicy('v0.42');
+policy.trustKey('publisher-2026', publicKeyBase64DaConfigAffidabile);
+var modules = nail.ModuleLinker.linkSignedImages(
+  moduleImages, signedManifestJson, policy, 25000000, grants);
+```
+
+Prima di distribuire i moduli, l'autore deve firmare con Ed25519 il
+contenuto di `SignedModuleManifest.canonicalPayload`. Nel repository
+non è inclusa alcuna chiave privata di produzione. L'host non deve mai
+fidarsi della chiave pubblica trovata nello stesso bundle non attendibile.
+
+Per fare pratica guarda `src/SignedManifestsTestMain.hx`: il seed
+Ed25519 del test è pubblicato intenzionalmente e **non deve essere
+usato per distribuzioni reali**.
