@@ -1,0 +1,4 @@
+-cp src
+-main BootstrapDepthTestMain
+-resource stdlib.nail@stdlib
+-js build/tests/bootstrap.js

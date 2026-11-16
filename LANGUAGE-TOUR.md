@@ -1,18 +1,18 @@
-# Nail Language Tour — v0.11
+# Nail Language Tour — v0.12
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Tail-call optimization**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Continuazioni iterative**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.10/LANGUAGE-TOUR.md) → **v0.11** → [versione successiva](../v0.12/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.11/LANGUAGE-TOUR.md) → **v0.12** → [versione successiva](../v0.13/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Le chiamate in posizione di coda riusano il frame nella ByteVM. Non significa che ogni chiamata ricorsiva sia automaticamente tail-recursive.
+Valutazione AST e ByteVM minimizzano la dipendenza dallo stack dell'host anche per chiamate non tail.
 
 ```nail
-def loop n acc = if n == 0 then acc else loop ( n - 1 ) ( acc + 1 ) ;
-loop 30000 0 ;
+def twice x = x * 2 ;
+twice 21 ;
 ```
 
 ## Primo programma
@@ -69,7 +69,7 @@ Il `match` sulle liste richiede entrambi i casi. `let name = expression in expre
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.11 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.11) e cerca il test associato alla feature.
+4. Apri la [versione v0.12 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.12) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

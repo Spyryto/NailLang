@@ -2,11 +2,13 @@ package nail;
 
 import nail.Value;
 
-/** The result of a bytecode block. TailInvoke is a request to replace the
-    current call frame, not a recursive invocation of the host runtime. */
-private enum ByteOutcome {
-  Done(value:Value);
-  TailInvoke(fn:Value, arg:Value);
+/** Saved activation for a non-tail CALL or BRANCH; never a host call frame. */
+private typedef ByteFrame = {
+  var code:Array<Value>;
+  var next:Int;
+  var env:Env;
+  var stack:Array<Value>;
+  var needsReturn:Bool;
 }
 
 /** Minimal structured stack-bytecode executor.
@@ -70,43 +72,38 @@ class ByteVm {
     return stack.pop();
   }
 
-  /** Trampoline: a tail call reuses this loop rather than recursing into
-      ByteVm.call -> executeCode -> ByteVm.call. Non-tail CALL still nests as
-      required for expressions such as 1 + f(x). */
-  function call(fn:Value, value:Value):Value {
-    var currentFn = fn;
-    var currentArg = value;
-    while (true) {
-      tick();
-      switch (currentFn) {
-        case ByteClosure(param, body, captured):
-          var local = new Env(captured);
-          local.bind(param, currentArg);
-          switch (executeCode(body, local, true)) {
-            case Done(result): return result;
-            case TailInvoke(nextFn, nextArg):
-              currentFn = nextFn;
-              currentArg = nextArg;
-          }
-        case Native(name, arity, applied):
-          var args = applied.copy();
-          args.push(currentArg);
-          return args.length < arity ? Native(name, arity, args) : Vm.primitive(name, args);
-        case _: throw 'Bytecode value is not callable';
-      }
-    }
-    throw 'Unreachable ByteVm trampoline';
-  }
-
-  function executeCode(block:Value, env:Env, needsReturn:Bool):ByteOutcome {
-    var statements = operands(block, 'Code', -1);
-    return executeInstructions(statements, env, needsReturn);
-  }
-
-  function executeInstructions(instructions:Array<Value>, env:Env, needsReturn:Bool):ByteOutcome {
+  /** Complete iterative executor. Ordinary calls use heap frames; tail calls
+      replace the active code/environment without growing the frame stack. */
+  function executeCode(block:Value, initial:Env, mustReturn:Bool):Value {
+    var code = operands(block, 'Code', -1);
+    var pc = 0;
+    var env = initial;
     var stack:Array<Value> = [];
-    for (i in 0...instructions.length) {
-      var instruction = instructions[i];
+    var needsReturn = mustReturn;
+    var frames:Array<ByteFrame> = [];
+    var delivering = false;
+    var completed:Value = Nil;
+    while (true) {
+      if (delivering) {
+        if (frames.length == 0) return completed;
+        var saved = frames.pop();
+        code = saved.code;
+        pc = saved.next;
+        env = saved.env;
+        stack = saved.stack;
+        needsReturn = saved.needsReturn;
+        stack.push(completed);
+        delivering = false;
+        continue;
+      }
+      if (pc >= code.length) {
+        if (needsReturn) throw 'Invalid bytecode: missing RETURN';
+        if (stack.length != 1) throw 'Invalid bytecode block stack depth';
+        completed = pop(stack);
+        delivering = true;
+        continue;
+      }
+      var instruction = code[pc++];
       tick();
       switch (instruction) {
         case SyntaxNode('CONST', _):
@@ -118,61 +115,83 @@ class ByteVm {
         case SyntaxNode('CLOSURE', _):
           var args = operands(instruction, 'CLOSURE', 2);
           stack.push(ByteClosure(label(args[0], 'Name'), args[1], env));
-        case SyntaxNode('CALL', _):
-          operands(instruction, 'CALL', 0);
-          var arg = pop(stack);
-          var fn = pop(stack);
-          stack.push(call(fn, arg));
-        case SyntaxNode('TAIL_CALL', _):
-          operands(instruction, 'TAIL_CALL', 0);
-          if (!needsReturn || i != instructions.length - 1)
+        case SyntaxNode('CALL', _) | SyntaxNode('TAIL_CALL', _):
+          var tail = switch (instruction) {
+            case SyntaxNode('TAIL_CALL', _): true;
+            case _: false;
+          };
+          operands(instruction, tail ? 'TAIL_CALL' : 'CALL', 0);
+          if (tail && (!needsReturn || pc != code.length))
             throw 'Invalid bytecode: TAIL_CALL outside tail position';
           var arg = pop(stack);
           var fn = pop(stack);
-          if (stack.length != 0) throw 'Invalid bytecode tail-call stack depth';
-          return TailInvoke(fn, arg);
+          if (tail && stack.length != 0) throw 'Invalid bytecode tail-call stack depth';
+          tick();
+          switch (fn) {
+            case ByteClosure(param, body, captured):
+              if (!tail) frames.push({code:code, next:pc, env:env, stack:stack, needsReturn:needsReturn});
+              var local = new Env(captured);
+              local.bind(param, arg);
+              code = operands(body, 'Code', -1);
+              pc = 0;
+              env = local;
+              stack = [];
+              needsReturn = true;
+            case Native(name, arity, applied):
+              var all = applied.copy();
+              all.push(arg);
+              var value = all.length < arity ? Native(name, arity, all) : Vm.primitive(name, all);
+              if (tail) {
+                completed = value;
+                delivering = true;
+              } else stack.push(value);
+            case _: throw 'Bytecode value is not callable';
+          }
         case SyntaxNode('BRANCH', _):
           var args = operands(instruction, 'BRANCH', 2);
           var condition = pop(stack);
-          var yes = switch (condition) {
+          var chooseYes = switch (condition) {
             case Boolean(value): value;
             case _: throw 'Expected boolean';
           };
-          // A final BRANCH can itself be the return path: propagate its
-          // TailInvoke without pushing a result or adding a new call frame.
-          var isTailBranch = needsReturn && i == instructions.length - 1;
-          var branch = executeCode(yes ? args[0] : args[1], env, isTailBranch);
-          if (isTailBranch) {
-            if (stack.length != 0) throw 'Invalid bytecode tail-branch stack depth';
-            return branch;
-          }
-          switch (branch) {
-            case Done(v): stack.push(v);
-            case TailInvoke(_, _): throw 'Invalid bytecode: tail-call in value branch';
-          }
+          var tailBranch = needsReturn && pc == code.length;
+          if (tailBranch && stack.length != 0) throw 'Invalid bytecode tail-branch stack depth';
+          if (!tailBranch) frames.push({code:code, next:pc, env:env, stack:stack, needsReturn:needsReturn});
+          code = operands(chooseYes ? args[0] : args[1], 'Code', -1);
+          pc = 0;
+          stack = [];
+          needsReturn = tailBranch;
         case SyntaxNode('RETURN', _):
           operands(instruction, 'RETURN', 0);
-          if (i != instructions.length - 1) throw 'Invalid bytecode: instructions after RETURN';
+          if (pc != code.length) throw 'Invalid bytecode: instructions after RETURN';
           if (stack.length != 1) throw 'Invalid bytecode return stack depth';
-          return Done(pop(stack));
+          completed = pop(stack);
+          delivering = true;
         case SyntaxNode(tag, _): throw 'Unknown opcode: ' + tag;
         case _: throw 'Invalid bytecode instruction';
       }
     }
-    if (needsReturn) throw 'Invalid bytecode: missing RETURN';
-    if (stack.length != 1) throw 'Invalid bytecode block stack depth';
-    return Done(pop(stack));
+    throw 'Unreachable iterative bytecode executor';
   }
 
-  /** Execute a top-level code block that must produce a normal value.
-      Source-generated top-level expressions may terminate with TAIL_CALL. */
-  function executeTop(block:Value):Value {
-    var result = executeCode(block, globals, true);
-    return switch (result) {
-      case Done(value): value;
-      case TailInvoke(fn, arg): call(fn, arg);
+  /** External entry point for a bytecode-compiled Nail callable. */
+  function call(fn:Value, arg:Value):Value {
+    tick();
+    return switch (fn) {
+      case ByteClosure(param, body, captured):
+        var env = new Env(captured);
+        env.bind(param, arg);
+        executeCode(body, env, true);
+      case Native(name, arity, applied):
+        var args = applied.copy();
+        args.push(arg);
+        args.length < arity ? Native(name, arity, args) : Vm.primitive(name, args);
+      case _: throw 'Bytecode value is not callable';
     };
   }
+
+  /** Top-level block may finish with RETURN or terminal TAIL_CALL. */
+  function executeTop(block:Value):Value return executeCode(block, globals, true);
 
   public function run(program:Value):Array<Value> {
     steps = 0;

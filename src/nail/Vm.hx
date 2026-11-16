@@ -4,6 +4,15 @@ import nail.Ast.Expr;
 import nail.Ast.Form;
 import nail.Value;
 
+/** Explicit evaluator continuations: no recursive host calls for Nail function
+    application, including mutually recursive and non-tail source functions. */
+private enum EvalFrame {
+  NeedArgument(argument:Expr, scope:Env);
+  ApplyFunction(fn:Value);
+  ChooseBranch(yes:Expr, no:Expr, scope:Env);
+}
+
+
 /** Small, pure Nail evaluator. No JS / PHP target branches. */
 class Vm {
   final root:Env;
@@ -157,30 +166,64 @@ class Vm {
     };
   }
 
-  function call(f:Value, arg:Value):Value {
-    tick();
-    return switch (f) {
-      case Closure(param, body, captured):
-        var child = new Env(captured);
-        child.bind(param, arg);
-        evaluate(body, child);
-      case Native(name, arity, prior):
-        var args = prior.copy();
-        args.push(arg);
-        if (args.length < arity) Native(name, arity, args) else primitive(name, args);
-      case _: throw 'Value is not a function';
-    };
+  /** Host-stack independent CEK-style evaluator. Nested applications and
+      branches use heap continuations rather than recursive host calls. */
+  function evaluate(expr:Expr, env:Env):Value {
+    var current:Expr = expr;
+    var scope:Env = env;
+    var result:Value = Nil;
+    var hasResult = false;
+    var frames:Array<EvalFrame> = [];
+    while (true) {
+      tick();
+      if (!hasResult) {
+        switch (current) {
+          case Literal(v): result = v; hasResult = true;
+          case Var(name): result = scope.lookup(name); hasResult = true;
+          case Lambda(param, body): result = Closure(param, body, scope); hasResult = true;
+          case Apply(fn, arg):
+            frames.push(NeedArgument(arg, scope));
+            current = fn;
+          case If(condition, yes, no):
+            frames.push(ChooseBranch(yes, no, scope));
+            current = condition;
+        }
+      } else {
+        if (frames.length == 0) return result;
+        switch (frames.pop()) {
+          case NeedArgument(arg, captured):
+            frames.push(ApplyFunction(result));
+            current = arg;
+            scope = captured;
+            hasResult = false;
+          case ChooseBranch(yes, no, captured):
+            current = bool(result) ? yes : no;
+            scope = captured;
+            hasResult = false;
+          case ApplyFunction(fn):
+            tick();
+            switch (fn) {
+              case Closure(param, body, captured):
+                var local = new Env(captured);
+                local.bind(param, result);
+                current = body;
+                scope = local;
+                hasResult = false;
+              case Native(name, arity, prior):
+                var args = prior.copy();
+                args.push(result);
+                result = args.length < arity ? Native(name, arity, args) : primitive(name, args);
+              case _: throw 'Value is not a function';
+            }
+        }
+      }
+    }
+    throw 'Unreachable iterative evaluator';
   }
 
-  function evaluate(expr:Expr, env:Env):Value {
-    tick();
-    return switch (expr) {
-      case Literal(v): v;
-      case Var(name): env.lookup(name);
-      case Lambda(param, body): Closure(param, body, env);
-      case Apply(f, x): call(evaluate(f, env), evaluate(x, env));
-      case If(condition, yes, no): evaluate(bool(evaluate(condition, env)) ? yes : no, env);
-    };
+  /** The self-hosted parser/compiler use the same iterative evaluation path. */
+  function call(f:Value, arg:Value):Value {
+    return evaluate(Apply(Literal(f), Literal(arg)), root);
   }
 
   /** Execute validated core forms using the same evaluator on every target. */
