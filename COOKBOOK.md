@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.39
+# Nail Cookbook — v0.40
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -53,3 +53,20 @@ Prova i casi `denied`, `too-large` e `quota-exhausted` con `haxe host-text-write
 - Trova il percorso dal sorgente al valore usando [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail).
 - Riscrivi l'esempio usando una funzione ausiliaria, poi verifica un caso negativo (nome non definito, tipo incompatibile, pattern non esaustivo quando applicabile).
 - Nelle release Haxe, confronta `test-interp.hxml`, `test-js.hxml` e `test-php.hxml`; una build riuscita non prova automaticamente il funzionamento della demo browser.
+
+## Ricetta 5 — Verificare immagini prima di concedere I/O
+
+Nell'applicazione ospite (Haxe), prima di chiamare Nail:
+
+```haxe
+var policy = new nail.ModuleImageTrust();
+policy.pin('Saver', digestPreapprovato);
+var modules = nail.ModuleLinker.linkTrustedImages(
+  immaginiCompilate, policy, 25000000, grants);
+```
+
+Il digest **non va calcolato all'avvio sulle stesse immagini non attendibili**;
+va letto da un manifest di distribuzione protetto e indipendente.
+Prova a sostituire un'immagine senza cambiare il manifest: la verifica deve
+rifiutarla senza eseguire codice né effettuare I/O. Il test completo è in
+`src/TrustedModuleImagesTestMain.hx`.

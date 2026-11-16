@@ -493,6 +493,18 @@ class ModuleLinker {
     return new ModuleBundle(states);
   }
 
+  /** Opt-in integrity gate: the host supplies independently trusted image
+      digests and name bindings, and ALL inputs are verified before linking.
+      A digest is not an authenticated publisher signature. For permissioned
+      modules use this API instead of the legacy linkImages method. */
+  public static function linkTrustedImages(images:Array<String>,
+      policy:ModuleImageTrust, maxSteps:Int = DEFAULT_STEPS,
+      ?hostGrants:HostTextGrants):ModuleBundle {
+    if (policy == null)
+      throw 'Module trust: missing host pin policy';
+    return link(policy.verify(images), maxSteps, hostGrants);
+  }
+
   /** Link from JSON artifacts only: source files are not reparsed, inferred
       or compiled at runtime. */
   public static function linkImages(images:Array<String>,

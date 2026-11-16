@@ -343,3 +343,54 @@ source-free compiler parity and an in-memory atomic replacement fixture.
 capabilities, production-ready filesystem/HTTP adapters with explicit
 platform-specific security policies, write revocation, cancellation and
 concurrency control. These are not implicitly supplied by the Nail VM.
+
+## v0.40 — host-pinned compiled-module integrity
+
+Prior versions authorized a separately compiled module by its **self-declared name**.
+Any actor able to replace an image and keep that name could gain an existing
+`HostTextGrants` entry. The v0.40 introduces an explicit, **opt-in**
+image-allowlist boundary before decoding, linking and VM initialization.
+
+```haxe
+var saverImage = nail.ModuleImage.encode(nail.ModuleLinker.compilePublic(spec));
+var digest = nail.ModuleImageTrust.sha256(saverImage);
+// The HOST must obtain this digest from a trusted release/deployment manifest,
+// stored separately from the untrusted bundle being loaded.
+var trust = new nail.ModuleImageTrust();
+trust.pin('Saver', trustedDigestFromDeployment);
+var linked = nail.ModuleLinker.linkTrustedImages(
+  [untrustedSaverImage], trust, 25000000, grants);
+```
+
+All required images must be pinned. The linker hashes each **exact serialized
+image string** using SHA-256 and compares it with an independently supplied
+pin, then validates the decoded module's name. It rejects unknown, missing,
+duplicated, substituted and misnamed artifacts **before any module can use a
+host callback**. The complete module set is verified before linking starts.
+Input ordering does not affect the result.
+
+**Critical:** this is a digest-based integrity check, NOT a digital signature,
+not provenance authentication, and not verification of authorship. If an
+attacker controls both the image and its expected hash, the policy is useless.
+Trust pins must be obtained through a separate trusted channel (e.g. a
+version-controlled manifest or a trusted application build). No private key
+is involved. SHA-256 cannot prove source-level type safety of bytecode from
+a malicious *approved* builder; only approve artifacts from a trusted
+compiler/build process.
+
+The old `linkImages` and `link` methods still exist for backwards
+compatibility and DO NOT perform this pin check. Hosts authorizing untrusted
+modules **must** use `linkTrustedImages`, never derive their pins directly
+from the bundle they receive. Update/revocation requires constructing a new
+trust policy and runtime; existing linked closures are not invalidated.
+
+```sh
+haxe seed-image.hxml
+haxe trusted-module-images-test-interp.hxml
+haxe trusted-module-images-test-js.hxml && node build/tests/trusted-module-images.js
+haxe trusted-module-images-test-php.hxml && php build/tests/php-trusted-module-images/index.php
+```
+
+Future work: signature verification with trusted publisher keys and key
+rotation, an authenticated distribution manifest, revocation and time limits
+for host callbacks, and concrete secure filesystem/network adapters.
