@@ -209,6 +209,14 @@ class Parser {
   function expression(minimum:Int = 0):Expr {
     var left = atom();
     while (peek() != null) {
+      // Projection is explicit; binding power 80 (higher than application).
+      if (peek() == '.' && minimum <= 80) {
+        take();
+        var field = take();
+        if (!isName(field) || field == '_') throw 'Expected record field after .';
+        left = Apply(Apply(Var('#recordGet'), left), Literal(Text(field)));
+        continue;
+      }
       if (beginsAtom(peek()) && minimum <= 70) {
         left = Apply(left, expression(71));
         continue;

@@ -331,7 +331,20 @@ def parseSuffix recur minimum parsed =
   if parseFailed parsed then parsed
   else let rest = parseRest parsed in
     let next = parsePeek rest in
-    if isPrefixSyntaxToken rest then
+    if next == " . " then
+      if minimum > 80 then parsed
+      else let fields = tail rest in
+        if isEmpty fields then parseError " Expected field name after . "
+        else let field = parsePeek fields in
+          if isIdentifier field then
+            parseSuffix recur minimum
+              ( parsePair
+                ( syntaxApply
+                  ( syntaxApply ( syntaxVar " #recordGet " ) ( parseTree parsed ) )
+                  ( syntaxLiteral " Text " field ) )
+                ( tail fields ) )
+          else parseError " Expected field name after . "
+    else if isPrefixSyntaxToken rest then
       if minimum <= 70 then
         let arg = recur 71 rest in
         if parseFailed arg then arg

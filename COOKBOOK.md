@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.17
+# Nail Cookbook — v0.17.1
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,15 +24,15 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Record nominali immutabili
+## Ricetta 3 — Proiezione dei campi
 
 ```nail
 type Person { name Text age Number } ;
-def ada = Person " Ada " 32 ;
-Person_age ada ;
+def mario = Person " Mario " 34 ;
+mario . age ;
 ```
 
-La dichiarazione genera costruttore e getter; l'accesso per proiezione non è ancora previsto.
+`persona . campo` ha un controllo statico nominale e fa uso della stessa rappresentazione runtime.
 
 ## Allenamento: studiare l'implementazione
 

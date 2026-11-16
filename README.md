@@ -1,43 +1,23 @@
-# NailSeed v0.17 — Nominal immutable records
+# NailSeed v0.17.1 — Explicit record-field projection
 
-One portable **Haxe** implementation, compiled to JavaScript and PHP by GitHub Actions.
-
-## Why records now?
-
-Nail previously had immutable linked lists but no user-defined product types. This experiment adds **nominal** records while keeping the execution core at **five Expr variants** and the structured bytecode unchanged. Unlike `head`/`tail` traversal, fields are retrieved by hash lookup (average O(1)).
+A syntax-focused follow-up to [v0.17](../v0.17/). The runtime retains the **same five expression AST forms**, nominal records, and the same bytecode.
 
 ```nail
-type Person { name String age Number } ;
-def ada = Person " Ada " 32 ;
-Person_name ada ;     # "Ada"
-Person_age ada ;      # 32
+type Person { name Text age Number } ;
+def mario = Person " Mario " 34 ;
+mario . name ;       # "Mario"
+mario . age + 1 ;    # 35
 ```
 
-Nail currently requires whitespace around **all** punctuation, including string delimiters and semicolons. `String` is an alias for the existing `Text` type; `Bool` and `Number` are also supported. In this version a field may reference a record type declared **earlier** in the same compilation/checker session, but not itself or a later type.
+Nested access is also supported, e.g. `person . address . city`. The dot is a separate whitespace-delimited token. It binds **tighter than application**: `f p . name` parses as `f ( p . name )`, so use `( f p ) . name` to access the result of `f`.
 
-```nail
-type Address { city Text } ;
-type Person { name Text age Number address Address } ;
-def p = Person " Ada " 32 ( Address " Venice " ) ;
-Address_city ( Person_address p ) ;
-```
+Both the Haxe and Nail-written parsers lower projection to `#recordGet`, a pre-existing primitive. No new core AST variant or bytecode instruction is introduced. The generated `Person_name` accessors still exist for compatibility.
 
-A type declaration generates a curried constructor `Person : Text -> Number -> Person` and accessors `Person_name : Person -> Text`, `Person_age : Person -> Number`.
+## Type inference
 
-Records are immutable Nail values with nominal tags. Structural field equality is available only for records of the **same type**. Accessing a missing field throws a runtime error; constructing with the wrong type is rejected by the **optional static checker** (not by the untyped evaluator).
+For a receiver statically known to have nominal type `Person`, the inference is **just as precise** as `Person_name person`. For an unconstrained parameter, a uniquely named field determines the nominal record type; when several record types share a field name, the checker reports an ambiguity rather than choosing one. Row polymorphism and structural subtyping are not supported yet.
 
-## Implementation
-
-- `src/nail/RecordLowering.hx`: desugars a type declaration into ordinary `Define` functions and the existing `Lambda`, `Apply`, `Var`, `Literal` AST nodes.
-- `src/nail/Value.hx`: one new **value** variant, `Record(typeName, fields)`, with an internal `StringMap<Value>` constructed once and never exposed to Nail.
-- Two *private* primitives: `#recordMake` and `#recordGet`, needed by generated definitions. Not callable directly in surface Nail source.
-- `src/nail/TypeChecker.hx`: nominal `TRecord(name)` plus generated constructor/accessor signatures and transactional type declaration checking.
-- `src/nail/Parser.hx` and `stdlib.nail`: **both** the host-bootstrap parser and the Nail-written parser understand `type` and produce a `RecordType` program form. The Nail compiler expands it into ordinary `DEFINE` instructions (no new opcode).
-- `src/RecordTestMain.hx`: runtime, type inference, error handling, bridge/encoder, self-parser and source-free bootstrap checks.
-
-## Test locally (Haxe 4.3.7)
-
-From `v0.17`:
+## Tests
 
 ```sh
 haxe seed-image.hxml
@@ -46,12 +26,4 @@ haxe record-test-js.hxml && node build/tests/records.js
 haxe record-test-php.hxml && php build/tests/php-records/index.php
 ```
 
-The workflow `.github/workflows/nailseed-v017.yml` runs these tests and all v0.15 regression suites on Haxe/Node.js/PHP, and produces JS/PHP release artifacts.
-
-## Intentionally not implemented
-
-- Generic parameterized records, recursive user-defined record types, ADTs/sum types, pattern matching on record fields, record update syntax.
-- `Vector` indexing and macros: separate future experiments.
-- Exact rational arithmetic of the isolated v0.16 experiment: v0.17 still uses the floating-point Number semantics inherited from v0.15.
-
-This version is experimental; record declarations are versioned independently of the future stabilized Nail language specification.
+CI exercises Haxe, Node and PHP together with previous regressions. Rational numbers remain a separate v0.16 experiment.

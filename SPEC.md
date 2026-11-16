@@ -1,33 +1,18 @@
-# Record declarations — v0.17 language draft
+# NailSeed v0.17.1 — Projection syntax
 
-## Grammar
+`receiver . identifier` is an explicit, postfix record field selection. Whitespace delimits all tokens (including `.`). It is left-associative and has precedence **80**, higher than ordinary application (**70**) or arithmetic operators.
 
-All punctuation tokens must be separated by whitespace, as elsewhere in Nail.
+Lowering (both parsers):
 
 ```text
-record-decl = "type" UpperIdentifier "{" (Identifier TypeName)+ "}" ";"
-TypeName    = "Number" | "Bool" | "Text" | "String" | PriorRecordName
+p . age
+=> Apply(Apply(Var("#recordGet"), Var("p")), Literal(Text("age")))
 ```
 
-At least one field is required (up to 128); duplicate field names and duplicate type/constructor/accessor names are errors. Type names must start uppercase. The order of fields defines constructor argument order; fields are not mutable or public by index. Recursive/forward type declarations are postponed until algebraic types.
+`#recordGet` already exists in v0.17 as a private two-argument primitive; thus no new VM instruction or core AST expression is needed.
 
-## Static semantics
+The Hindley–Milner checker recognizes this lowered expression directly. It consults the nominal receiver type and the generated `Type_field` signature. If an unknown receiver type is involved, a field unique to one declared record may determine its nominal type. Shared fields are ambiguous without a known receiver type; no row polymorphism is implied. Projection on a non-record or absent field is a static error; the runtime also reports access errors.
 
-- `Person` is a new *nominal* type distinct from every other declared type, including those with identical fields.
-- Constructors curry each argument, e.g. `Person : Text -> Number -> Person`.
-- Each named accessor is a pure function: `Person_name : Person -> Text`.
-- `String` aliases `Text` in declarations, with `Text` shown in type signatures.
-- Equality of record values requires the same nominal type, then compares corresponding fields structurally. All currently permitted field types are equality-comparable.
-- The type checker remains optional in v0.17. Badly typed code may be rejected at runtime, or produce values whose fields have unexpected types, when type-checking is skipped.
+Example: `( Person " Ada " 32 ) . age ;` has type `Number`. `def getAge x = x . age ;` has type `Person -> Number` if `age` occurs only in `Person`. `Person_age x` remains supported.
 
-## Dynamic semantics
-
-`Record(typeName, StringMap<Value>)` holds the nominal tag and immutable fields (not directly mutable from Nail). The field hash table is built on construction and accessed in expected O(1); this optimizes random access compared with linked lists, at the cost of one map allocation per record. Nominal type ids and offset-based layouts may replace the hash map in a later optimization without changing the source language.
-
-`RecordType` is a **top-level declaration**, not an expression node, and is lowered to a curried constructor plus one accessor per field. Two internal operations `#recordMake` and `#recordGet` are implemented by the host VM. No new bytecode instruction is needed; generated definitions use standard `DEFINE`, `CLOSURE`, `CONST`, `LOAD`, `CALL`, etc. The old five Expr constructors remain unchanged.
-
-Both parsers recognize the declaration and yield `SyntaxNode("RecordType", [...])` at the first-class syntax boundary; `SyntaxBridge` validates it, the reference compiler lowers it, and the Nail-written compiler emits the same structured instruction stream. This is intentionally a *restricted form of compile-time code generation*, without a general-purpose macro expander.
-
-## Deferred
-
-Parameterized ADTs, record destructuring and updates, Unicode field names, module-qualified record names, rich type names (`List Person`) and full compile-time hygienic macros. The v0.16 exact numbers experiment is **not integrated** here.
+The bytecode compiler, SyntaxBridge, and self-hosted compiler retain their existing instruction set. CI verifies equivalent bytecode from both parser/compiler paths and successful execution on Haxe, JavaScript and PHP.

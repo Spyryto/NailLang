@@ -33,6 +33,9 @@ class RecordTestMain {
     expectResult(vm.runPlain(a + 'p ;'), 'name', 'Ada');
     ok(vm.runPlain('Person_name p ;')[0] == 'Ada', 'record name getter');
     ok(vm.runPlain('Person_age p ;')[0] == 32, 'record age getter');
+    ok(vm.runPlain('p . name ;')[0] == 'Ada', 'dot name projection');
+    ok(vm.runPlain('p . age + 1 ;')[0] == 33, 'dot precedence vs addition');
+    ok(vm.runPlain('( Person " Bob " 20 ) . name ;')[0] == 'Bob', 'dot on constructed record');
     ok(vm.runPlain('Person_name ( Person " Bob " 20 ) ;')[0] == 'Bob', 'constructor application');
     ok(vm.runPlain('Person " Bob " 20 == Person " Bob " 20 ;')[0] == true, 'structural equality');
     ok(vm.runPlain('Person " Bob " 20 != Person " Bob " 21 ;')[0] == true, 'structural inequality');
@@ -41,6 +44,10 @@ class RecordTestMain {
     expectResult(nv.runPlain(nested + 'Badge ( Person " Ada " 32 ) true ;'), 'valid', true);
     ok(nv.runPlain('Person_age ( Badge_owner ( Badge ( Person " Ada " 32 ) false ) ) ;')[0] == 32,
       'nested nominal records');
+    ok(nv.runPlain('( Badge ( Person " Ada " 32 ) false ) . owner . age ;')[0] == 32,
+      'chained dot projection');
+    throwsLike(() -> nv.runPlain('( Badge ( Person " Ada " 32 ) false ) . missing ;'), 'Unknown record field');
+    throwsLike(() -> new Vm().run('type T { name Text } ; ( T " A " ) . ;'), 'Expected record field');
     throwsLike(() -> new Vm().run('type Empty { } ;'), 'Record requires');
     throwsLike(() -> new Vm().run('type Person { name Text name Number } ;'), 'Duplicate record field');
     throwsLike(() -> new Vm().run('type person { name Text } ;'), 'uppercase record type');
@@ -52,6 +59,15 @@ class RecordTestMain {
     ok(typechecker.signature('Person_name') == 'Person -> Text', 'name getter signature');
     ok(typechecker.signature('Person_age') == 'Person -> Number', 'age getter signature');
     ok(Json.stringify(typechecker.check('Person_name ( Person " Ada " 32 ) ;')) == '["Text"]', 'typed expression');
+    ok(Json.stringify(typechecker.check('( Person " Ada " 32 ) . name ;')) == '["Text"]', 'typed dot expression');
+    ok(Json.stringify(typechecker.check('( Person " Ada " 32 ) . age ;')) == '["Number"]', 'typed dot numeric field');
+    typechecker.check('def ageOf person = person . age ;');
+    ok(typechecker.signature('ageOf') == 'Person -> Number', 'unique field infers receiver type');
+    throwsLike(() -> typechecker.check('( Person " Ada " 32 ) . missing ;'), 'has no field');
+    throwsLike(() -> typechecker.check('42 . age ;'), 'expected record');
+    throwsLike(() -> new TypeChecker().check(pfx + 'type Pet { name Text } ; def label x = x . name ;'), 'ambiguous record field');
+    ok(Json.stringify(new TypeChecker().check(pfx + 'type Pet { name Text } ; ( Person " Ada " 32 ) . name ;')) == '["Text"]',
+      'known receiver disambiguates shared field name');
     throwsLike(() -> typechecker.check('Person 3 4 ;'), 'cannot unify');
     throwsLike(() -> typechecker.check('Person_age " text " ;'), 'cannot unify');
     throwsLike(() -> new TypeChecker().check(pfx + 'type Pet { name Text age Number } ; Person_name ( Pet " Ada " 32 ) ;'), 'cannot unify');
@@ -67,7 +83,7 @@ class RecordTestMain {
     t.check('type Good { name Text } ;');
     ok(t.signature('Good_name') == 'Good -> Text', 'retry after failed transaction');
 
-    var src = pfx + 'def p = Person " Ada " 32 ; Person_name p ;';
+    var src = pfx + 'def p = Person " Ada " 32 ; p . name ;';
     var reference = BytecodeCompiler.compileSource(src);
     var byteVm = new ByteVm(15000000);
     ok(Json.stringify(byteVm.runPlain(reference)) == '["Ada"]', 'bytecode compiler + ByteVm');
@@ -88,6 +104,9 @@ class RecordTestMain {
     // The minimal source-free JS/PHP distribution must also accept the syntax.
     var boot = new BootRuntime(30000000);
     ok(Json.stringify(boot.runPlain(src)) == '["Ada"]', 'source-free bootstrap supports record syntax');
+    var bootNested = new BootRuntime(30000000);
+    ok(Json.stringify(bootNested.runPlain(nested + '( Badge ( Person " Ada " 32 ) true ) . owner . name ;')) == '["Ada"]',
+      'source-free bootstrap supports chained dot');
     trace('NailSeed v0.17 record tests: ' + passed + ' passed');
   }
 }

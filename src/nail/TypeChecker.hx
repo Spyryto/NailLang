@@ -325,6 +325,33 @@ private class Inference {
     return output;
   }
 
+  /** Resolve a lowered . projection using the nominal receiver's type.
+      If no receiver type is known, a globally unique field can determine it;
+      otherwise ambiguity is reported instead of guessing. */
+  function projectField(receiver:NType, field:String):NType {
+    var recordName:Null<String> = null;
+    switch (prune(receiver)) {
+      case TRecord(name): recordName = name;
+      case TVariable(_):
+        var matches:Array<String> = [];
+        for (name in records.keys()) if (globals.exists(name + '_' + field)) matches.push(name);
+        if (matches.length == 0) throw 'Type error: unknown record field ' + field;
+        if (matches.length > 1) {
+          matches.sort(Reflect.compare);
+          throw 'Type error: ambiguous record field ' + field + ' (' + matches.join(', ') + ')';
+        }
+        recordName = matches[0];
+        unify(receiver, TRecord(recordName));
+      case _: throw 'Type error: expected record before . ' + field;
+    }
+    var name:String = recordName;
+    var accessor = globals.get(name + '_' + field);
+    if (accessor == null) throw 'Type error: record ' + name + ' has no field ' + field;
+    var result = fresh();
+    unify(instantiate(accessor), fun(TRecord(name), result));
+    return result;
+  }
+
   /** Hindley-Milner with explicit expression frames; let generalization stays at
       the direct-lambda application boundary, as in v0.12. */
   function infer(expr:Expr, env:StringMap<TypeScheme>):NType {
@@ -353,6 +380,14 @@ private class Inference {
           } else {
             var bodyType = results.pop();
             results.push(fun(frame.saved, bodyType));
+            work.pop();
+          }
+        case Apply(Apply(Var('#recordGet'), receiver), Literal(Text(field))):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(receiver, frame.scope));
+          } else {
+            results.push(projectField(results.pop(), field));
             work.pop();
           }
         case Apply(Lambda(param, body), argument):
