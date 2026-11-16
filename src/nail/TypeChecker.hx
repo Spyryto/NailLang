@@ -385,6 +385,7 @@ private class Inference {
   public final relations:haxe.ds.StringMap<String>;
   public var declarations:haxe.ds.StringMap<String>;
   public final modernMode:Bool;
+  public var validatingConstraint:Bool = false;
   public final modernRows:Array<numeric.NumericRelation.BinaryRelationRow>;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
@@ -872,7 +873,7 @@ private class Inference {
             work.pop();
           }
         case Apply(Apply(Var(name), lhs), rhs)
-          if (modernMode && StringTools.startsWith(
+          if (modernMode && !validatingConstraint && StringTools.startsWith(
             MacroExpander.globalName(name), '#modern')):
           if (frame.phase == 0) {
             frame.phase = 1;
@@ -1304,8 +1305,21 @@ private class Inference {
             var validator = new Inference(nextId, globals, records, sums,
               sumCases, constructorOwners, relations, modernMode, modernRows);
             var expected = fun(row.left, fun(row.right, row.result));
-            validator.globals.set(constrained == 'Div45' ? '#modern/' : '/',
-              mono(expected));
+            if (constrained == 'Div45') {
+              // Infer the annotated body with concrete operator signatures.
+              // Its lambda parameters are unified by application before the
+              // result is checked, so a floating type variable cannot be
+              // mistaken for a type with a general Num instance.
+              validator.validatingConstraint = true;
+              for (op in ['+', '-', '*', '/', '<', '<=', '>', '>=']) {
+                var opResult:NType = null;
+                try opResult = numeric.NumericRelation.operate(
+                  op, row.left, row.right) catch (e:Dynamic) {}
+                validator.globals.remove('#modern' + op);
+                if (opResult != null) validator.globals.set('#modern' + op,
+                  mono(fun(row.left, fun(row.right, opResult))));
+              }
+            } else validator.globals.set('/', mono(expected));
             validator.globals.set(name, mono(expected));
             validator.validateMatches(expr);
             var inferredType = validator.infer(expr, validator.globals,
