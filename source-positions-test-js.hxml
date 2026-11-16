@@ -1,0 +1,3 @@
+-cp src
+-main SourcePositionsTestMain
+-js build/tests/source-positions.js

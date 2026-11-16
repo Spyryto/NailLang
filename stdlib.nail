@@ -657,7 +657,6 @@ def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
 
 def parseSource source = parseForms ( tokenizeCode source ) [] ;
 
-
 # v0.10: Compiler written in Nail. The output is structured stack bytecode
 # represented as immutable Syntax data; no opcode-generating host primitives.
 # The VM contains no source parser. A CLOSURE and a BRANCH both hold Code

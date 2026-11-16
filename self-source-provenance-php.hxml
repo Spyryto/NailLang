@@ -1,0 +1,6 @@
+-cp src
+-main SelfSourceProvenanceTestMain
+-resource stdlib.nail@stdlib
+-resource source-provenance.nail@source_provenance
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-php build/tests/php-self-source-provenance

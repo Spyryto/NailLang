@@ -512,6 +512,7 @@ private class Inference {
     case 'Number': TNumber;
     case 'Bool': TBoolean;
     case 'Text' | 'String': TText;
+    case 'Syntax': TSyntax;
     case _: if (!records.exists(name)) throw 'Type error: unknown record field type ' + name;
       TRecord(name);
   };
@@ -525,6 +526,7 @@ private class Inference {
       case 'Number': TNumber;
       case 'Bool': TBoolean;
       case 'Text' | 'String': TText;
+    case 'Syntax': TSyntax;
       case _: if (name == self && !sums.exists(self)) TSum(self, [])
         else if (records.exists(name)) TRecord(name)
         else if (sums.exists(name) && sums.get(name) == 0) TSum(name, [])

@@ -8,6 +8,10 @@ import nail.SumLowering;
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
   final tokens:Array<String>;
+  /** Original token coordinates, parallel to tokens. */
+  public final tokenPositions:Array<nail.SourcePositions.SourceToken>;
+  /** Optional original-source spans for the parser's core nodes. */
+  public final provenance:SourceProvenance;
   var at:Int = 0;
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
@@ -17,7 +21,9 @@ class Parser {
   static final spacePattern = ~/\s+/g;
 
   public function new(source:String) {
-    tokens = tokenizeHost(source);
+    tokenPositions = SourcePositions.scan(source);
+    provenance = new SourceProvenance(tokenPositions);
+    tokens = [for (token in tokenPositions) token.text];
   }
 
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
@@ -85,10 +91,14 @@ class Parser {
     if (take() != token) throw 'Expected ' + token + ' at token ' + at;
   }
 
-  static function lambdas(params:Array<String>, body:Expr):Expr {
+  function lambdas(params:Array<String>, body:Expr, ?starts:Array<Int>):Expr {
     var result = body;
     var i = params.length;
-    while (i > 0) { i--; result = Lambda(params[i], result); }
+    while (i > 0) {
+      i--;
+      result = Lambda(params[i], result);
+      if (starts != null) result = provenance.expression(result, starts[i], at);
+    }
     return result;
   }
 
@@ -99,13 +109,15 @@ class Parser {
 
   /** Surface let: ( fun name -> body ) value. A non-recursive, eager binding. */
   function parseLet():Expr {
+    var bindingToken = at;
     var name = take();
     if (!isName(name) || name == '_') throw 'Invalid let binding name';
     expect('=');
     var value = expression();
     expect('in');
     var body = expression();
-    return Apply(Lambda(name, body), value);
+    var binder = provenance.expression(Lambda(name, body), bindingToken, at);
+    return Apply(binder, value);
   }
 
   /** Exactly two exhaustive list patterns, [] and head :: tail, in either order.
@@ -209,6 +221,11 @@ class Parser {
   }
 
   function atom():Expr {
+    var first = at;
+    return provenance.expression(atomUntracked(), first, at);
+  }
+
+  function atomUntracked():Expr {
     var token = take();
     if (token == null) throw 'Unexpected end of input';
     if (StringTools.startsWith(token, '\u0001')) return Literal(Text(token.substr(1)));
@@ -254,14 +271,17 @@ class Parser {
     }
     if (token == 'fun') {
       var params:Array<String> = [];
+      var positions:Array<Int> = [];
       while (peek() != '->') {
+        var atParameter = at;
         var p = take();
         if (!isName(p) || params.indexOf(p) >= 0) throw 'Invalid or duplicate function parameter';
         params.push(p);
+        positions.push(atParameter);
       }
       if (params.length == 0) throw 'Function needs at least one parameter';
       expect('->');
-      return lambdas(params, expression());
+      return lambdas(params, expression(), positions);
     }
     if (isNumber(token)) {
       var number = Std.parseFloat(token);
@@ -273,9 +293,13 @@ class Parser {
     throw 'Unexpected token ' + token + ' at token ' + at;
   }
 
-  function expression(minimum:Int = 0):Expr return expressionSuffix(atom(), minimum);
+  function expression(minimum:Int = 0):Expr {
+    var first = at;
+    return provenance.expression(expressionSuffix(atom(), minimum), first, at);
+  }
 
   function expressionSuffix(left:Expr, minimum:Int):Expr {
+    var first = provenance.startToken(left);
     while (peek() != null) {
       // Projection is explicit; binding power 80 (higher than application).
       if (peek() == '.' && minimum <= 80) {
@@ -283,16 +307,19 @@ class Parser {
         var field = take();
         if (!isName(field) || field == '_') throw 'Expected record field after .';
         left = Apply(Apply(Var('#recordGet'), left), Literal(Text(field)));
+        if (first >= 0) left = provenance.expression(left, first, at);
         continue;
       }
       if (beginsAtom(peek()) && minimum <= 70) {
         left = Apply(left, expression(71));
+        if (first >= 0) left = provenance.expression(left, first, at);
         continue;
       }
       var prec = precedence(peek());
       if (prec < minimum) break;
       var op = take();
       left = Apply(Apply(Var(op), left), expression(prec + 1));
+      if (first >= 0) left = provenance.expression(left, first, at);
     }
     return left;
   }
@@ -320,16 +347,30 @@ class Parser {
 
   public function parse(?modules:String->Null<String>):Array<Form> {
     var forms = parseRaw();
-    if (modules == null) return MacroExpander.forms(forms);
-    return SyntaxBridge.forms(MacroExpander.syntax(SyntaxEncoder.program(forms), name -> {
-      var source = modules(name);
-      return source == null ? null : SyntaxEncoder.program(new Parser(source).parseRaw());
-    }));
+    var expanded = modules == null ? MacroExpander.forms(forms)
+      : SyntaxBridge.forms(MacroExpander.syntax(SyntaxEncoder.program(forms), name -> {
+        var source = modules(name);
+        return source == null ? null : SyntaxEncoder.program(new Parser(source).parseRaw());
+      }));
+    // Macro declarations/imports/exports disappear. Every remaining form has
+    // one output form in the same order; preserve its source/call-site span.
+    var outputIndex = 0;
+    for (form in forms) {
+      var directive = switch (form) {
+        case Define(name, _): StringTools.startsWith(name, MacroExpander.DECL)
+          || StringTools.startsWith(name, MacroExpander.IMPORT)
+          || StringTools.startsWith(name, MacroExpander.EXPORT);
+        case _: false;
+      };
+      if (!directive) provenance.transfer(form, expanded[outputIndex++]);
+    }
+    return expanded;
   }
 
   public function parseRaw():Array<Form> {
     var forms:Array<Form> = [];
     while (peek() != null) {
+      var first = at;
       if (peek() == 'type') {
         take();
         var typeName = take();
@@ -353,18 +394,22 @@ class Parser {
         var name = take();
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
+        var positions:Array<Int> = [];
         while (peek() != '=') {
+          var atParameter = at;
           var p = take();
           if (!isName(p) || params.indexOf(p) >= 0) throw 'Invalid or duplicate definition parameter';
           params.push(p);
+          positions.push(atParameter);
         }
         expect('=');
-        var body = lambdas(params, expression());
+        var body = lambdas(params, expression(), positions);
         expect(';');
         forms.push(Define(macroDeclaration ? MacroExpander.DECL + name : name, body));
       } else {
         var body = expression(); expect(';'); forms.push(Evaluate(body));
       }
+      provenance.form(forms[forms.length - 1], first, at);
     }
     return forms;
   }

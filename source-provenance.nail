@@ -1,0 +1,101 @@
+# NailSeed v0.26 optional self-hosted source provenance library.
+# Load after stdlib.nail. Not part of the canonical bootstrap image:
+# editors/dev tools pay the cost only when requesting locations.
+
+# v0.26: optional, fully Nail-written source-location sidecar for the
+# self-hosted lexer/parser. Its values are ordinary immutable records.
+# The canonical Program/Syntax representation remains unchanged.
+# Coordinates count ASCII characters from offset zero; lines/columns start at 1.
+type SourceCursor { offset Number line Number column Number } ;
+type SourceSpan { start Number end Number line Number column Number endLine Number endColumn Number } ;
+type LocatedToken { token Syntax tokenSpan SourceSpan } ;
+type LocatedForm { tree Syntax formSpan SourceSpan } ;
+
+def sourceChar source cursor = textAt source ( cursor . offset ) ;
+def sourceAdvance source cursor =
+  if sourceChar source cursor == " \n " then
+    SourceCursor ( ( cursor . offset ) + 1 ) ( ( cursor . line ) + 1 ) 1
+  else
+    SourceCursor ( ( cursor . offset ) + 1 ) ( cursor . line ) ( ( cursor . column ) + 1 ) ;
+
+def sourceSkipComment source n cursor =
+  if ( cursor . offset ) == n then cursor
+  else if sourceChar source cursor == " \n " then sourceAdvance source cursor
+  else sourceSkipComment source n ( sourceAdvance source cursor ) ;
+
+def sourceSkipTrivia source n cursor =
+  if ( cursor . offset ) == n then cursor
+  else let ch = sourceChar source cursor in
+    if isSpace ch then sourceSkipTrivia source n ( sourceAdvance source cursor )
+    else if ch == " # " then sourceSkipTrivia source n ( sourceSkipComment source n cursor )
+    else cursor ;
+
+def sourceScanWord source n cursor =
+  if ( cursor . offset ) == n then cursor
+  else if isSpace ( sourceChar source cursor ) then cursor
+  else sourceScanWord source n ( sourceAdvance source cursor ) ;
+
+# A quote escaped by a backslash does not end a string. Escape decoding
+# remains exclusively the responsibility of tokenizeCode.
+def sourceScanQuoted source n cursor escaped =
+  if ( cursor . offset ) == n then cursor
+  else let ch = sourceChar source cursor in
+    let next = sourceAdvance source cursor in
+      if escaped then sourceScanQuoted source n next false
+      else if ch == " \\ " then sourceScanQuoted source n next true
+      else if ch == " \" " then next
+      else sourceScanQuoted source n next false ;
+
+def sourceScanToken source n cursor =
+  if sourceChar source cursor == " \" " then
+    sourceScanQuoted source n ( sourceAdvance source cursor ) false
+  else sourceScanWord source n cursor ;
+
+def sourceSpan first last =
+  SourceSpan ( first . offset ) ( last . offset )
+    ( first . line ) ( first . column )
+    ( last . line ) ( last . column ) ;
+
+def sourceLocateTokens source n cursor tokens reversed =
+  match tokens with
+  | [] -> reverse reversed
+  | token :: rest ->
+    let first = sourceSkipTrivia source n cursor in
+    let last = sourceScanToken source n first in
+      sourceLocateTokens source n last rest
+        ( cons ( LocatedToken token ( sourceSpan first last ) ) reversed ) ;
+
+def tokenizeWithPositions source =
+  let tokens = tokenizeCode source in
+    if isEmpty tokens then []
+    else if syntaxTag ( head tokens ) == " LexError " then []
+    else sourceLocateTokens source ( textLength source )
+      ( SourceCursor 0 1 1 ) tokens [] ;
+
+def sourceDrop n xs =
+  if n == 0 then xs
+  else sourceDrop ( n - 1 ) ( tail xs ) ;
+
+def sourceFormSpan located count =
+  let first = ( head located ) . tokenSpan in
+  let last = ( head ( sourceDrop ( count - 1 ) located ) ) . tokenSpan in
+    SourceSpan ( first . start ) ( last . end )
+      ( first . line ) ( first . column )
+      ( last . endLine ) ( last . endColumn ) ;
+
+# Form ASTs still come from the real Nail parser. The positional stream is
+# advanced by the exact number of source tokens that parseForm consumed.
+# For errors use parseSource; this companion returns completed forms only.
+def parseLocatedForms tokens located reversed =
+  if isEmpty tokens then reverse reversed
+  else let form = parseForm tokens in
+    if parseFailed form then reverse reversed
+    else let remaining = parseRest form in
+      let consumed = ( length tokens ) - ( length remaining ) in
+        parseLocatedForms remaining ( sourceDrop consumed located )
+          ( cons ( LocatedForm ( parseTree form ) ( sourceFormSpan located consumed ) ) reversed ) ;
+
+def parseSourceWithPositions source =
+  parseLocatedForms ( tokenizeCode source ) ( tokenizeWithPositions source ) [] ;
+
+

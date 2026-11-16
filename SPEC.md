@@ -1,3 +1,14 @@
+# v0.26: Optional source maps and lexical binding identities
+
+The host parser exposes token coordinates and external AST/source mapping.
+A separate analysis resolves lexical references to stable per-program IDs.
+Macro-expanded forms preserve original arguments and outer call-site ranges.
+No change to the expression AST, runtime data model, or bootstrap bytecode.
+Self-hosted parser spans, provenance for every generated child expression and
+declaration signature validation remain out of scope.
+
+---
+
 # v0.25 delta: record declaration expansion
 
 `expandRecordDeclarations : Syntax -> Syntax` maps a parser-validated Program to

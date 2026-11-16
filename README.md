@@ -1,77 +1,68 @@
-# NailSeed v0.25 — Record declaration transformation experiment
+# NailSeed v0.26 — Source provenance and binding identities
 
-The Nail compiler now expands record declarations into an inspectable `Program`
-of ordinary `Define` forms **before** emitting bytecode. Constructor and getter
-semantics are unchanged; the independent Haxe `RecordLowering` remains the oracle.
+Independent follow-up to [v0.25](../v0.25/), which remains unchanged.
+The five-expression core, runtime semantics and canonical bytecode stay intact.
 
-This extracts existing Nail generation logic from the bytecode emitter. It is a
-trusted standard transformer written as ordinary Nail functions, not yet a public
-procedural-macro registration API.
+## Implemented in this experiment
 
-```nail
-# With the standard library loaded:
-def source = parseSource " type Person { name Text age Number } ; " ;
-def plan = expandRecordDeclarations source ;
-recordExpansionSource plan ;
-recordExpansionRuntime plan ;
-```
+- Token offsets and start/end coordinates with strings and comments.
+- Optional `Parser.provenance` sidecar for expressions and top-level forms.
+- Macro normalization preserving source argument spans and reporting the
+  expansion call site separately.
+- Iterative `BindingAnalysis.resolve(forms, parser.provenance)` producing
+  deterministic per-program IDs for lambda parameters and definitions.
+  Shadowing, self-reference and macro-global bypass are covered by tests.
+- Interpreter, JavaScript and PHP provenance regression tests alongside the
+  inherited cross-target bootstrap and runtime checks.
 
-`RecordExpansion` contains two syntax Programs:
-
-- `source`: original declarations and expressions, after expression macro expansion
-  when used by the compiler. Nominal type checking uses this Program.
-- `runtime`: record declarations replaced by constructor/getter definitions, in order.
-  Other forms, including ADT declarations, are retained.
-
-Host clients may call `vm.expandRecordsWithNail(source, optionalModuleResolver)`
-after `vm.loadStdlib()`. The compiler calls the same transformer automatically.
-The functions are also available in the source-free bootstrap distribution.
-Parser error values propagate unchanged.
-
-## Validation
-
-`RecordExpansionTestMain` checks source retention, exact AST equivalence with the
-independent Haxe lowering, bytecode identity, execution, nominal type diagnostics,
-imported expression macros, nested/shared fields, the 128-field limit, deterministic
-output, and the precompiled runtime. Run it on Haxe, JS and PHP:
+## Try it
 
 ```sh
-haxe seed-image.hxml
-haxe record-expansion-test-interp.hxml
-haxe record-expansion-test-js.hxml
-node build/tests/record-expansion.js
-haxe record-expansion-test-php.hxml
-php build/tests/php-record-expansion/index.php
-haxe rebootstrap-image.hxml
+haxe source-positions-test-interp.hxml
+haxe source-positions-test-js.hxml && node build/tests/source-positions.js
+haxe source-positions-test-php.hxml && php build/tests/php-source-positions/index.php
 ```
 
-The v0.25 workflow also runs the inherited regression suites and verifies the
-Haxe -> Nail -> Nail bootstrap fixed point.
+## Self-hosted source maps (implemented in Nail)
 
-## What this establishes
+An optional Nail-written library, `source-provenance.nail`, provides two
+inspectors. Load it **after** the ordinary standard library; it is deliberately
+excluded from the canonical bootstrap image:
 
-Generation can be separated from bytecode emission without changing the executable
-core or runtime. Its output can be inspected, independently compiled and compared.
-Preserving the original declaration avoids trying to infer a nominal record type
-from erased primitive calls.
+```nail
+def source = " def x = 7 ; x ; " ;
+tokenizeWithPositions source ;
+parseSourceWithPositions source ;
+```
 
-This is an architectural improvement, not a measured speedup or source-size saving.
-The extra pass allocates an intermediate Program. No runtime instructions are added.
+`tokenizeWithPositions : Text -> [LocatedToken]` uses the Nail-written lexer
+and a Nail-written position scanner; each record contains the unchanged
+`Syntax` token plus a `SourceSpan` with half-open offsets and start/end
+line/column. `parseSourceWithPositions : Text -> [LocatedForm]` calls the
+real Nail `parseForm` for each form, matching consumed tokens to its original
+source range. The canonical `parseSource` result remains unchanged.
 
-## Deliberate boundaries
+The new `SelfSourceProvenanceTestMain` loads this library on demand, then
+independently compares Nail-computed
+token and form locations against the Haxe sidecar, including multiline input,
+comments, strings, macros and source-free bootstrap execution on all targets.
 
-- The input must be parser-validated syntax. This is a compiler-internal API, not a
-  validator for arbitrary hand-crafted Syntax trees.
-- Checking `source` validates user code against the trusted transformer contract;
-  it does not prove that arbitrary generated code respects that contract.
-- Keeping original syntax is declaration-level provenance, **not source spans**.
-- General hygienic binding objects, quotation over surface syntax, pluggable
-  declaration transformers and generated-code type validation remain future work.
-- `let` and `match` still lower in the parser. ADTs still lower in the emitter.
-- The reference Haxe execution/compiler path intentionally remains independent.
-- `compileForms` now takes record-expanded forms; use `compileSyntax` for a complete
-  compilation. The internal bytecode helpers `compileRecordType` and
-  `recordAccessor` are replaced by syntax-producing `recordDefinitions` and
-  `recordAccessorDefinition`.
+The inspectable source map costs extra scanning/allocations and is not computed
+or even loaded by ordinary compilation. To load the library through a Haxe
+host, run `vm.run(sourceProvenanceNailText)` after `vm.loadStdlib()`;
+`BootRuntime` can load the same Nail source with `runPlain` in its
+source-free runtime.
 
-See [DSL-DESIGN.md](DSL-DESIGN.md) for the next design choices.
+## Deliberate limits
+
+The Haxe sidecar tracks parsed expressions and outer macro call sites.
+The **self-hosted Nail sidecar tracks tokens and complete top-level forms**,
+but not each nested expression, synthesized lambda, or transformation-created
+child. The Nail companion reports completed forms; call `parseSource` separately
+to inspect parse errors. No metadata is inserted into the canonical
+Syntax/bytecode image. Binding IDs are analysis-only, not yet a public
+hygienic macro API. Generated declaration signature validation is the
+next proposed version, v0.27.
+
+See [../ROADMAP.md](../ROADMAP.md) for the numerical evaluation and the
+balanced-language milestone.
