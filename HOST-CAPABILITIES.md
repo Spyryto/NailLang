@@ -545,3 +545,39 @@ haxe signed-manifests-test-php.hxml && php build/tests/php-signed-manifests/inde
 
 The RFC 8032 seed used in the tests is public and must NEVER be installed as
 a real trusted publisher key.
+
+### Signing a real module bundle (offline Node.js helper)
+
+The optional `tools/sign-modules.mjs` program signs existing, independently
+compiled JSON module images. Node.js is used **only when publishing a signed
+bundle**; Haxe remains sufficient to build NailLang locally.
+
+1. Generate an Ed25519 key *outside the repository* (e.g.
+   `openssl genpkey -algorithm Ed25519 -out /secure/naillang-ed25519.pem`).
+   Protect the private key and do not put it in Git, Actions logs or
+   release archives.
+2. Compile your modules into JSON images with `ModuleLinker.compilePublic`
+   and `ModuleImage.encode`. The named image files must remain unchanged
+   after signing, including whitespace or trailing newlines.
+3. Sign the complete module set, for example:
+
+```sh
+node tools/sign-modules.mjs \
+  --release v0.42 --key-id publisher-2026 \
+  --private-key /secure/naillang-ed25519.pem \
+  --out dist/modules-signed.json \
+  Saver=dist/Saver.json Viewer=dist/Viewer.json
+```
+
+The helper checks UTF-8, the module image name/format, sorts module names,
+computes SHA-256 of the exact image bytes, constructs the canonical payload,
+and uses Node's real Ed25519 signing operation. It refuses to overwrite
+an existing signed output file. It displays the Base64 public key for
+manual **out-of-band** installation in the embedding host's trusted config.
+A key printed by an untrusted signing process or shipped alongside the
+manifest is NOT automatically trusted.
+
+This is an **optional distribution signing tool** with one Node runtime
+dependency, not part of `haxe seed-image.hxml`, the Nail compiler,
+or the regular JS/PHP local build. Test it with
+`node --test tools/sign-modules.test.mjs`.
