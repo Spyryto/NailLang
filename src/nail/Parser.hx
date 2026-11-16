@@ -532,11 +532,12 @@ class Parser {
         if (peek() == ':') {
           take();
           var relation = take();
-          if (macroDeclaration || params.length != 2 ||
-              ['Div','Add','Sub','Mul'].indexOf(relation) < 0)
+          if (!modernMode && (macroDeclaration || params.length != 2 ||
+              relation != 'Div'))
+            throw 'Type relation: only binary Div declarations are supported';
+          if (modernMode && (macroDeclaration || params.length != 2 ||
+              ['Div','Add','Sub','Mul'].indexOf(relation) < 0))
             throw 'Type relation: only binary Div/Add/Sub/Mul declarations are supported';
-          if (!modernMode && relation != 'Div')
-            throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (modernMode && relation != 'Div' && languageVersion != '0.46')
             throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (exactMode)
