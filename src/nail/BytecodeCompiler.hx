@@ -116,5 +116,6 @@ class BytecodeCompiler {
   }
 
   public static function compileSource(source:String):Value return compile(new Parser(source).parse());
-  public static function compileSyntax(tree:Value):Value return compile(SyntaxBridge.forms(tree));
+  public static function compileSyntax(tree:Value):Value return compile(SyntaxBridge.forms(MacroExpander.syntax(tree)));
 }
+

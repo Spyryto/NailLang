@@ -55,7 +55,7 @@ class Parser {
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
-      case 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
+      case 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
     };
   }
@@ -64,7 +64,7 @@ class Parser {
 
   static function beginsAtom(s:Null<String>):Bool {
     return switch (s) {
-      case '(' | '[' | '[]' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
+      case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | 'fun' | 'if' | 'let' | 'match' | 'true' | 'false': true;
       case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
     };
   }
@@ -212,14 +212,19 @@ class Parser {
     var token = take();
     if (token == null) throw 'Unexpected end of input';
     if (StringTools.startsWith(token, '\u0001')) return Literal(Text(token.substr(1)));
+    if (token == 'quote' || token == 'unquote' || token == 'expand') return Var('#macro_' + token);
     if (token == '[]') return Literal(Nil);
     if (token == '(') {
-      // Collapse runs of redundant grouping before descending once into
-      // expression(). The remaining Pratt/parser nesting is still recursive.
+      // Collapse leading groups, then resume each group's Pratt suffix
+      // after closing its inner parentheses.
       var depth = 1;
       while (peek() == '(') { take(); depth++; }
       var inner = expression();
-      while (depth > 0) { expect(')'); depth--; }
+      expect(')');
+      while (--depth > 0) {
+        inner = expressionSuffix(inner, 0);
+        expect(')');
+      }
       return inner;
     }
     if (token == '[') {
@@ -268,8 +273,9 @@ class Parser {
     throw 'Unexpected token ' + token + ' at token ' + at;
   }
 
-  function expression(minimum:Int = 0):Expr {
-    var left = atom();
+  function expression(minimum:Int = 0):Expr return expressionSuffix(atom(), minimum);
+
+  function expressionSuffix(left:Expr, minimum:Int):Expr {
     while (peek() != null) {
       // Projection is explicit; binding power 80 (higher than application).
       if (peek() == '.' && minimum <= 80) {
@@ -312,7 +318,9 @@ class Parser {
     return RecordType(typeName, fields);
   }
 
-  public function parse():Array<Form> {
+  public function parse():Array<Form> return MacroExpander.forms(parseRaw());
+
+  public function parseRaw():Array<Form> {
     var forms:Array<Form> = [];
     while (peek() != null) {
       if (peek() == 'type') {
@@ -320,8 +328,8 @@ class Parser {
         var typeName = take();
         if (!isName(typeName) || !recordTypePattern.match(typeName)) throw 'Expected uppercase record type name or sum type';
         forms.push(peek() == '{' ? parseRecordType(typeName) : parseSumType(typeName));
-      } else if (peek() == 'def') {
-        take();
+      } else if (peek() == 'def' || peek() == 'macro') {
+        var macroDeclaration = take() == 'macro';
         var name = take();
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
@@ -333,7 +341,7 @@ class Parser {
         expect('=');
         var body = lambdas(params, expression());
         expect(';');
-        forms.push(Define(name, body));
+        forms.push(Define(macroDeclaration ? MacroExpander.DECL + name : name, body));
       } else {
         var body = expression(); expect(';'); forms.push(Evaluate(body));
       }
@@ -341,3 +349,4 @@ class Parser {
     return forms;
   }
 }
+

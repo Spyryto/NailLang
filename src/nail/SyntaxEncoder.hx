@@ -66,28 +66,29 @@ class SyntaxEncoder {
     return values.pop();
   }
 
+  public static function form(form:Form):Value {
+    return switch (form) {
+      case Define(name, body): node('Define', [leaf('Name', name), expr(body)]);
+      case Evaluate(body): node('Evaluate', [expr(body)]);
+      case RecordType(name, fields):
+        var nodes:Array<Value> = [];
+        for (field in fields) nodes.push(node('Field', [leaf('Name', field.name), leaf('Type', field.typeName)]));
+        node('RecordType', [leaf('Name', name), node('Fields', nodes)]);
+      case SumType(name, params, constructors):
+        var variants:Array<Value> = [];
+        for (ctor in constructors) {
+          var payload:Array<Value> = [];
+          for (ty in ctor.fieldTypes) payload.push(leaf('Type', ty));
+          variants.push(node('Constructor', [leaf('Name', ctor.name), node('Args', payload)]));
+        }
+        var parameterNodes:Array<Value> = [];
+        for (p in params) parameterNodes.push(leaf('Name', p));
+        node('SumType', [leaf('Name', name), node('Params', parameterNodes), node('Constructors', variants)]);
+    };
+  }
+
   public static function program(forms:Array<Form>):Value {
-    var encoded:Array<Value> = [];
-    for (form in forms) {
-      encoded.push(switch (form) {
-        case Define(name, body): node('Define', [leaf('Name', name), expr(body)]);
-        case Evaluate(body): node('Evaluate', [expr(body)]);
-        case RecordType(name, fields):
-          var nodes:Array<Value> = [];
-          for (field in fields) nodes.push(node('Field', [leaf('Name', field.name), leaf('Type', field.typeName)]));
-          node('RecordType', [leaf('Name', name), node('Fields', nodes)]);
-        case SumType(name, params, constructors):
-          var variants:Array<Value> = [];
-          for (ctor in constructors) {
-            var payload:Array<Value> = [];
-            for (ty in ctor.fieldTypes) payload.push(leaf('Type', ty));
-            variants.push(node('Constructor', [leaf('Name', ctor.name), node('Args', payload)]));
-          }
-          var parameterNodes:Array<Value> = [];
-          for (p in params) parameterNodes.push(leaf('Name', p));
-          node('SumType', [leaf('Name', name), node('Params', parameterNodes), node('Constructors', variants)]);
-      });
-    }
-    return node('Program', encoded);
+    return node('Program', forms.map(form));
   }
 }
+

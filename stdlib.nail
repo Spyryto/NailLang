@@ -108,8 +108,14 @@ def isIdentTail source i =
     if isLetter ch then isIdentTail source ( i + 1 )
     else if isDigit ch then isIdentTail source ( i + 1 )
     else false ;
+def isMacroKeyword word =
+  if word == " quote " then true
+  else if word == " unquote " then true
+  else word == " expand " ;
 def isReserved word =
-  if word == " type " then true
+  if isMacroKeyword word then true
+  else if word == " macro " then true
+  else if word == " type " then true
   else if word == " def " then true
   else if word == " let " then true
   else if word == " in " then true
@@ -139,7 +145,8 @@ def isNumeric word =
   else if textAt word 0 == " - " then numericTail word 1 false false
   else numericTail word 0 false false ;
 def isPrefixStart word =
-  if word == " ( " then true
+  if isMacroKeyword word then true
+  else if word == " ( " then true
   else if word == " [ " then true
   else if word == " [] " then true
   else if word == " if " then true
@@ -355,6 +362,7 @@ def parsePrefix recur tokens =
     let remaining = tail tokens in
     if syntaxTag ( head tokens ) == " StringToken " then
       parsePair ( syntaxLiteral " Text " word ) remaining
+    else if isMacroKeyword word then parsePair ( syntaxVar ( textConcat " #macro_ " word ) ) remaining
     else if word == " match " then parseListMatch recur remaining
     else if word == " ( " then
       let inner = recur 0 remaining in
@@ -439,7 +447,7 @@ def parseSuffix recur minimum parsed =
 def parseAt minimum tokens =
   parseSuffix parseAt minimum ( parsePrefix parseAt tokens ) ;
 
-def parseDefinition tokens =
+def parseNamedDefinition prefix tokens =
   if isEmpty tokens then parseError " Expected definition name "
   else let name = parsePeek tokens in
     if isIdentifier name then
@@ -449,7 +457,7 @@ def parseDefinition tokens =
         if parseFailed body then body
         else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
         else parsePair
-          ( syntaxNode " Define " [ syntaxName name , parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ] )
+          ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ] )
           ( tail ( parseRest body ) )
     else parseError " Expected definition name " ;
 
@@ -535,9 +543,13 @@ def parseTypeDefinition tokens =
   if parsePeek ( tail tokens ) == " { " then parseRecordDefinition tokens
   else parseSumDefinition tokens ;
 
+def isFormKeyword tokens word =
+  if syntaxTag ( head tokens ) == " Token " then parsePeek tokens == word else false ;
+
 def parseForm tokens =
-  if parsePeek tokens == " type " then parseTypeDefinition ( tail tokens )
-  else if parsePeek tokens == " def " then parseDefinition ( tail tokens )
+  if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
+  else if isFormKeyword tokens " def " then parseNamedDefinition " " ( tail tokens )
+  else if isFormKeyword tokens " macro " then parseNamedDefinition " #macro_decl_ " ( tail tokens )
   else let expression = parseAt 0 tokens in
     if parseFailed expression then expression
     else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
@@ -859,9 +871,10 @@ def compileForms forms =
     else cons ( compileForm form ) ( compileForms rest ) ;
 
 def compileSyntax program =
-  if syntaxTag program == " Program " then
-    syntaxNode " Bytecode " ( compileForms ( syntaxChildren program ) )
-  else program ;
+  let expanded = macroExpandSyntax program in
+  if syntaxTag expanded == " Program " then
+    syntaxNode " Bytecode " ( compileForms ( syntaxChildren expanded ) )
+  else expanded ;
 
 def compileSource source = compileSyntax ( parseSource source ) ;
 

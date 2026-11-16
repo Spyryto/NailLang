@@ -201,6 +201,10 @@ class ByteVm {
   public function run(program:Value):Array<Value> {
     steps = 0;
     var output:Array<Value> = [];
+    switch (program) {
+      case SyntaxLeaf('MacroError', message): throw 'Macro error: ' + message;
+      case _:
+    }
     for (form in operands(program, 'Bytecode', -1)) {
       tick();
       switch (form) {
@@ -233,3 +237,4 @@ class ByteVm {
   public function names():Array<String> return globals.keys();
   public function runPlain(program:Value):Array<Dynamic> return Vm.plainResults(run(program));
 }
+

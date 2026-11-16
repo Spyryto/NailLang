@@ -1,20 +1,20 @@
-# Nail Language Tour — v0.21
+# Nail Language Tour — v0.22
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Vettori immutabili**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Macro igieniche di espressione**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.20/LANGUAGE-TOUR.md) → **v0.21** → [versione successiva](../v0.22/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.21/LANGUAGE-TOUR.md) → **v0.22** → [versione successiva](../v0.23/LANGUAGE-TOUR.md).
 
 ## Che cosa imparo in questa versione?
 
-Indicizzazione zero-based e aggiornamento persistente: `vectorSet` restituisce un nuovo vettore.
+Le macro operano su alberi sintattici con `quote`/`unquote`; `expand` rende esplicita l'espansione.
 
 ```nail
-def a = vector [ 10 , 20 , 30 ] ;
-def b = vectorSet a 1 99 ;
-vectorGet a 1 ;
-vectorGet b 1 ;
+macro unless condition action = quote (
+  if unquote condition then 0 else unquote action
+) ;
+expand unless false ( 40 + 2 ) ;
 ```
 
 ## Primo programma
@@ -88,12 +88,23 @@ tourValueOrZero ( TourSome 9 ) ;
 
 I costruttori sono valori e si possono decostruire tramite pattern. Il checker verifica l'esaustività dei casi.
 
+## Macro (v0.22+)
+
+```nail
+macro unless condition action = quote (
+ if unquote condition then 0 else unquote action
+) ;
+expand unless false 42 ;
+```
+
+Le macro manipolano strutture sintattiche, non stringhe arbitrarie. Dalla v0.24 sono importabili da moduli dedicati; dalla v0.30 esiste anche una API host tipizzata per trasformatori procedurali.
+
 ## Laboratorio guidato
 
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.21 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.21) e cerca il test associato alla feature.
+4. Apri la [versione v0.22 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.22) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

@@ -18,6 +18,10 @@ class Env {
 
   public function lookup(name:String):Value {
     var scope:Null<Env> = this;
+    if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
+      name = name.substr(MacroExpander.GLOBAL.length);
+      while (scope.parent != null) scope = scope.parent;
+    }
     while (scope != null) {
       if (scope.values.exists(name)) return scope.values.get(name);
       scope = scope.parent;
@@ -32,3 +36,4 @@ class Env {
     return result;
   }
 }
+

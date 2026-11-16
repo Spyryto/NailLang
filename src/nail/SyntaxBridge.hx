@@ -8,7 +8,7 @@ import nail.Value;
     This is a validated representation boundary, not an additional expression kind.
     No parsing or pattern matching against Nail source text happens here. */
 class SyntaxBridge {
-  static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
+  static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
   static function elements(value:Value):Array<Value> {
     var result:Array<Value> = [];
@@ -101,6 +101,7 @@ class SyntaxBridge {
           pending.push({source:items[1], finish:false});
           pending.push({source:items[0], finish:false});
         case SyntaxLeaf('Error', message): throw 'Nail parser error: ' + message;
+        case SyntaxLeaf('MacroError', message): throw 'Macro error: ' + message;
         case SyntaxLeaf('LexError', message): throw 'Nail lexer error: ' + message;
         case _: throw 'Invalid Syntax expression';
       }
@@ -148,9 +149,11 @@ class SyntaxBridge {
           });
         }
       case SyntaxLeaf('Error', message): throw 'Nail parser error: ' + message;
+      case SyntaxLeaf('MacroError', message): throw 'Macro error: ' + message;
       case SyntaxLeaf('LexError', message): throw 'Nail lexer error: ' + message;
       case _: throw 'Invalid Syntax: expected Program';
     }
     return result;
   }
 }
+

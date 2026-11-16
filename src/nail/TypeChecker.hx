@@ -52,7 +52,7 @@ class TypeChecker {
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
     var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
-    var inferred = solver.run(SyntaxBridge.forms(tree));
+    var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
     sums = solver.sums;
@@ -154,6 +154,7 @@ private class Inference {
     globals.set('syntaxTag', mono(fun(tree, s)));
     globals.set('syntaxText', mono(fun(tree, s)));
     globals.set('syntaxChildren', mono(fun(tree, TList(tree))));
+    globals.set('macroExpandSyntax', mono(fun(tree, tree)));
     for (name in ['==', '!=']) {
       var id = nextId++;
       var a = TVariable(id);
@@ -417,7 +418,7 @@ private class Inference {
 
   /** Hindley-Milner with explicit expression frames; let generalization stays at
       the direct-lambda application boundary, as in v0.12. */
-  function infer(expr:Expr, env:StringMap<TypeScheme>):NType {
+  function infer(expr:Expr, env:StringMap<TypeScheme>, ?current:{name:String, scheme:TypeScheme}):NType {
     var work:Array<InferFrame> = [new InferFrame(expr, env)];
     var results:Array<NType> = [];
     while (work.length > 0) {
@@ -429,7 +430,11 @@ private class Inference {
         case Literal(Nil): results.push(TList(fresh())); work.pop();
         case Literal(_): throw 'Type error: unsupported literal';
         case Var(name):
-          var scheme = frame.scope.get(name);
+          var scheme:TypeScheme;
+          if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
+            var globalName = name.substr(MacroExpander.GLOBAL.length);
+            scheme = current != null && current.name == globalName ? current.scheme : globals.get(globalName);
+          } else scheme = frame.scope.get(name);
           if (scheme == null) throw 'Type error: unknown name ' + name;
           results.push(instantiate(scheme));
           work.pop();
@@ -445,7 +450,7 @@ private class Inference {
             results.push(fun(frame.saved, bodyType));
             work.pop();
           }
-        case Apply(Apply(Var('#recordGet'), receiver), Literal(Text(field))):
+        case Apply(Apply(Var(get), receiver), Literal(Text(field))) if (MacroExpander.globalName(get) == '#recordGet'):
           if (frame.phase == 0) {
             frame.phase = 1;
             work.push(new InferFrame(receiver, frame.scope));
@@ -535,7 +540,8 @@ private class Inference {
     while (pending.length > 0) {
       var current = pending.pop();
       switch (current) {
-        case Apply(Lambda('#nail_sum_subject_0', body), _):
+        case Apply(Lambda(subject, body), _) if (subject == '#nail_sum_subject_0' ||
+          (StringTools.startsWith(subject, '#macro_local_') && StringTools.endsWith(subject, '_#nail_sum_subject_0'))):
           var covered = new StringMap<Bool>();
           var owner:Null<String> = null;
           var branch:Expr = body;
@@ -545,9 +551,10 @@ private class Inference {
             switch (branch) {
               case If(condition, yes, no):
                 var ctor:String = switch (condition) {
-                  case Apply(Var(predicate), Var('#nail_sum_subject_0'))
-                    if (StringTools.endsWith(predicate, '?')):
-                    predicate.substr(0, predicate.length - 1);
+                  case Apply(Var(predicate), Var(receiver))
+                    if (receiver == subject && StringTools.endsWith(predicate, '?')):
+                    var name = MacroExpander.globalName(predicate);
+                    name.substr(0, name.length - 1);
                   case _: throw 'Type error: malformed algebraic match branch';
                 };
                 var foundOwner = constructorOwners.get(ctor);
@@ -565,8 +572,8 @@ private class Inference {
                 var bindings = true;
                 while (bindings) {
                   switch (inner) {
-                    case Apply(Lambda(_, rest), Apply(Var(getter), Var('#nail_sum_subject_0')))
-                      if (getter == ctor + '.' + observed):
+                    case Apply(Lambda(_, rest), Apply(Var(getter), Var(receiver)))
+                      if (receiver == subject && MacroExpander.globalName(getter) == ctor + '.' + observed):
                       observed++;
                       inner = rest;
                     case _: bindings = false;
@@ -576,7 +583,7 @@ private class Inference {
                   ' expects ' + expected + ' match bindings but got ' + observed;
                 branch = no;
                 count++;
-              case Apply(Var('#sumFail'), Var('#nail_sum_subject_0')):
+              case Apply(Var(failName), Var(receiver)) if (receiver == subject && MacroExpander.globalName(failName) == '#sumFail'):
                 if (owner == null || count == 0) throw 'Type error: empty algebraic match';
                 var missing:Array<String> = [];
                 for (spec in sumCases.get(owner)) if (!covered.exists(spec.name)) missing.push(spec.name);
@@ -672,7 +679,7 @@ private class Inference {
         var env = scopeCopy(globals);
         env.set(name, mono(provisional));
         validateMatches(expr);
-        var t = infer(expr, env);
+        var t = infer(expr, env, {name:name, scheme:mono(provisional)});
         unify(provisional, t);
         globals.set(name, generalize(t, globals));
       case Evaluate(expr):

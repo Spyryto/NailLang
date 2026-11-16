@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.21
+# Nail Cookbook — v0.22
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,16 +24,16 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Vettori immutabili
+## Ricetta 3 — Macro igieniche di espressione
 
 ```nail
-def a = vector [ 10 , 20 , 30 ] ;
-def b = vectorSet a 1 99 ;
-vectorGet a 1 ;
-vectorGet b 1 ;
+macro unless condition action = quote (
+  if unquote condition then 0 else unquote action
+) ;
+expand unless false ( 40 + 2 ) ;
 ```
 
-Indicizzazione zero-based e aggiornamento persistente: `vectorSet` restituisce un nuovo vettore.
+Le macro operano su alberi sintattici con `quote`/`unquote`; `expand` rende esplicita l'espansione.
 
 ## Allenamento: studiare l'implementazione
 

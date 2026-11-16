@@ -30,6 +30,7 @@ class Vm {
     root.bind('vectorGet', Native('vectorGet', 2, []));
     root.bind('vectorSet', Native('vectorSet', 3, []));
     root.bind('#recordMake', Native('#recordMake', 3, []));
+    root.bind('macroExpandSyntax', Native('macroExpandSyntax', 1, []));
     root.bind('#sumFail', Native('#sumFail', 1, []));
     root.bind('nil', Nil);
   }
@@ -173,6 +174,7 @@ class Vm {
         var copy = items.copy();
         copy[index] = args[2];
         Vector(copy);
+      case 'macroExpandSyntax': MacroExpander.syntax(a);
       case '#sumFail': throw 'Non-exhaustive or mismatched variant pattern';
       case '#recordMake':
         var label = text(a);
@@ -362,20 +364,20 @@ class Vm {
   /** Execute a first-class Syntax Program built by code running in Nail. */
   public function runSyntax(tree:Value):Array<Value> {
     steps = 0;
-    return executeForms(SyntaxBridge.forms(tree));
+    return executeForms(SyntaxBridge.forms(MacroExpander.syntax(tree)));
   }
 
   /** Parse source with the tokenizer and Pratt parser written in Nail. */
   public function parseWithNail(source:String):Value {
     steps = 0;
-    return call(root.lookup('parseSource'), Text(source));
+    return MacroExpander.syntax(call(root.lookup('parseSource'), Text(source)));
   }
 
   /** Use Nail's own parseSource function, then execute its output.
       The bootstrap Haxe parser is used only to load stdlib.nail. */
   public function runWithNail(source:String):Array<Value> {
     var tree = parseWithNail(source);
-    return executeForms(SyntaxBridge.forms(tree));
+    return executeForms(SyntaxBridge.forms(MacroExpander.syntax(tree)));
   }
 
   public function runPlainWithNail(source:String):Array<Dynamic> return plainResults(runWithNail(source));
