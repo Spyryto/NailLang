@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.45
+# Nail Cookbook — v0.46
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -194,3 +194,21 @@ Div : Int Ratio Ratio ;
 Div : Ratio Int Ratio ;
 def divide x y : Div = x / y ;
 ```
+
+## Ricetta 11 — Funzioni aritmetiche con firme multiple, una sola implementazione
+
+```nail
+nail 0.46 ;
+Add : Int Int Int ;
+Add : Int Ratio Ratio ;
+Add : Float Float Float ;
+def add x y : Add = x + y ;
+add 2 3 ;                 # Int 5
+add 2 ( 1 / 2 ) ;         # Ratio 5/2
+add 2.0 3.0 ;             # Float 5
+```
+
+La tabella `Add` definisce una relazione fra due tipi di input e il
+tipo di output, non un elenco di clausole runtime in stile Elixir.
+Se si elimina `: Add` dalla definizione, Nail **non** generalizza
+automaticamente il polimorfismo dell'operatore.

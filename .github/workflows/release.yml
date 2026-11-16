@@ -80,6 +80,13 @@ jobs:
           node build/tests/modern-numbers.js
           haxe modern-numbers-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-modern-numbers/index.php
+          haxe arithmetic-relations-test-interp.hxml
+          haxe arithmetic-relations-test-js.hxml
+          node build/tests/arithmetic-relations.js
+          haxe arithmetic-relations-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-arithmetic-relations/index.php
+          haxe modern-bootstrap-test-js.hxml
+          node build/tests/modern-bootstrap.js
           haxe rebootstrap-image.hxml
           haxe js.hxml
           haxe php.hxml

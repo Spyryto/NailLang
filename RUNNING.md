@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.45
+# Eseguire NailLang — v0.46
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -132,3 +132,23 @@ linguaggio, non un commento; una VM che non supporta la versione del
 sorgente deve rifiutarla. Nelle distribuzioni odierne, l'API
 `BootRuntime.compile` verifica l'header prima di scegliere
 l'unico compilatore del dialetto moderno.
+
+## Test v0.46 (relazioni e bootstrap moderno)
+
+```sh
+haxe seed-image.hxml
+haxe arithmetic-relations-test-interp.hxml
+haxe arithmetic-relations-test-js.hxml && node build/tests/arithmetic-relations.js
+haxe arithmetic-relations-test-php.hxml && php build/tests/php-arithmetic-relations/index.php
+haxe modern-bootstrap-test-js.hxml && node build/tests/modern-bootstrap.js
+```
+
+`nail 0.45 ;` è compatibile; `nail 0.46 ;` abilita le nuove
+relazioni `Add`, `Sub` e `Mul`. Nessuna modifica al formato della VM.
+Il test `modern-bootstrap-test-interp.hxml` costruisce un'immagine
+sperimentale della stdlib in semantica moderna e ne confronta i tre stadi
+di compilazione; la distribuzione mantiene l'immagine legacy finché la
+migrazione completa dei test e dell'ABI non è terminata.
+
+The whole-stdlib modern bootstrap test runs on Node for speed; the
+Haxe `--interp` variant remains available for debugging.

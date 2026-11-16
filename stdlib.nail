@@ -579,6 +579,12 @@ def parseNamedBody prefix name params tokens =
       ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
       ( tail ( parseRest body ) ) ;
 
+def recognizedNumericRelation name =
+  if name == " Div " then true
+  else if name == " Add " then true
+  else if name == " Sub " then true
+  else name == " Mul " ;
+
 def parseNamedDefinition prefix tokens =
   if isEmpty tokens then parseError " Expected definition name "
   else let name = parsePeek tokens in
@@ -591,12 +597,12 @@ def parseNamedDefinition prefix tokens =
           if annotated then
             if prefix != " " then parseError " Macro relations are not supported "
             else if length ( syntaxChildren ( parseTree params ) ) != 2 then
-              parseError " Div requires two parameters "
-            else if parsePeek afterParams != " Div " then
-              parseError " Unsupported type relation "
-            else if parsePeek ( tail afterParams ) != " = " then
-              parseError " Expected = after relation "
-            else parseNamedBody prefix name ( parseTree params ) startBody
+              parseError " Binary relation requires two parameters "
+            else if recognizedNumericRelation ( parsePeek afterParams ) then
+              if parsePeek ( tail afterParams ) != " = " then
+                parseError " Expected = after relation "
+              else parseNamedBody prefix name ( parseTree params ) startBody
+            else parseError " Unsupported type relation "
           else parseNamedBody prefix name ( parseTree params ) startBody
     else parseError " Expected definition name " ;
 
@@ -714,35 +720,43 @@ def parseMacroDirective importing tokens =
   else parseError " Expected macro name " ;
 
 
-def parseDivRow tokens =
+# Relation rows are type declarations erased by the Nail-written compiler.
+# Each input pair has one supported output; no arbitrary runtime instances.
+def relationResult relation first second =
+  if first == " Int " then
+    if second == " Int " then
+      if relation == " Div " then " Ratio " else " Int "
+    else if second == " Ratio " then " Ratio "
+    else " None "
+  else if first == " Ratio " then
+    if second == " Ratio " then " Ratio "
+    else if second == " Int " then " Ratio "
+    else " None "
+  else if first == " Float " then
+    if second == " Float " then " Float " else " None "
+  else " None " ;
+
+def parseNumericRelationRow tokens =
+  let relation = parsePeek tokens in
   let next = tail tokens in
-  if parsePeek next != " : " then parseError " Expected : in Div relation "
+  if parsePeek next != " : " then parseError " Expected : in numeric relation "
   else let args = tail next in
     let first = parsePeek args in
     let second = parsePeek ( tail args ) in
     let output = parsePeek ( tail ( tail args ) ) in
     if parsePeek ( tail ( tail ( tail args ) ) ) != " ; " then
-      parseError " Expected ; after Div row "
+      parseError " Expected ; after numeric row "
     else
-      let valid =
-        if first == " Int " then
-          if second == " Int " then output == " Ratio "
-          else if second == " Ratio " then output == " Ratio "
-          else false
-        else if first == " Ratio " then
-          if second == " Ratio " then output == " Ratio "
-          else if second == " Int " then output == " Ratio "
-          else false
-        else if first == " Float " then
-          if second == " Float " then output == " Float "
-          else false
-        else false in
-        if valid then parsePair ( syntaxNode " RelationDecl " [] )
-          ( tail ( tail ( tail ( tail args ) ) ) )
-        else parseError " Unsupported Div relation row " ;
+      let expected = relationResult relation first second in
+      if output == expected then parsePair ( syntaxNode " RelationDecl " [] )
+        ( tail ( tail ( tail ( tail args ) ) ) )
+      else parseError " Unsupported numeric relation row " ;
 
 def parseForm tokens =
-  if isFormKeyword tokens " Div " then parseDivRow tokens
+  if isFormKeyword tokens " Div " then parseNumericRelationRow tokens
+  else if isFormKeyword tokens " Add " then parseNumericRelationRow tokens
+  else if isFormKeyword tokens " Sub " then parseNumericRelationRow tokens
+  else if isFormKeyword tokens " Mul " then parseNumericRelationRow tokens
   else if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
   else if isFormKeyword tokens " def " then parseNamedDefinition " " ( tail tokens )
   else if isFormKeyword tokens " macro " then parseNamedDefinition " #macro_decl_ " ( tail tokens )
@@ -834,11 +848,16 @@ def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
 
 def stripNailHeader tokens =
   if parsePeek tokens == " nail " then
-    if parsePeek ( tail tokens ) == " 0.45 " then
-      if parsePeek ( tail ( tail tokens ) ) == " ; " then
-        tail ( tail ( tail tokens ) )
+    let version = parsePeek ( tail tokens ) in
+      if version == " 0.45 " then
+        if parsePeek ( tail ( tail tokens ) ) == " ; " then
+          tail ( tail ( tail tokens ) )
+        else tokens
+      else if version == " 0.46 " then
+        if parsePeek ( tail ( tail tokens ) ) == " ; " then
+          tail ( tail ( tail tokens ) )
+        else tokens
       else tokens
-    else tokens
   else tokens ;
 
 def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
@@ -1206,6 +1225,7 @@ def modernRewrite tree =
     else syntaxLeaf " Int " ( exactEncode ( syntaxText tree ) )
   else if tag == " Var " then syntaxVar ( modernOperator ( syntaxText tree ) )
   else if tag == " Name " then tree
+  else if tag == " Type " then tree
   else if tag == " Bool " then tree
   else if tag == " Text " then tree
   else if tag == " Nil " then tree
