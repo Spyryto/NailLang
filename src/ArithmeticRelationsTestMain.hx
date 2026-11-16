@@ -84,7 +84,7 @@ class ArithmeticRelationsTestMain {
       +'def divide x y : Div = x / y ; divide 2 3 ;';
     same(new TypeChecker().check(compatible),['Ratio'],
       '0.45 source is compatible with 0.46 type checker');
-    same(boot.runPlain(compatible),['R:2/3'],
+    same(new BootRuntime(40000000).runPlain(compatible),['R:2/3'],
       '0.46 VM accepts compatible v0.45 source');
 
     fails(() -> new TypeChecker().check(
