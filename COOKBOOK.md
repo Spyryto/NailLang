@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.43
+# Nail Cookbook — v0.44
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -148,3 +148,22 @@ isWholeBeat ( 8 / 2 ) ;  # true
 
 Questo evita sia troncamenti impliciti sia la perdita di precisione con
 numeri molto grandi.
+
+## Ricetta 9 — Vincolo esplicito `: Div`
+
+```nail
+def divide x y : Div = x / y ;
+divide 9 2 ;
+divide ( exactFromText " 3 " ) ( exactFromText " 2 " ) ;
+```
+
+La firma stampata dal checker è
+`Div a b c => a -> b -> c`. L'annotazione è **obbligatoria** per
+abilitare questo primo overload: `def divide x y = x / y` non
+generalizza automaticamente il vincolo. Gli argomenti devono
+avere tipi corrispondenti alla stessa riga della tabella interna;
+l'uso misto richiede conversione esplicita.
+
+Nota: queste firme usano ancora i due domini numerici esistenti,
+`Number` e `Exact`; `Int`, `Ratio`, `Float` e
+le dichiarazioni sorgente `Div : ...` sono da implementare.

@@ -1,3 +1,83 @@
+# v0.44 — Explicit, closed binary type relation prototype
+
+## Decision
+
+Nail uses **explicitly declared** operator-constrained polymorphism,
+not automatic generalization of numerically overloaded operators (choice B).
+The user's concise syntax keeps the value binders separate from the type
+constraint:
+
+```nail
+def divide x y : Div = x / y ;
+```
+
+The two arguments `x` and `y` are ordinary Nail value binders.
+`: Div` authorizes the **closed** set of concrete function signatures
+listed below, and the checker verifies the same function body independently
+under each signature. It does not introduce new binders and is erased
+before bytecode generation. A definition without `: Div` remains
+monomorphic for division, as before.
+
+## Initial implementation boundary
+
+Only the already-shipped numeric types participate in v0.44:
+
+```text
+Div : Number Number Number
+Div : Exact  Exact  Exact
+```
+
+These rows document the **internal fixed whitelist**: they are *not*
+yet source declarations. `Number` denotes the old Float domain, while
+`Exact` denotes the v0.29 exact rational domain. There is **no**
+`Int`, `Ratio` or standalone `Float` type in this release, nor
+a syntactic `Div : Int Int Ratio ;` definition. The migration to the
+user-proposed types and table is the next independent language task.
+This iteration proves source annotation, checking and erasure without
+coupling them to the numeric redesign.
+
+`divide 9 2` resolves to Number; `divide (exactFromText " 3 ")`
+`(exactFromText " 2 ")` resolves to Exact. Mixed domains fail statically
+and at runtime. The slash primitive dispatches by the runtime value
+variant; no implicit conversion is performed.
+
+## Fail-closed boundaries
+
+- A constrained declaration must have exactly two parameters, use `Div`,
+  and belong to the default source dialect. The legacy exact-header
+  dialect cannot declare a constrained function in this step.
+- The checker verifies the body under **every** supported row. For
+  example `def divide x y : Div = x + y` is rejected because it does
+  not respect both signatures without overloading of `+`.
+- Fully applied direct calls `divide x y` are supported. Partially
+  applied calls, function values, polymorphic recursion and generic
+  unconstrained wrappers cannot be checked and are explicitly rejected.
+- The type checker remembers declared relations across successful
+  incremental checks and copies, without committing declarations
+  from a failed batch.
+- Public module image ABIs do not yet represent named relations:
+  exporting an annotated function through an HM scheme is rejected,
+  rather than silently dropping its constraint.
+- **Compile-only** APIs do not perform Haxe static type-checking.
+  Untrusted source must be checked explicitly with `TypeChecker.check`.
+  Bootstrapped compilation erases `: Div` and generates exactly the same
+  runtime closure bytecode as an unannotated function. No relation
+  metadata travels with the current standalone bytecode ABI.
+
+## Next milestones
+
+1. Replace legacy numeric dialect switching with `Int`, `Ratio`,
+   and `Float` as stable, distinct types, with no implicit exact-to-Float
+   conversions. Define `Int / Int -> Ratio` independent of result value.
+2. Promote relation rows into explicitly checked source declarations or
+   versioned built-in signatures; reject duplicate input-pair rows.
+3. Support relation-aware higher-order functions and fully sound module
+   serialization after determining the desired elaboration strategy.
+4. Introduce an explicit Nail source-language version separate from
+   numeric type selection and bytecode-envelope version.
+
+---
+
 # v0.43 delta — Exact-rational integer rounding
 
 ## Why

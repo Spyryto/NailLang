@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.43
+# Eseguire NailLang — v0.44
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -102,3 +102,18 @@ Le cinque funzioni sono pure e disponibili nella VM standard. Il bootstrap
 esistente può compilare i loro nomi senza modificare parser, formato delle
 immagini o set di istruzioni. Non convertono mai `Number` in `Exact`
 automaticamente.
+
+## v0.44 — Contratti di divisione espliciti
+
+```sh
+haxe seed-image.hxml
+haxe explicit-relations-test-interp.hxml
+haxe explicit-relations-test-js.hxml && node build/tests/explicit-relations.js
+haxe explicit-relations-test-php.hxml && php build/tests/php-explicit-relations/index.php
+```
+
+La sintassi `def name x y : Div = expression ;` è cancellata dal
+compilatore dopo la verifica statica. Una compilazione pura tramite
+`BootRuntime.compile` **non** esegue il TypeChecker Haxe: come già
+per gli altri contratti, validare il codice con `TypeChecker.check`
+prima di distribuirlo o concedere capability.

@@ -571,6 +571,14 @@ def hasConstraintBeforeEquals tokens =
   else if parsePeek tokens == " : " then true
   else hasConstraintBeforeEquals ( tail tokens ) ;
 
+def parseNamedBody prefix name params tokens =
+  let body = parseAt 0 tokens in
+    if parseFailed body then body
+    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
+    else parsePair
+      ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
+      ( tail ( parseRest body ) ) ;
+
 def parseNamedDefinition prefix tokens =
   if isEmpty tokens then parseError " Expected definition name "
   else let name = parsePeek tokens in
@@ -592,13 +600,7 @@ def parseNamedDefinition prefix tokens =
           else parseNamedBody prefix name ( parseTree params ) startBody
     else parseError " Expected definition name " ;
 
-def parseNamedBody prefix name params tokens =
-  let body = parseAt 0 tokens in
-    if parseFailed body then body
-    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
-    else parsePair
-      ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
-      ( tail ( parseRest body ) ) ;
+
 
 # v0.17: record declarations are type-aware syntax sugar. Parser and compiler
 # live in Nail: RecordType becomes ordinary DEFINE forms, not an opcode.

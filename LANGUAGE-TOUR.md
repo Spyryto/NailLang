@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.43
+# Nail Language Tour — v0.44
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -131,3 +131,59 @@ L'implementazione usa divisione euclidea su naturali arbitrariamente grandi
 e conserva i budget di cifre dell'aritmetica esatta; **nessun Float**
 intermedio e nessuna variazione del bytecode. Esempi eseguibili in
 `src/ExactRoundingTestMain.hx` e [COOKBOOK.md](./COOKBOOK.md).
+
+## v0.44 — Polimorfismo numerico **solo su dichiarazione esplicita**
+
+Questa versione introduce il **primo passo verificabile** verso le
+relazioni di tipo, seguendo la regola B: gli operatori sovraccaricati
+non diventano automaticamente polimorfici in una funzione.
+
+```nail
+def divide x y : Div = x / y ;
+
+divide 9 2 ;
+divide ( exactFromText " 3 " ) ( exactFromText " 2 " ) ;
+```
+
+La forma `def divide x y : Div = x / y ;` definisce normalmente i due
+parametri *di valore* `x` e `y`; `: Div` è solo una dichiarazione di
+vincolo che la verifica statica interpreta. Non crea parametri, non
+converte numeri e **non aggiunge istruzioni bytecode**.
+
+In questa prima iterazione, le sole firme reali disponibili sono:
+
+```text
+Div : Number Number Number
+Div : Exact  Exact  Exact
+```
+
+Sono righe **illustrative della tabella interna**, non ancora dichiarazioni
+sorgente accettate dal parser. `Number` è il Float storico, `Exact`
+è il razionale storico. L'obiettivo successivo resta la tabella richiesta
+`Div : Int Int Ratio`, `Div : Ratio Ratio Ratio`,
+`Div : Float Float Float`, con tipi numerici indipendenti.
+
+Per applicare l'operatore a entrambi i domini, il risultato usa il
+tipo determinato dalla riga corrispondente. Non esiste una coercizione
+implicita fra `Number` e `Exact`. Senza `: Div`, la funzione
+rimane monomorfica secondo il checker attuale.
+
+**Limiti intenzionali di v0.44:** soltanto `Div`, soltanto definizioni
+con due parametri, chiamate dirette completamente applicate
+(`divide x y`); non `divide`, `divide x`, passaggio come funzione
+di ordine superiore, esportazione di firme relazionali fra moduli
+o annotazione di funzioni nel dialetto sorgente `# nail: 0.29`.
+Questi casi sono rifiutati dal checker, non emulati in modo insicuro.
+La VM conserva il normale runtime dinamico dei valori, mentre i
+vincoli sono controllati **solo quando si usa il TypeChecker**.
+
+Per i programmi nel dialetto Float, creare un valore razionale resta
+possibile tramite `exactFromText`. Non si tratta ancora del redesign
+`Int / Ratio / Float`.
+
+```sh
+haxe seed-image.hxml
+haxe explicit-relations-test-interp.hxml
+haxe explicit-relations-test-js.hxml && node build/tests/explicit-relations.js
+haxe explicit-relations-test-php.hxml && php build/tests/php-explicit-relations/index.php
+```

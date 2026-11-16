@@ -58,7 +58,8 @@ class TypeChecker {
 
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
-    var solver = new Inference(nextId, global, records, sums, sumCases, constructorOwners);
+    var solver = new Inference(nextId, global, records, sums, sumCases,
+      constructorOwners, relationByName);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
