@@ -1,0 +1,8 @@
+# v0.38: The host must grant readAsset before executing this code.
+# The host alone decides that the named resource "song" is readable.
+def songOrError key =
+  let response = readAsset key in
+  if response . ok then response . value else response . error ;
+
+songOrError " song " ;
+songOrError " notAllowed " ;

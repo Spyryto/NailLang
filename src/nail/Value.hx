@@ -22,5 +22,8 @@ enum Value {
   /** Closure whose body is already compiled to structured bytecode. */
   ByteClosure(param:String, code:Value, captured:Env);
   Native(name:String, arity:Int, applied:Array<Value>);
+  /** Host-created capability function. Nail source and bytecode cannot forge it;
+      the host must explicitly grant a binding in the selected VM. */
+  HostFunction(label:String, invoke:Value->Value);
 }
 

@@ -169,6 +169,8 @@ class ModuleLinker {
         for (field in fields) pending.push(field.type);
       case TList(t) | TVector(t): pending.push(t);
       case TFunction(a, b): pending.push(b); pending.push(a);
+      case TSum('CoreResult', args) if (args.length == 2):
+        for (arg in args) pending.push(arg);
       case TSum(_, _):
         throw 'Module compiler: algebraic public type identity is not implemented';
       case _:
@@ -415,7 +417,7 @@ class ModuleLinker {
       Each module is initialized exactly once in a fresh VM with an isolated
       environment and imports supplied only from a dependency's public API. */
   public static function link(modules:Array<CompiledModule>,
-      maxSteps:Int = DEFAULT_STEPS):ModuleBundle {
+      maxSteps:Int = DEFAULT_STEPS, ?hostGrants:HostTextGrants):ModuleBundle {
     if (modules == null || modules.length == 0 || modules.length > MAX_MODULES)
       throw 'Module linker: invalid module count';
     var byName = new StringMap<CompiledModule>();
@@ -444,6 +446,15 @@ class ModuleLinker {
       stack.push(name);
       var runtime = new ByteVm(maxSteps);
       for (item in module.imports) {
+        if (item.module == HostTextGrants.PROVIDER) {
+          if (hostGrants == null)
+            throw 'Module linker: missing host grants for ' + name;
+          // A reserved host provider is not a Nail module. Only this
+          // path can resolve and inject a host-constructed function value.
+          runtime.linkImport(item.alias,
+            hostGrants.resolve(name, item.symbol, item.signature));
+          continue;
+        }
         initialize(item.module);
         var dependency = byName.get(item.module);
         if (dependency.dialect != module.dialect)
@@ -485,7 +496,7 @@ class ModuleLinker {
   /** Link from JSON artifacts only: source files are not reparsed, inferred
       or compiled at runtime. */
   public static function linkImages(images:Array<String>,
-      maxSteps:Int = DEFAULT_STEPS):ModuleBundle {
-    return link([for (data in images) ModuleImage.decode(data)], maxSteps);
+      maxSteps:Int = DEFAULT_STEPS, ?hostGrants:HostTextGrants):ModuleBundle {
+    return link([for (data in images) ModuleImage.decode(data)], maxSteps, hostGrants);
   }
 }

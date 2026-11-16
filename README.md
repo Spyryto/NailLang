@@ -1,10 +1,17 @@
-# NailSeed v0.37 — Unicode and immutable collections
+# NailSeed v0.38 — explicit host capabilities
 
-This directory is a **v0.37 independent development snapshot**, preserving
-previous v0.33–v0.36 features and their detailed historical documentation.
-The first v0.37 slice adds Unicode scalar Text; the second adds persistent
-Map and Set combinators in Nail. The original v0.33 public-interface work
-is documented below for historical continuity.
+This is an **independent v0.38 snapshot**. The first tranche introduced
+host-granted read-only text-resource functions (`Value.HostFunction`) with
+allowlists and sanitized error results. The second added typed `NailHost.readText`
+imports with per-module authorization. The third adds the generic shared
+`CoreResult[a,e]` sum, exhaustive `CoreOk` / `CoreErr` patterns and optional
+`NailHost.readTextResult : Text -> CoreResult[Text, Text]`. Legacy record-based
+responses remain available, and user-defined `Result` types are unaffected. No ambient filesystem or network operation,
+new AST expression, bytecode instruction or image version is introduced.
+
+See **[Host capability design, security boundary and Haxe embedding example](./HOST-CAPABILITIES.md)**.
+The remainder of this README preserves the previously implemented v0.33–v0.37
+features and their design history for reference.
 
 The new `ModuleLinker.compileInferred` accepts only export **names**,
 reads their precise source types from the existing Hindley–Milner checker,

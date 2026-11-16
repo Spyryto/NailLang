@@ -1,19 +1,19 @@
-# Nail Language Tour — v0.37
+# Nail Language Tour — v0.38
 
-> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Unicode e mappe/set persistenti**.
+> snapshot Haxe compilabile per JavaScript e PHP · Argomento distintivo: **Capability host esplicite e CoreResult**.
 
 [Indice delle versioni](../docs/README.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [README](./README.md) · [SPEC](./SPEC.md) · [casi runtime](./cases.json) · [Main.hx](./src/Main.hx) · [parser Haxe](./src/nail/Parser.hx) · [stdlib.nail](./stdlib.nail)
 
-**Percorso:** [versione precedente](../v0.36/LANGUAGE-TOUR.md) → **v0.37** → [versione successiva](../v0.38/LANGUAGE-TOUR.md).
+**Percorso:** [versione precedente](../v0.37/LANGUAGE-TOUR.md) → **v0.38**.
 
 ## Che cosa imparo in questa versione?
 
-`Text` usa punti di codice Unicode fra target; Map/Set sono implementati in Nail con liste associative e lookup O(n).
+`readAsset` funziona SOLO se l'host concede un lettore di risorse; moduli con import `NailHost` e `CoreResult[a,e]` condiviso hanno autorizzazione esplicita.
 
 ```nail
-def original = mapEmpty ;
-def changed = mapPut original " key " 42 ;
-mapFind changed " key " ;
+def songOrError key =
+  let r = readAsset key in
+  if r . ok then r . value else r . error ;
 ```
 
 ## Primo programma
@@ -126,7 +126,7 @@ Le API di compilazione/collegamento, i controlli di tipi e le capability host vi
 1. Leggi [i tre esempi del cookbook](./COOKBOOK.md) e modifica un solo valore alla volta.
 2. Esegui il percorso spiegato in [RUNNING.md](./RUNNING.md) (per i laboratori, esegui i test Haxe/JS/PHP).
 3. Confronta il risultato con `cases.json` e la specifica `SPEC.md`; controlla la differenza fra parsing, type checking, runtime e tooling.
-4. Apri la [versione v0.37 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.37) e cerca il test associato alla feature.
+4. Apri la [versione v0.38 nel repository](https://github.com/Spyryto/NailSeed/tree/main/v0.38) e cerca il test associato alla feature.
 
 ## Cosa non dedurre
 

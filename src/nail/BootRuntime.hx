@@ -17,6 +17,16 @@ class BootRuntime {
     machine.run(BootstrapImage.decode(encoded));
   }
 
+  /** Grant a host resource reader to this source-free VM only. */
+  @:keep
+  public function grantTextReader(alias:String, capability:TextReadCapability):Void
+    machine.grantTextReader(alias, capability);
+
+  /** Opt-in discriminated Result[Text,Text] host read grant. */
+  @:keep
+  public function grantTextResultReader(alias:String, capability:TextReadCapability):Void
+    machine.grantTextResultReader(alias, capability);
+
   /** Compilation is performed by compileSource, a Nail function in bytecode. */
   @:keep
   public function compile(source:String, ?modules:String->Null<String>):Value return machine.compileSource(source, modules);

@@ -84,6 +84,8 @@ class ModuleImage {
     if (data == null || Reflect.field(data, 'format') != FORMAT)
       throw 'Module image: incompatible format';
     var name = requireName(Reflect.field(data, 'name'), 'module name');
+    if (name == HostTextGrants.PROVIDER)
+      throw 'Module image: reserved host provider name';
     var version = dialect(Reflect.field(data, 'dialect'));
     var rawImports:Dynamic = Reflect.field(data, 'imports');
     var rawExports:Dynamic = Reflect.field(data, 'exports');

@@ -112,6 +112,8 @@ class TypeChecker {
       case TFunction(a, b): pending.push(b); pending.push(a);
       case TVariable(_):
         throw 'Module type error: polymorphic import signatures are not yet supported';
+      case TSum('CoreResult', args) if (args.length == 2):
+        for (arg in args) pending.push(arg);
       case TRecord(_) | TRecordApplied(_, _) | TSum(_, _):
         throw 'Module type error: cross-module nominal types require public interfaces';
     }
@@ -138,6 +140,8 @@ class TypeChecker {
       case TFunction(a, b): work.push(b); work.push(a);
       case TVariable(_):
         throw 'Public interface: unconstrained type variable in export ' + name;
+      case TSum('CoreResult', args) if (args.length == 2):
+        for (arg in args) work.push(arg);
       case TRecord(_) | TRecordApplied(_, _) | TSum(_, _):
         throw 'Public interface: nominal types require public type identity: ' + name;
     }
@@ -194,6 +198,8 @@ class TypeChecker {
               args.length == 0 || args.length > 16)
             throw 'Public interface: nominal types require public type identity';
           for (arg in args) pending.push(arg);
+        case TSum('CoreResult', args) if (args.length == 2):
+          for (arg in args) pending.push(arg);
         case TSum(_, _):
           throw 'Public interface: algebraic public type identity is not implemented';
       }
@@ -219,11 +225,14 @@ class TypeChecker {
           case TFunction(_, _):
             var result = results.pop(), argument = results.pop();
             results.push(TFunction(argument, result));
-          case TRecordApplied(name, args):
+          case TRecordApplied(name, args) | TSum(name, args):
             var parameters:Array<NType> = [];
             for (i in 0...args.length) parameters.push(results.pop());
             parameters.reverse();
-            results.push(TRecordApplied(name, parameters));
+            results.push(switch (frame.type) {
+              case TSum(_, _): TSum(name, parameters);
+              case _: TRecordApplied(name, parameters);
+            });
           case TStructural(fields):
             var types:Array<NType> = [];
             for (i in 0...fields.length) types.push(results.pop());
@@ -243,7 +252,7 @@ class TypeChecker {
           work.push({type:frame.type, end:true});
           work.push({type:b, end:false});
           work.push({type:a, end:false});
-        case TRecordApplied(_, args):
+        case TRecordApplied(_, args) | TSum('CoreResult', args):
           work.push({type:frame.type, end:true});
           var i = args.length;
           while (i > 0) work.push({type:args[--i], end:false});
@@ -426,6 +435,23 @@ private class Inference {
     globals.set('vectorGetExact', poly(fun(vector, fun(e, a)), [elem]));
     globals.set('vectorSetExact', poly(fun(vector, fun(e, fun(a, vector))), [elem]));
     globals.set('nil', poly(list, [elem]));
+    // A well-known generic sum owner has a stable identity across module
+    // images. All other user-defined sums remain module-private.
+    var okId = nextId++, errorId = nextId++;
+    var success = TVariable(okId), failure = TVariable(errorId);
+    var result = TSum('CoreResult', [success, failure]);
+    sums.set('CoreResult', 2);
+    sumCases.set('CoreResult', [
+      {name:'CoreOk', arity:1}, {name:'CoreErr', arity:1}
+    ]);
+    constructorOwners.set('CoreOk', 'CoreResult');
+    constructorOwners.set('CoreErr', 'CoreResult');
+    globals.set('CoreOk', poly(fun(success, result), [okId, errorId]));
+    globals.set('CoreErr', poly(fun(failure, result), [okId, errorId]));
+    globals.set('CoreOk?', poly(fun(result, b), [okId, errorId]));
+    globals.set('CoreErr?', poly(fun(result, b), [okId, errorId]));
+    globals.set('CoreOk.0', poly(fun(result, success), [okId, errorId]));
+    globals.set('CoreErr.0', poly(fun(result, failure), [okId, errorId]));
     var x = nextId++, y = nextId++;
     globals.set('#sumFail', poly(fun(TVariable(x), TVariable(y)), [x, y]));
   }

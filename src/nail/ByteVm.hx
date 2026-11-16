@@ -149,6 +149,12 @@ class ByteVm {
                 completed = value;
                 delivering = true;
               } else stack.push(value);
+            case HostFunction(_, invoke):
+              var value = invoke(arg);
+              if (tail) {
+                completed = value;
+                delivering = true;
+              } else stack.push(value);
             case _: throw 'Bytecode value is not callable';
           }
         case SyntaxNode('BRANCH', _):
@@ -191,6 +197,7 @@ class ByteVm {
         var args = applied.copy();
         args.push(arg);
         args.length < arity ? Native(name, arity, args) : Vm.primitive(name, args);
+      case HostFunction(_, invoke): invoke(arg);
       case _: throw 'Bytecode value is not callable';
     };
   }
@@ -252,6 +259,19 @@ class ByteVm {
     var typed = numeric.NumericDialect.isExact(source)
       ? call(globals.lookup('exactRewrite'), expanded) : expanded;
     return compileSyntax(typed);
+  }
+
+  /** Host-selected capability name; links only a callable and does not
+      expose a path, filesystem, or general host-evaluation primitive. */
+  public function grantTextReader(alias:String, capability:TextReadCapability):Void {
+    if (capability == null) throw 'Missing text reader capability';
+    linkImport(alias, capability.asValue());
+  }
+
+  /** Opt-in discriminated Result[Text,Text] host read grant. */
+  public function grantTextResultReader(alias:String, capability:TextReadCapability):Void {
+    if (capability == null) throw 'Missing text reader capability';
+    linkImport(alias, capability.asResultValue());
   }
 
   /** Link a verified import without altering the compiled module's code.

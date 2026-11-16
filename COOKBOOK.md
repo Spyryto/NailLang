@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.37
+# Nail Cookbook — v0.38
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,17 +24,17 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Unicode e mappe/set persistenti
+## Ricetta 3 — Capability host esplicite e CoreResult
 
 ```nail
-def original = mapEmpty ;
-def changed = mapPut original " key " 42 ;
-mapFind changed " key " ;
+def songOrError key =
+  let r = readAsset key in
+  if r . ok then r . value else r . error ;
 ```
 
-`Text` usa punti di codice Unicode fra target; Map/Set sono implementati in Nail con liste associative e lookup O(n).
+`readAsset` funziona SOLO se l'host concede un lettore di risorse; moduli con import `NailHost` e `CoreResult[a,e]` condiviso hanno autorizzazione esplicita.
 
-Per mappe e set consulta [`examples/collections-practice.nail`](./examples/collections-practice.nail). I risultati di `mapFind` vanno gestiti come tipo di lookup, non confusi con una mappa JS.
+**Questa terza ricetta non funziona in una VM senza concessione host.** Segui [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md) e il test host per creare `readAsset`. Non esiste lettura ambientale di file o rete in Nail.
 
 ## Allenamento: studiare l'implementazione
 

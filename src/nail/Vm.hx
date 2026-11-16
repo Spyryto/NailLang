@@ -25,6 +25,11 @@ class Vm {
     for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', '#recordGet', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
       root.bind(name, Native(name, 2, []));
     for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
+    // Result is a single shared generic algebraic type, not a source-provided
+    // module type. Match lowering needs constructors, predicates and getters.
+    for (name in ['CoreOk', 'CoreErr', 'CoreOk?', 'CoreErr?',
+        'CoreOk.0', 'CoreErr.0'])
+      root.bind(name, Native(name, 1, []));
     root.bind('vector', Native('vector', 1, []));
     root.bind('vectorLength', Native('vectorLength', 1, []));
     root.bind('vectorGet', Native('vectorGet', 2, []));
@@ -231,6 +236,12 @@ class Vm {
         var copy = items.copy();
         copy[index] = args[2];
         Vector(copy);
+      case 'CoreOk': ResultValue.ok(a);
+      case 'CoreErr': ResultValue.error(a);
+      case 'CoreOk?': Boolean(ResultValue.is(a, ResultValue.OK));
+      case 'CoreErr?': Boolean(ResultValue.is(a, ResultValue.ERR));
+      case 'CoreOk.0': ResultValue.get(a, ResultValue.OK);
+      case 'CoreErr.0': ResultValue.get(a, ResultValue.ERR);
       case 'macroExpandSyntax': MacroExpander.syntax(a);
       case '#sumFail': throw 'Non-exhaustive or mismatched variant pattern';
       case '#recordMake':
@@ -366,6 +377,7 @@ class Vm {
                 var args = prior.copy();
                 args.push(result);
                 result = args.length < arity ? Native(name, arity, args) : primitive(name, args);
+              case HostFunction(_, invoke): result = invoke(result);
               case _: throw 'Value is not a function';
             }
         }
@@ -385,6 +397,24 @@ class Vm {
   public function invoke(name:String, argument:Value):Value {
     steps = 0;
     return call(root.lookup(name), argument);
+  }
+
+  /** Only the embedding host can grant this value; Nail has no capability
+      constructor or ambient read primitive. Use the same signature with
+      TypeChecker.importSignature when checking sources statically. */
+  public function grantTextReader(alias:String, capability:TextReadCapability):Void {
+    if (capability == null || !~/^[A-Za-z_][A-Za-z_0-9]*$/.match(alias))
+      throw 'Invalid text reader grant';
+    if (root.hasHere(alias)) throw 'Duplicate or reserved capability alias: ' + alias;
+    root.bind(alias, capability.asValue());
+  }
+
+  /** Opt-in discriminated Result[Text,Text] host read grant. */
+  public function grantTextResultReader(alias:String, capability:TextReadCapability):Void {
+    if (capability == null || !~/^[A-Za-z_][A-Za-z_0-9]*$/.match(alias))
+      throw 'Invalid text reader grant';
+    if (root.hasHere(alias)) throw 'Duplicate or reserved capability alias: ' + alias;
+    root.bind(alias, capability.asResultValue());
   }
 
   /** Execute validated core forms using the same evaluator on every target. */
