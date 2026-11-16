@@ -183,10 +183,10 @@ class Vm {
     };
   }
 
-  public function run(source:String):Array<Value> {
+  /** Execute validated core forms using the same evaluator on every target. */
+  function executeForms(forms:Array<Form>):Array<Value> {
     var output:Array<Value> = [];
-    steps = 0;
-    for (form in new Parser(source).parse()) {
+    for (form in forms) {
       switch (form) {
         case Define(name, body):
           if (root.hasHere(name)) throw 'Already defined: ' + name;
@@ -197,6 +197,32 @@ class Vm {
     }
     return output;
   }
+
+  public function run(source:String):Array<Value> {
+    steps = 0;
+    return executeForms(new Parser(source).parse());
+  }
+
+  /** Execute a first-class Syntax Program built by code running in Nail. */
+  public function runSyntax(tree:Value):Array<Value> {
+    steps = 0;
+    return executeForms(SyntaxBridge.forms(tree));
+  }
+
+  /** Parse source with the tokenizer and Pratt parser written in Nail. */
+  public function parseWithNail(source:String):Value {
+    steps = 0;
+    return call(root.lookup('parseSource'), Text(source));
+  }
+
+  /** Use Nail's own parseSource function, then execute its output.
+      The bootstrap Haxe parser is used only to load stdlib.nail. */
+  public function runWithNail(source:String):Array<Value> {
+    var tree = parseWithNail(source);
+    return executeForms(SyntaxBridge.forms(tree));
+  }
+
+  public function runPlainWithNail(source:String):Array<Dynamic> return plainResults(runWithNail(source));
 
   public function names():Array<String> return root.keys();
 

@@ -1,68 +1,40 @@
-# NailSeed v0.8 — Self-authored parser experiment
+# NailSeed v0.9 — parser/AST execution boundary
 
-## Core invariant
+## Invariant
 
-Five executable expression cases, unchanged from the Haxe-first versions:
+The executable expression AST still has exactly five constructors: `Literal`, `Var`, `Lambda`, `Apply`, `If`. `Define` and `Evaluate` are top-level forms. The first-class value `Syntax` is structurally separate from the core AST, with `SyntaxLeaf(tag, text)` and `SyntaxNode(tag, children)`.
 
-`Literal(value)`, `Var(name)`, `Lambda(param, body)`, `Apply(fn, arg)`, `If(cond, yes, no)`.
+## Pipeline
 
-`def` is a top-level form rather than an expression. Inference retains Hindley–Milner polymorphism and purity. The v0.8 parser is *written in Nail* and returns an inert syntax tree as a value; execution remains the responsibility of the Haxe VM.
-
-## Syntax, a typed value, not a sixth expression
-
-The Nail value domain gains:
-
-- `SyntaxLeaf(tag: Text, text: Text)`
-- `SyntaxNode(tag: Text, children: [Syntax])`
-
-The Haxe `NType` domain gains a single `Syntax` type. It is comparable by structural equality. The constructor and inspector primitives have these types:
-
-```
-syntaxLeaf     : Text -> Text -> Syntax
-syntaxNode     : Text -> [Syntax] -> Syntax
-syntaxTag      : Syntax -> Text
-syntaxText     : Syntax -> Text     # leaf only
-syntaxChildren : Syntax -> [Syntax] # node only
+```text
+Source text
+  -> lexNormal / lexQuoted / lexComment (in Nail, stdlib.nail)
+  -> Pratt parser + match desugaring (in Nail)
+  -> immutable Syntax Program (Nail value)
+  -> SyntaxBridge.forms() (Haxe representation validator)
+  -> existing five-node AST
+  -> existing Vm evaluator or Hindley-Milner checker
 ```
 
-Invalid inspectors throw a runtime error. `Syntax` is serialized to an object of the shape `{tag, value}` for a leaf or `{tag, children}` for a node. Nested syntax nodes can have varying tags without losing homogeneous list types. No general-purpose `Any` or dynamic casts are exposed to Nail.
+The Haxe parser is used only to bootstrap the library and to run normal `.run()` calls. `.runWithNail()` doesn't parse the user's source with the Haxe parser, but its Haxe runtime still contains the bridge and evaluator.
 
-## Parser results
+## Strings and lexing
 
-```
-Program [ Define [ Name("twice"), Lambda [ Name("x"), Apply[...] ] ] ]
-```
+A token begins and ends at whitespace boundaries; the `"` token is a special quoted-text delimiter. The source lexer is implemented in Nail using `textAt`, `textLength`, `textConcat`. Quoted strings can contain spaces; common JSON-style one-letter escapes are supported. Unknown escapes and unterminated quotes are rejected. To remain compatible with v0.8, unescaped whitespace inside a string is collapsed to spaces and leading/trailing whitespace is ignored. Unicode/`\\uXXXX` remains deferred; ASCII-only is enforced by the existing text primitives.
 
-Canonical serialized form example:
+## `match`
 
-```json
-{"tag":"Program","children":[{"tag":"Evaluate","children":[{"tag":"Literal","children":[{"tag":"Number","value":"1"}]}]}]}
-```
+The Nail parser accepts two exhaustive list patterns in either order, exactly as the Haxe bootstrap parser does. It desugars matches into nested lambda applications, `If`, and internal list primitives. Internal names are hidden from user-written source. The implementation uses a fixed hidden name inside every *new lexical scope*; nested matches are safe because those names don't escape their scopes. The cross-parser comparator alpha-normalizes hidden `#nail_*` names when comparing the ASTs built by the Haxe and Nail parsers.
 
-Functions parsing source are defined in `stdlib.nail`, including `parseAt`, `parsePrefix`, `parseSuffix`, `parseListItems`, `parseDefinition`, `parseForm`, `parseForms`, `parseSource`. This implements Pratt precedence parsing. Tokens and returned parse cursors are *homogeneous lists of Syntax*: a result is `[parsedTree, unconsumedToken1, ...]`, so no native parser-state class is needed. Parsing errors are returned as `SyntaxLeaf("Error", message)`; `parseSource` returns the first error instead of a partial program.
+## `SyntaxBridge`
 
-## Grammar subset
+Only recognized Syntax tags with correct arity and types cross into executable AST. Bogus tags, malformed child lists, nonfinite numbers, parse errors and inappropriate literal kinds are rejected. It is a semantic validator, **not** a compiler and not a second source parser. `TypeChecker.checkSyntax()` supports inference on exactly these reconstructed forms.
 
-```
-program    := (definition | expression ';')*
-definition := 'def' identifier identifier* '=' expression ';'
-expression := atom (atom | operator expression)*
-atom       := number | identifier | 'true' | 'false' | '[]'
-            | '(' expression ')'
-            | '[' (expression (',' expression)*)? ']'
-            | 'fun' identifier+ '->' expression
-            | 'if' expression 'then' expression 'else' expression
-            | 'let' identifier '=' expression 'in' expression
-```
+## Limitations
 
-Application binds tighter than `* /`, which bind tighter than `+ -`, which bind tighter than comparisons and equality. All infix operators associate to the left. Numeric tokens are **kept as text** in `Literal/Number` nodes pending a later self-hosted numeric parser, avoiding host number conversion. `let`, list literals and infix operators are desugared into the five expression cases. List literals use the bootstrap-compatible reserved `#cons` primitive. `Syntax` children for Lambda contain a `Name` leaf followed by the body.
-
-The current self-parser intentionally excludes `match`, text literals in the inner source, escaped strings, comments, automatic whitespace around punctuation and numeric exponent notation. The outer Haxe parser still supports the previous full language. These limitations must be removed before claiming full bootstrap equivalence.
-
-## Portability contract
-
-The original runtime and type-checker regression suites remain. The added `SelfParserTestMain` suite compares full serialized syntax trees to trees constructed from the existing Haxe `Parser.parse()` AST and checks errors on malformed input. GitHub Actions runs the same tests using `--interp`, compiled JS and compiled PHP. The suite checks what is implemented, not the entire language.
-
-## Costs to measure
-
-Pratt parsing in source Nail is deliberately simple but allocates many small immutable Syntax values and performs repeated textual identifier checks. Recursive depth, allocation and the default instruction step budget impose practical input-length limits. No security guarantees for untrusted input; do not expose VM execution to arbitrary remote source without stronger resource isolation.
+- No true self-hosted compiler or independent Nail executable.
+- No ad-hoc strings without separating the quote tokens; no significant whitespace preservation beyond escaped whitespace.
+- No Unicode text/scalar indexing or rational arithmetic.
+- No source locations or robust recovery diagnostics.
+- Recursive source parser relies on host call stack and a finite step budget; it is not hardened for untrusted code.
+- Both backends must pass the shared CI tests; distribution output is not checked into Git.

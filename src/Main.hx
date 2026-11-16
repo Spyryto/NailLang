@@ -15,7 +15,8 @@ class Main {
     // php build/php/index.php --types example.nail
     var paths = Sys.args();
     var typeMode = paths.length > 0 && paths[0] == '--types';
-    if (typeMode) paths.shift();
+    var selfMode = paths.length > 0 && paths[0] == '--selfparse';
+    if (typeMode || selfMode) paths.shift();
     if (paths.length == 0) return;
     if (typeMode) {
       var types = createTypeChecker();
@@ -25,7 +26,7 @@ class Main {
       var vm = create();
       vm.loadStdlib();
       for (path in paths) {
-        var results = vm.runPlain(sys.io.File.getContent(path));
+        var results = selfMode ? vm.runPlainWithNail(sys.io.File.getContent(path)) : vm.runPlain(sys.io.File.getContent(path));
         for (v in results) Sys.println(haxe.Json.stringify(v));
       }
     }

@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.8
+# Nail Cookbook — v0.9
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,13 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Parser Pratt scritto in Nail
+## Ricetta 3 — Parser Nail eseguibile
 
 ```nail
-parseSource " def twice x = x * 2 ; " ;
+def twice x = x * 2 ;
+twice 5 ;
 ```
 
-Il parser Nail produce valori `Syntax` strutturati; non introduce un sesto nodo nel core.
+Il percorso `runPlainWithNail` usa il parser Nail con ponte verso l'AST; si può confrontare col parser Haxe.
 
 ## Allenamento: studiare l'implementazione
 

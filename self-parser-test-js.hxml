@@ -1,0 +1,4 @@
+-cp src
+-main SelfParserV09TestMain
+-resource stdlib.nail@stdlib
+-js build/tests/self-parser-v09.js

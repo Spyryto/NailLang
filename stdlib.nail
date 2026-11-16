@@ -143,6 +143,7 @@ def isPrefixStart word =
   else if word == " [] " then true
   else if word == " if " then true
   else if word == " let " then true
+  else if word == " match " then true
   else if word == " fun " then true
   else if word == " true " then true
   else if word == " false " then true
@@ -194,11 +195,94 @@ def parseListItems recur tokens reversed =
         parsePair ( syntaxList ( cons ( parseTree item ) reversed ) ) ( tail remaining )
       else parseError " Expected comma or ] " ;
 
+# v0.9: tokens from a Nail lexical scanner may carry a Text literal.
+# Strings remain first-class Syntax leaves and can contain whitespace.
+def isPrefixSyntaxToken tokens =
+  if isEmpty tokens then false
+  else if syntaxTag ( head tokens ) == " StringToken " then true
+  else isPrefixStart ( parsePeek tokens ) ;
+
+# parse a single exhaustive list pattern/branch, keeping the branch body as Syntax.
+def parseListBranchNames recur first tailName afterNames =
+  if parsePeek afterNames != " -> " then parseError " Expected -> "
+  else let body = recur 0 ( tail afterNames ) in
+    if parseFailed body then body
+    else parsePair
+      ( syntaxNode " PairBranch " [ syntaxName first , syntaxName tailName , parseTree body ] )
+      ( parseRest body ) ;
+
+def parseListBranch recur tokens =
+  if isEmpty tokens then parseError " Expected list pattern "
+  else let first = parsePeek tokens in
+    if first == " [] " then
+      if parsePeek ( tail tokens ) != " -> " then parseError " Expected -> "
+      else let body = recur 0 ( tail ( tail tokens ) ) in
+        if parseFailed body then body
+        else parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body )
+    else if first == " [ " then
+      if parsePeek ( tail tokens ) != " ] " then parseError " Expected ] "
+      else if parsePeek ( tail ( tail tokens ) ) != " -> " then parseError " Expected -> "
+      else let body = recur 0 ( tail ( tail ( tail tokens ) ) ) in
+        if parseFailed body then body
+        else parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body )
+    else if isIdentifier first then
+      let rest = tail tokens in
+      if parsePeek rest != " :: " then parseError " Expected :: "
+      else let tailName = parsePeek ( tail rest ) in
+        if isIdentifier tailName then
+          if first == tailName then
+            if first == " _ " then parseListBranchNames recur first tailName ( tail ( tail rest ) )
+            else parseError " Duplicate pattern binding "
+          else parseListBranchNames recur first tailName ( tail ( tail rest ) )
+        else parseError " Expected list tail name "
+    else parseError " Expected list pattern " ;
+
+# Lower match to If/Lambda/Apply. Hidden names cannot be written by Nail users.
+# Fixed private names are safe: every match creates its own lexical scope.
+def lowerListMatch scrutinee emptyBranch pairBranch =
+  let children = syntaxChildren pairBranch in
+  let rawHead = syntaxText ( head children ) in
+  let rawTail = syntaxText ( head ( tail children ) ) in
+  let body = head ( tail ( tail children ) ) in
+  let headName = if rawHead == " _ " then " #nail_wild_head_0 " else rawHead in
+  let tailName = if rawTail == " _ " then " #nail_wild_tail_0 " else rawTail in
+  let list = syntaxVar " #nail_list_0 " in
+  let pair = syntaxApply
+    ( syntaxApply ( syntaxLambda headName ( syntaxLambda tailName body ) )
+      ( syntaxApply ( syntaxVar " #head " ) list ) )
+    ( syntaxApply ( syntaxVar " #tail " ) list ) in
+  syntaxApply
+    ( syntaxLambda " #nail_list_0 "
+      ( syntaxIf ( syntaxApply ( syntaxVar " #isEmpty " ) list )
+        ( head ( syntaxChildren emptyBranch ) ) pair ) )
+    scrutinee ;
+
+def parseListMatch recur tokens =
+  let scrutinee = recur 0 tokens in
+  if parseFailed scrutinee then scrutinee
+  else if parsePeek ( parseRest scrutinee ) != " with " then parseError " Expected with "
+  else let start = tail ( parseRest scrutinee ) in
+    if parsePeek start != " | " then parseError " Expected | "
+    else let first = parseListBranch recur ( tail start ) in
+      if parseFailed first then first
+      else if parsePeek ( parseRest first ) != " | " then parseError " Expected second | "
+      else let second = parseListBranch recur ( tail ( parseRest first ) ) in
+        if parseFailed second then second
+        else let a = parseTree first in
+          let b = parseTree second in
+          if syntaxTag a == syntaxTag b then parseError " Duplicate list branch "
+          else if syntaxTag a == " EmptyBranch " then
+            parsePair ( lowerListMatch ( parseTree scrutinee ) a b ) ( parseRest second )
+          else parsePair ( lowerListMatch ( parseTree scrutinee ) b a ) ( parseRest second ) ;
+
 def parsePrefix recur tokens =
   if isEmpty tokens then parseError " Unexpected end of source "
   else let word = parsePeek tokens in
     let remaining = tail tokens in
-    if word == " ( " then
+    if syntaxTag ( head tokens ) == " StringToken " then
+      parsePair ( syntaxLiteral " Text " word ) remaining
+    else if word == " match " then parseListMatch recur remaining
+    else if word == " ( " then
       let inner = recur 0 remaining in
       if parseFailed inner then inner
       else if parsePeek ( parseRest inner ) == " ) " then
@@ -246,7 +330,7 @@ def parseSuffix recur minimum parsed =
   if parseFailed parsed then parsed
   else let rest = parseRest parsed in
     let next = parsePeek rest in
-    if isPrefixStart next then
+    if isPrefixSyntaxToken rest then
       if minimum <= 70 then
         let arg = recur 71 rest in
         if parseFailed arg then arg
@@ -289,4 +373,60 @@ def parseForms tokens reversed =
     if parseFailed form then parseTree form
     else parseForms ( parseRest form ) ( cons ( parseTree form ) reversed ) ;
 
-def parseSource source = parseForms ( map syntaxToken ( tokenize source ) ) [] ;
+
+# v0.9: Self-hosted tokenizer for code. It preserves text literals as
+# StringToken leaves, strips line comments outside strings, and decodes
+# backslash escapes (\n, \r, \t, \" and \\). All ordinary code tokens
+# still require whitespace separation. No host lexer is called here.
+def lexEscape ch =
+  if ch == " n " then " \n "
+  else if ch == " r " then " \r "
+  else if ch == " t " then " \t "
+  else if ch == " \" " then " \" "
+  else if ch == " \\ " then " \\ "
+  else " " ;
+
+def lexQuoted source i n current escaped pending reversed normal =
+  if i == n then [ syntaxLeaf " LexError " " Unterminated string " ]
+  else let ch = textAt source i in
+    if escaped then
+      let decoded = lexEscape ch in
+      if decoded == " " then [ syntaxLeaf " LexError " " Unsupported string escape " ]
+      else let prefix = if pending then textConcat current " \u0020 " else current in
+        lexQuoted source ( i + 1 ) n ( textConcat prefix decoded ) false false reversed normal
+    else if ch == " \\ " then
+      lexQuoted source ( i + 1 ) n current true pending reversed normal
+    else if ch == " \" " then
+      if i + 1 == n then normal source ( i + 1 ) n " " ( cons ( syntaxLeaf " StringToken " current ) reversed )
+      else if isSpace ( textAt source ( i + 1 ) ) then
+        normal source ( i + 1 ) n " " ( cons ( syntaxLeaf " StringToken " current ) reversed )
+      else [ syntaxLeaf " LexError " " Expected whitespace after quote " ]
+    else if isSpace ch then
+      lexQuoted source ( i + 1 ) n current false ( current != " " ) reversed normal
+    else let prefix = if pending then textConcat current " \u0020 " else current in
+      lexQuoted source ( i + 1 ) n ( textConcat prefix ch ) false false reversed normal ;
+
+def lexComment source i n reversed normal =
+  if i == n then reverse reversed
+  else if textAt source i == " \n " then normal source ( i + 1 ) n " " reversed
+  else lexComment source ( i + 1 ) n reversed normal ;
+
+def lexNormal source i n current reversed =
+  if i == n then
+    reverse ( if current == " " then reversed else cons ( syntaxToken current ) reversed )
+  else let ch = textAt source i in
+    if isSpace ch then
+      if current == " " then lexNormal source ( i + 1 ) n " " reversed
+      else lexNormal source ( i + 1 ) n " " ( cons ( syntaxToken current ) reversed )
+    else if ch == " \" " then
+      if current == " " then lexQuoted source ( i + 1 ) n " " false false reversed lexNormal
+      else [ syntaxLeaf " LexError " " Expected whitespace before quote " ]
+    else if ch == " # " then
+      if current == " " then lexComment source ( i + 1 ) n reversed lexNormal
+      else lexNormal source ( i + 1 ) n ( textConcat current ch ) reversed
+    else lexNormal source ( i + 1 ) n ( textConcat current ch ) reversed ;
+
+def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
+
+def parseSource source = parseForms ( tokenizeCode source ) [] ;
+

@@ -36,6 +36,15 @@ class TypeChecker {
     return inferred;
   }
 
+  /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
+  public function checkSyntax(tree:Value):Array<String> {
+    var solver = new Inference(nextId, global);
+    var inferred = solver.run(SyntaxBridge.forms(tree));
+    global = solver.globals;
+    nextId = solver.nextId;
+    return inferred;
+  }
+
   /** No mutation of this checker: useful for IDEs and preflight checks. */
   public function preview(source:String):Array<String> return copy().check(source);
 
