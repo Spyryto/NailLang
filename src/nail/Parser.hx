@@ -150,7 +150,13 @@ class Parser {
     if (StringTools.startsWith(token, '\u0001')) return Literal(Text(token.substr(1)));
     if (token == '[]') return Literal(Nil);
     if (token == '(') {
-      var inner = expression(); expect(')'); return inner;
+      // Collapse runs of redundant grouping before descending once into
+      // expression(). The remaining Pratt/parser nesting is still recursive.
+      var depth = 1;
+      while (peek() == '(') { take(); depth++; }
+      var inner = expression();
+      while (depth > 0) { expect(')'); depth--; }
+      return inner;
     }
     if (token == '[') {
       var elements:Array<Expr> = [];

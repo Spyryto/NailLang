@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.12
+# Nail Cookbook — v0.13
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](../docs/README.md)
 
@@ -24,14 +24,14 @@ map twice [ 1 , 2 , 3 ] ;
 
 **Risultato atteso:** `[2, 4, 6]`. Per v0.3, carica prima `stdlib.nail`; nelle versioni Haxe chiama `vm.loadStdlib()`.
 
-## Ricetta 3 — Continuazioni iterative
+## Ricetta 3 — Traversata strutturale iterativa
 
 ```nail
 def twice x = x * 2 ;
 twice 21 ;
 ```
 
-Valutazione AST e ByteVM minimizzano la dipendenza dallo stack dell'host anche per chiamate non tail.
+Visite di Syntax, compilazione di riferimento e inferenza usano frame espliciti; la sintassi utente non cambia.
 
 ## Allenamento: studiare l'implementazione
 

@@ -41,37 +41,72 @@ class SyntaxBridge {
     };
   }
 
+  /** Bottom-up decoder with heap work frames: no host recursion per Syntax node. */
   public static function expr(value:Value):Expr {
-    return switch (value) {
-      case SyntaxLeaf('Var', name): Var(name);
-      case SyntaxNode('Literal', parts):
-        var xs = elements(parts);
-        if (xs.length != 1) throw 'Invalid Syntax literal arity';
-        switch (xs[0]) {
-          case SyntaxLeaf('Number', text):
-            if (!numberPattern.match(text)) throw 'Invalid Syntax number';
-            var n = Std.parseFloat(text);
-            if (!Math.isFinite(n)) throw 'Invalid Syntax nonfinite number';
-            Literal(Number(n));
-          case SyntaxLeaf('Bool', 'true'): Literal(Boolean(true));
-          case SyntaxLeaf('Bool', 'false'): Literal(Boolean(false));
-          case SyntaxLeaf('Nil', 'nil'): Literal(Nil);
-          case SyntaxLeaf('Text', text): Literal(Text(text));
-          case _: throw 'Invalid Syntax literal kind';
-        };
-      case SyntaxNode('Lambda', _):
-        var items = children(value, 'Lambda', 2);
-        Lambda(label(items[0], 'Name'), expr(items[1]));
-      case SyntaxNode('Apply', _):
-        var items = children(value, 'Apply', 2);
-        Apply(expr(items[0]), expr(items[1]));
-      case SyntaxNode('If', _):
-        var items = children(value, 'If', 3);
-        If(expr(items[0]), expr(items[1]), expr(items[2]));
-      case SyntaxLeaf('Error', message): throw 'Nail parser error: ' + message;
-      case SyntaxLeaf('LexError', message): throw 'Nail lexer error: ' + message;
-      case _: throw 'Invalid Syntax expression';
-    };
+    var pending:Array<{source:Value, finish:Bool}> = [{source:value, finish:false}];
+    var done:Array<Expr> = [];
+    while (pending.length > 0) {
+      var frame = pending.pop();
+      if (frame.finish) {
+        switch (frame.source) {
+          case SyntaxNode('Lambda', _):
+            var items = children(frame.source, 'Lambda', 2);
+            var body = done.pop();
+            done.push(Lambda(label(items[0], 'Name'), body));
+          case SyntaxNode('Apply', _):
+            var arg = done.pop();
+            var fn = done.pop();
+            done.push(Apply(fn, arg));
+          case SyntaxNode('If', _):
+            var no = done.pop();
+            var yes = done.pop();
+            var cond = done.pop();
+            done.push(If(cond, yes, no));
+          case _: throw 'Invalid Syntax expression frame';
+        }
+        continue;
+      }
+      switch (frame.source) {
+        case SyntaxLeaf('Var', name): done.push(Var(name));
+        case SyntaxNode('Literal', parts):
+          var xs = elements(parts);
+          if (xs.length != 1) throw 'Invalid Syntax literal arity';
+          var lit:Expr = switch (xs[0]) {
+            case SyntaxLeaf('Number', text):
+              if (!numberPattern.match(text)) throw 'Invalid Syntax number';
+              var n = Std.parseFloat(text);
+              if (!Math.isFinite(n)) throw 'Invalid Syntax nonfinite number';
+              Literal(Number(n));
+            case SyntaxLeaf('Bool', 'true'): Literal(Boolean(true));
+            case SyntaxLeaf('Bool', 'false'): Literal(Boolean(false));
+            case SyntaxLeaf('Nil', 'nil'): Literal(Nil);
+            case SyntaxLeaf('Text', text): Literal(Text(text));
+            case _: throw 'Invalid Syntax literal kind';
+          };
+          done.push(lit);
+        case SyntaxNode('Lambda', _):
+          var items = children(frame.source, 'Lambda', 2);
+          label(items[0], 'Name');
+          pending.push({source:frame.source, finish:true});
+          pending.push({source:items[1], finish:false});
+        case SyntaxNode('Apply', _):
+          var items = children(frame.source, 'Apply', 2);
+          pending.push({source:frame.source, finish:true});
+          pending.push({source:items[1], finish:false});
+          pending.push({source:items[0], finish:false});
+        case SyntaxNode('If', _):
+          var items = children(frame.source, 'If', 3);
+          pending.push({source:frame.source, finish:true});
+          pending.push({source:items[2], finish:false});
+          pending.push({source:items[1], finish:false});
+          pending.push({source:items[0], finish:false});
+        case SyntaxLeaf('Error', message): throw 'Nail parser error: ' + message;
+        case SyntaxLeaf('LexError', message): throw 'Nail lexer error: ' + message;
+        case _: throw 'Invalid Syntax expression';
+      }
+    }
+    if (done.length != 1) throw 'Invalid Syntax expression result';
+    return done.pop();
   }
 
   public static function forms(value:Value):Array<Form> {

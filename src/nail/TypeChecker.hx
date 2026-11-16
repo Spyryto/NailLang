@@ -69,6 +69,18 @@ class TypeChecker {
   }
 }
 
+/** Explicit frame for Hindley-Milner inference. All expression traversal is iterative. */
+private class InferFrame {
+  public var source:Expr;
+  public var scope:StringMap<TypeScheme>;
+  public var phase:Int = 0;
+  public var saved:NType;
+  public function new(source:Expr, scope:StringMap<TypeScheme>) {
+    this.source = source;
+    this.scope = scope;
+  }
+}
+
 /** Per-call unifier and program checker. It only mutates its private copy of globals. */
 private class Inference {
   public var globals(default, null):StringMap<TypeScheme>;
@@ -123,33 +135,44 @@ private class Inference {
   }
 
   function prune(t:NType):NType {
-    return switch (t) {
-      case TVariable(i):
-        var v = substitutions.get(i);
-        if (v == null) t else {
-          var normalized = prune(v);
-          substitutions.set(i, normalized);
-          normalized;
-        }
-      case _: t;
-    };
+    var path:Array<Int> = [];
+    var current = t;
+    var searching = true;
+    while (searching) {
+      switch (current) {
+        case TVariable(id):
+          var candidate = substitutions.get(id);
+          if (candidate == null) searching = false;
+          else { path.push(id); current = candidate; }
+        case _: searching = false;
+      }
+    }
+    for (id in path) substitutions.set(id, current);
+    return current;
   }
 
   function occurs(id:Int, ty:NType):Bool {
-    return switch (prune(ty)) {
-      case TVariable(other): id == other;
-      case TList(a): occurs(id, a);
-      case TFunction(a, b): occurs(id, a) || occurs(id, b);
-      case _: false;
-    };
+    var stack:Array<NType> = [ty];
+    while (stack.length > 0) {
+      switch (prune(stack.pop())) {
+        case TVariable(other): if (id == other) return true;
+        case TList(a): stack.push(a);
+        case TFunction(a, b): stack.push(b); stack.push(a);
+        case _:
+      }
+    }
+    return false;
   }
 
   function requireEquality(ty:NType):Void {
-    switch (prune(ty)) {
-      case TNumber | TBoolean | TText | TSyntax:
-      case TList(a): requireEquality(a);
-      case TVariable(id): eqRequired.set(id, true);
-      case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
+    var stack:Array<NType> = [ty];
+    while (stack.length > 0) {
+      switch (prune(stack.pop())) {
+        case TNumber | TBoolean | TText | TSyntax:
+        case TList(a): stack.push(a);
+        case TVariable(id): eqRequired.set(id, true);
+        case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
+      }
     }
   }
 
@@ -165,26 +188,51 @@ private class Inference {
   }
 
   function unify(left:NType, right:NType):Void {
-    var a = prune(left), b = prune(right);
-    switch ([a, b]) {
-      case [TVariable(i), _]: bindVariable(i, b);
-      case [_, TVariable(j)]: bindVariable(j, a);
-      case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
-      case [TList(x), TList(y)]: unify(x, y);
-      case [TFunction(a1, b1), TFunction(a2, b2)]: unify(a1, a2); unify(b1, b2);
-      case _: throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
+    var stack:Array<{a:NType, b:NType}> = [{a:left, b:right}];
+    while (stack.length > 0) {
+      var pair = stack.pop();
+      var a = prune(pair.a), b = prune(pair.b);
+      switch ([a, b]) {
+        case [TVariable(i), _]: bindVariable(i, b);
+        case [_, TVariable(j)]: bindVariable(j, a);
+        case [TNumber, TNumber] | [TBoolean, TBoolean] | [TText, TText] | [TSyntax, TSyntax]:
+        case [TList(x), TList(y)]: stack.push({a:x, b:y});
+        case [TFunction(a1, b1), TFunction(a2, b2)]:
+          stack.push({a:b1, b:b2});
+          stack.push({a:a1, b:a2});
+        case _: throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
+      }
     }
   }
 
   function replacement(t:NType, mapping:IntMap<NType>):NType {
-    return switch (t) {
-      case TVariable(id):
-        var current = mapping.get(id);
-        current == null ? t : current;
-      case TList(a): TList(replacement(a, mapping));
-      case TFunction(a, b): TFunction(replacement(a, mapping), replacement(b, mapping));
-      case _: t;
-    };
+    var stack:Array<{type:NType, finish:Bool}> = [{type:t, finish:false}];
+    var results:Array<NType> = [];
+    while (stack.length > 0) {
+      var frame = stack.pop();
+      if (frame.finish) {
+        switch (frame.type) {
+          case TList(_): results.push(TList(results.pop()));
+          case TFunction(_, _):
+            var b = results.pop(), a = results.pop();
+            results.push(TFunction(a, b));
+          case _: throw 'Invalid type replacement frame';
+        }
+      } else switch (frame.type) {
+        case TVariable(id):
+          var current = mapping.get(id);
+          results.push(current == null ? frame.type : current);
+        case TList(a):
+          stack.push({type:frame.type, finish:true});
+          stack.push({type:a, finish:false});
+        case TFunction(a, b):
+          stack.push({type:frame.type, finish:true});
+          stack.push({type:b, finish:false});
+          stack.push({type:a, finish:false});
+        case _: results.push(frame.type);
+      }
+    }
+    return results.pop();
   }
 
   function instantiate(scheme:TypeScheme):NType {
@@ -198,20 +246,45 @@ private class Inference {
   }
 
   function free(ty:NType, result:IntMap<Bool>):Void {
-    switch (prune(ty)) {
-      case TVariable(id): result.set(id, true);
-      case TList(t): free(t, result);
-      case TFunction(a, b): free(a, result); free(b, result);
-      case _:
+    var stack:Array<NType> = [ty];
+    while (stack.length > 0) {
+      switch (prune(stack.pop())) {
+        case TVariable(id): result.set(id, true);
+        case TList(item): stack.push(item);
+        case TFunction(a, b): stack.push(b); stack.push(a);
+        case _:
+      }
     }
   }
 
   function normalize(t:NType):NType {
-    return switch (prune(t)) {
-      case TList(a): TList(normalize(a));
-      case TFunction(a, b): TFunction(normalize(a), normalize(b));
-      case other: other;
-    };
+    var stack:Array<{type:NType, finish:Bool}> = [{type:t, finish:false}];
+    var results:Array<NType> = [];
+    while (stack.length > 0) {
+      var frame = stack.pop();
+      if (frame.finish) {
+        switch (frame.type) {
+          case TList(_): results.push(TList(results.pop()));
+          case TFunction(_, _):
+            var b = results.pop(), a = results.pop();
+            results.push(TFunction(a, b));
+          case _: throw 'Invalid type normalization frame';
+        }
+      } else {
+        var normalized = prune(frame.type);
+        switch (normalized) {
+          case TList(a):
+            stack.push({type:normalized, finish:true});
+            stack.push({type:a, finish:false});
+          case TFunction(a, b):
+            stack.push({type:normalized, finish:true});
+            stack.push({type:b, finish:false});
+            stack.push({type:a, finish:false});
+          case _: results.push(normalized);
+        }
+      }
+    }
+    return results.pop();
   }
 
   function generalize(t:NType, env:StringMap<TypeScheme>):TypeScheme {
@@ -242,43 +315,83 @@ private class Inference {
     return output;
   }
 
+  /** Hindley-Milner with explicit expression frames; let generalization stays at
+      the direct-lambda application boundary, as in v0.12. */
   function infer(expr:Expr, env:StringMap<TypeScheme>):NType {
-    return switch (expr) {
-      case Literal(Number(_)): TNumber;
-      case Literal(Boolean(_)): TBoolean;
-      case Literal(Text(_)): TText;
-      case Literal(Nil): TList(fresh());
-      case Literal(_): throw 'Type error: unsupported literal';
-      case Var(name):
-        var scheme = env.get(name);
-        if (scheme == null) throw 'Type error: unknown name ' + name;
-        instantiate(scheme);
-      case Lambda(param, body):
-        var arg = fresh();
-        var child = scopeCopy(env);
-        child.set(param, mono(arg));
-        fun(arg, infer(body, child));
-      // Direct lambda application is the core representation of a surface `let`.
-      // In a pure language we can generalize the evaluated binding at this
-      // boundary, yielding full Hindley-Milner local let-polymorphism.
-      case Apply(Lambda(param, body), argument):
-        var boundType = infer(argument, env);
-        var child = scopeCopy(env);
-        child.set(param, generalize(boundType, env));
-        infer(body, child);
-      case Apply(f, x):
-        var fn = infer(f, env);
-        var argument = infer(x, env);
-        var result = fresh();
-        unify(fn, fun(argument, result));
-        result;
-      case If(condition, yes, no):
-        unify(infer(condition, env), TBoolean);
-        var a = infer(yes, env);
-        var b = infer(no, env);
-        unify(a, b);
-        a;
-    };
+    var work:Array<InferFrame> = [new InferFrame(expr, env)];
+    var results:Array<NType> = [];
+    while (work.length > 0) {
+      var frame = work[work.length - 1];
+      switch (frame.source) {
+        case Literal(Number(_)): results.push(TNumber); work.pop();
+        case Literal(Boolean(_)): results.push(TBoolean); work.pop();
+        case Literal(Text(_)): results.push(TText); work.pop();
+        case Literal(Nil): results.push(TList(fresh())); work.pop();
+        case Literal(_): throw 'Type error: unsupported literal';
+        case Var(name):
+          var scheme = frame.scope.get(name);
+          if (scheme == null) throw 'Type error: unknown name ' + name;
+          results.push(instantiate(scheme));
+          work.pop();
+        case Lambda(param, body):
+          if (frame.phase == 0) {
+            frame.saved = fresh();
+            var child = scopeCopy(frame.scope);
+            child.set(param, mono(frame.saved));
+            frame.phase = 1;
+            work.push(new InferFrame(body, child));
+          } else {
+            var bodyType = results.pop();
+            results.push(fun(frame.saved, bodyType));
+            work.pop();
+          }
+        case Apply(Lambda(param, body), argument):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(argument, frame.scope));
+          } else if (frame.phase == 1) {
+            var boundType = results.pop();
+            var child = scopeCopy(frame.scope);
+            child.set(param, generalize(boundType, frame.scope));
+            frame.phase = 2;
+            work.push(new InferFrame(body, child));
+          } else work.pop(); // The body's result remains on the value stack.
+        case Apply(fn, argument):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(fn, frame.scope));
+          } else if (frame.phase == 1) {
+            frame.phase = 2;
+            work.push(new InferFrame(argument, frame.scope));
+          } else {
+            var argType = results.pop();
+            var fnType = results.pop();
+            var ret = fresh();
+            unify(fnType, fun(argType, ret));
+            results.push(ret);
+            work.pop();
+          }
+        case If(condition, yes, no):
+          if (frame.phase == 0) {
+            frame.phase = 1;
+            work.push(new InferFrame(condition, frame.scope));
+          } else if (frame.phase == 1) {
+            unify(results.pop(), TBoolean);
+            frame.phase = 2;
+            work.push(new InferFrame(yes, frame.scope));
+          } else if (frame.phase == 2) {
+            frame.saved = results.pop();
+            frame.phase = 3;
+            work.push(new InferFrame(no, frame.scope));
+          } else {
+            unify(frame.saved, results.pop());
+            results.push(frame.saved);
+            work.pop();
+          }
+      }
+    }
+    if (results.length != 1) throw 'Type error: invalid inference result';
+    return results.pop();
   }
 
   public function run(forms:Array<Form>):Array<String> {
@@ -318,20 +431,33 @@ private class Inference {
       if (eqRequired.exists(id)) eq.push(name);
       return name;
     }
-    function write(t:NType, parenthesize:Bool):String {
-      return switch (prune(t)) {
-        case TNumber: 'Number';
-        case TBoolean: 'Bool';
-        case TText: 'Text';
-        case TSyntax: 'Syntax';
-        case TVariable(id): label(id);
-        case TList(item): '[' + write(item, false) + ']';
+    var output = new StringBuf();
+    var stack:Array<{type:NType, text:String, parens:Bool}> = [{type:ty, text:null, parens:false}];
+    while (stack.length > 0) {
+      var frame = stack.pop();
+      if (frame.text != null) {
+        output.add(frame.text);
+        continue;
+      }
+      switch (prune(frame.type)) {
+        case TNumber: output.add('Number');
+        case TBoolean: output.add('Bool');
+        case TText: output.add('Text');
+        case TSyntax: output.add('Syntax');
+        case TVariable(id): output.add(label(id));
+        case TList(item):
+          stack.push({type:null, text:']', parens:false});
+          stack.push({type:item, text:null, parens:false});
+          stack.push({type:null, text:'[', parens:false});
         case TFunction(a, b):
-          var text = write(a, true) + ' -> ' + write(b, false);
-          parenthesize ? '(' + text + ')' : text;
-      };
+          if (frame.parens) stack.push({type:null, text:')', parens:false});
+          stack.push({type:b, text:null, parens:false});
+          stack.push({type:null, text:' -> ', parens:false});
+          stack.push({type:a, text:null, parens:true});
+          if (frame.parens) stack.push({type:null, text:'(', parens:false});
+      }
     }
-    var result = write(ty, false);
+    var result = output.toString();
     return eq.length == 0 ? result : 'Eq ' + eq.join(', ') + ' => ' + result;
   }
 }

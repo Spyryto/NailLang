@@ -1,11 +1,39 @@
-# NailSeed v0.12 — explicit continuations
+# NailSeed v0.13 — Structured AST traversal with explicit frames
 
-The expression AST remains Literal / Var / Lambda / Apply / If. In Vm.hx an iterative CEK evaluator keeps (expression, environment, result, continuation stack). Its continuations are NeedArgument, ApplyFunction and ChooseBranch. Closure calls replace the active expression/environment; native calls return a value in-place.
+## Invariants
 
-The structured bytecode instruction set remains CONST / LOAD / CLOSURE / CALL / TAIL_CALL / BRANCH / RETURN. ByteVm.hx uses one instruction loop with (code, program counter, environment, operand stack, needsReturn) and a separate array of ByteFrame records. Non-tail CALL and BRANCH push saved activations. Tail CALL and terminal BRANCH replace the active block. Values completed by RETURN or by the end of a non-tail expression block are delivered to the saved caller; no Haxe/JS/PHP recursion is used for nested bytecode calls.
+1. Core AST remains `Literal`, `Var`, `Lambda`, `Apply`, `If` and program forms `Define`, `Evaluate`.
+2. The compiled bytecode remains `CONST`, `LOAD`, `CLOSURE`, `CALL`, `TAIL_CALL`, `BRANCH`, `RETURN`, plus program forms `DEFINE`, `EVAL`.
+3. Child evaluation/compilation order remains left-to-right; `if` evaluates/checks its condition before the branches.
+4. `let` desugars to a directly applied lambda, and generalization takes place at that boundary. A recursive global `def` remains monomorphic during inference and generalizes only afterward.
+5. The host bytecode compiler and the Nail-written compiler must produce equivalent instruction trees; existing regression suites guard that behavior.
 
-Malformed instruction arities, stack underflow, missing RETURN, invalid tail-call positions, or instructions after RETURN remain rejected. Interpreter instruction budgets continue to apply.
+## Iterative syntax conversion
 
-Additional tests cover a long self-tokenized/self-parsed input, deep non-tail AST and bytecode recursion, mutual tail recursion, a large Nail-compiled program, a bytecode-bootstrapped Nail compiler operating on a large program, and both step-budget guards. The historical suites are retained.
+The `SyntaxBridge` and `SyntaxEncoder` both use `pending` and `values` stacks. A `(node, finish = false)` task schedules its children in reverse visitation order, followed by a `(node, finish = true)` task. The completion task pops child results and constructs the parent. This removes host-language recursion proportional to expression-tree depth. Form lists are still processed in a loop.
 
-This is **not** a completely iterative toolchain: Haxe Parser, SyntaxBridge, SyntaxEncoder, TypeChecker and some AST structural helpers still recurse. Extremely deep nested syntax trees may overflow while converting or type-checking, and non-tail source recursion uses linear heap continuations.
+## Iterative inference
+
+`Inference.infer()` is now a state machine with explicitly saved scopes and intermediate types. The four important paths are:
+
+- Ordinary application: infer function, then argument, unify `fType` with `argumentType -> resultType`.
+- Direct lambda application (local `let`): infer binding first, generalize against outer environment, then infer body with a polymorphic binding.
+- Lambda: introduce fresh monomorphic parameter and infer body in a child scope.
+- Conditional: require `Bool`, infer both branches and unify branch types.
+
+Type utilities (`prune`, `occurs`, `unify`, `free`, `replacement`, `normalize`, `requireEquality`, `describe`) use stacks/worklists instead of recursive calls.
+
+## Reference bytecode lowering
+
+`BytecodeCompiler.emit()` performs iterative postorder lowering and preserves tail position through `Lambda` bodies and `If` branches. `Apply` in tail position emits `TAIL_CALL` instead of `CALL`; value-producing terminal expressions emit `RETURN`. No changes to the bytecode executor are required.
+
+## Test scope
+
+`StructuralDepthTestMain` directly constructs AST trees to stress the structural conversions independently from the still-recursive host source parser. It also checks static inference and bytecode execution on deeply nested conditions and applications, along with malformed Syntax error messages. The deep grouping test exercises an optimization in the first-stage Haxe parser, not a full iterative Pratt parser.
+
+## Known limitations
+
+- `Parser.expression()` and grammar-directed parsing of arbitrarily nested constructs are **not** fully iterative.
+- The Nail-written bootstrap parser still runs atop the host loader. Haxe `SyntaxBridge` validates its AST, and the host type checker remains the source of static type semantics.
+- Structural transformations are bounded by heap memory, and repeatedly concatenating emitted instruction arrays or copying lexical environments can be superlinear. Stack safety is not a performance guarantee.
+- No arbitrary precision numbers, new source syntax or new VM operations are introduced in v0.13.

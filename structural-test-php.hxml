@@ -1,0 +1,3 @@
+-cp src
+-main StructuralDepthTestMain
+-php build/tests/php-structural

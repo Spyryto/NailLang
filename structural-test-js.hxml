@@ -1,0 +1,3 @@
+-cp src
+-main StructuralDepthTestMain
+-js build/tests/structural.js
