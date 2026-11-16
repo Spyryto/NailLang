@@ -1,3 +1,36 @@
+# v0.46 — Closed arithmetic relations and modern bootstrap proof
+
+Language version is an explicit declaration, not a comment:
+`nail 0.46 ;`. A v0.46 runtime also accepts `nail 0.45 ;` since the
+v0.45 numerical semantics are unchanged. Other future versions are
+rejected. Number representation and bytecode format are independent
+of the language version token.
+
+Four closed binary type relations are now supported:
+`Div : Int Int Ratio ;`, `Add : Int Int Int ;`,
+`Sub : Int Int Int ;`, `Mul : Int Int Int ;` and further
+`Int/Ratio`, `Ratio/Int`, `Ratio/Ratio`, `Float/Float` rows.
+The relation `Div` returns `Ratio` for `Int/Int`; the other
+three return `Int` for `Int/Int`. No implicit Float coercion.
+A definition `def f x y : Add = x + y ;` is checked once per declared
+signature and only direct fully-applied calls are supported.
+The checker never infers overload constraints absent an explicit
+relation annotation (choice B). Relations are not Haskell typeclasses
+and do not generate user-defined runtime implementations.
+
+Haxe reference parser and Nail-written parser validate and erase
+static relation rows before emitting bytecode. The standalone
+source-free VM uses exactly the same numeric runtime primitives.
+
+Migration checkpoint: `modern-bootstrap-test-interp.hxml` constructs
+an image of the **entire** stdlib compiled with `nail 0.46 ;`,
+then checks fixed point parity with Nail's own compiler. Legacy
+bootstrap remains in distributions until all historical tests and
+module ABI users have been migrated; no two complete sets of old
+language interpreters are claimed to be required for a future release.
+
+---
+
 # v0.45 — First-class numeric domains and source-version declaration
 
 The user-visible syntax is `nail 0.45 ;` at the start of a program.

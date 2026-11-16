@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.45
+# Nail Language Tour — v0.46
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -246,3 +246,47 @@ in Nail prima di migrare tutta la stdlib. La v0.45 nuova richiede
 header. Moduli runtime compilati separatamente e firme `: Div` come
 valori di prima classe non sono ancora supportati per il nuovo ABI.
 L'API di compilazione pura non sostituisce `TypeChecker.check`.
+
+## v0.46 — Relazioni esplicite Add, Sub, Mul e compatibilità di linguaggio
+
+La dichiarazione di versione resta codice Nail, non un commento:
+
+```nail
+nail 0.46 ;
+
+Add : Int Int Int ;
+Add : Int Ratio Ratio ;
+Add : Float Float Float ;
+
+Sub : Int Int Int ;
+Sub : Ratio Int Ratio ;
+
+Mul : Int Int Int ;
+Mul : Ratio Ratio Ratio ;
+
+def add x y : Add = x + y ;
+def subtract x y : Sub = x - y ;
+def multiply x y : Mul = x * y ;
+
+add 1 ( toRatio 2 ) ;
+multiply ( 1 / 3 ) ( 3 / 5 ) ;
+```
+
+Anche `Div` continua ad accettare cinque combinazioni. Tutte e quattro
+le relazioni hanno risultati univoci per una coppia di tipi e un insieme
+chiuso di righe supportate. Le dichiarazioni dei singoli file possono
+restringere l'insieme delle firme ammesse, non aggiungere implementazioni
+né creare conversioni verso Float. L'annotazione `: Add`, `: Sub`,
+`: Mul`, `: Div` è **obbligatoria** quando una funzione astrae sui
+tipi degli argomenti: nessuna generalizzazione numerica automatica.
+Le firme esplicite restano verificabili separatamente per ciascuna riga.
+
+Un runtime v0.46 riconosce anche sorgenti `nail 0.45 ;`, dato che le
+regole numeriche precedenti non sono cambiate; un sorgente `nail 0.47 ;`
+viene rifiutato. Le nuove relazioni non sono ammesse nei programmi
+dichiarati `nail 0.45 ;`.
+
+La libreria standard storica continua ad alimentare il bootstrap di
+produzione; un test separato di v0.46 prova a ricompilarla **interamente**
+nella nuova semantica e a verificarne il punto fisso. Il vecchio percorso
+non sarà eliminato finché tutti i test storici non saranno migrati.
