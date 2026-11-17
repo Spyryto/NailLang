@@ -34,6 +34,13 @@ jobs:
           node build/tests/host-functions.js
           haxe host-functions-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-host-functions/index.php
+      - name: Verify v0.53 source-level typed host imports (Haxe, Node, PHP)
+        run: |
+          haxe host-source-imports-test-interp.hxml
+          haxe host-source-imports-test-js.hxml
+          node build/tests/host-source-imports.js
+          haxe host-source-imports-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-host-source-imports/index.php
       - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
         run: |
           haxe official-bootstrap-test-interp.hxml

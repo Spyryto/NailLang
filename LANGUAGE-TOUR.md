@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.52
+# Nail Language Tour — v0.53
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md) · [Cookbook Dart → Nail](./COOKBOOK-DART.md) · [Lookbook](./LOOKBOOK.md)
 
@@ -494,3 +494,44 @@ La profondità massima è 8 e il limite di nodi visitati è 4096
 (per una lista piatta vengono contati anche le celle e i valori).
 `Vector`, record e oggetti arbitrari non fanno ancora parte di questo FFI.
 Consulta [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
+
+
+## v0.53 — Import runtime dell'host, dichiarati nel sorgente
+
+I moduli compilati separatamente possono dichiarare le dipendenze
+`NailHost` senza ripetere i tipi nel manifesto Haxe.
+La dichiarazione può stare anche **dopo** la funzione che la utilizza:
+è valida per tutto il modulo (non è un import sequenziale).
+
+```nail
+nail 0.53 ;
+def first key =
+  match readMany key with
+  | Ok items -> head items
+  | Error reason -> reason ;
+
+import fetchMany as readMany from NailHost :
+  Text -> CoreResult [ List [ Text ] , Text ] ;
+```
+
+La sintassi `as readMany` è facoltativa; omettendola il simbolo
+locale si chiama `fetchMany`. Le firme ammesse sono monomorfe:
+`Text`, `Bool`, `Int`, `Ratio`, `Float`,
+`List [ T ]`, `CoreResult [ A , B ]` e frecce currificate
+`T -> U`; i valori sono ancora sottoposti ai limiti dell'FFI 0.52.
+
+Questa dichiarazione funziona **solo** quando il sorgente passa per
+`ModuleLinker.compilePublic`, nel quale si può omettere la proprietà
+`imports`. L'import viene trasformato nel manifesto tipizzato già
+esistente; l'host deve continuare a concedere esplicitamente
+`grantFunction`. La VM non ottiene accesso ambientale a JS/PHP.
+
+L'implementazione elimina la dichiarazione prima di compilare,
+sostituendola con spazi e mantenendo intatte le interruzioni di riga.
+Il compilatore Haxe e quello scritto in Nail ricevono esattamente
+lo stesso sorgente normalizzato, senza nuove istruzioni VM.
+
+Gli import di macro `import next from numbers ;` non cambiano.
+Gli import runtime di altri moduli Nail e la forma `use Module { ... }`
+non sono ancora implementati; meritano una progettazione separata
+per non sovrapporre i due meccanismi.

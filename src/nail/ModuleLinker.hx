@@ -58,7 +58,8 @@ typedef PublicSourceModuleImport = {
 typedef PublicSourceModuleSpec = {
   var name:String;
   var source:String;
-  var imports:Array<PublicSourceModuleImport>;
+  /** v0.53 source declarations may supply imports directly. */
+  @:optional var imports:Array<PublicSourceModuleImport>;
   var exports:Array<String>;
 }
 
@@ -218,17 +219,28 @@ class ModuleLinker {
   public static function compilePublic(spec:PublicSourceModuleSpec,
       maxSteps:Int = DEFAULT_STEPS):CompiledModule {
     if (spec == null || spec.name == null || spec.source == null ||
-        spec.imports == null || spec.exports == null)
+        spec.exports == null)
       throw 'Module compiler: incomplete public interface manifest';
     requireName(spec.name, 'module name');
-    if (spec.imports.length > 512 || spec.exports.length > 512)
+    // Runtime declarations in source are hoisted at module level, and
+    // erased before both compiler implementations see the program.
+    var gate = numeric.LanguageVersion.declared(spec.source) == '0.53';
+    var extracted = HostImportDeclarations.extract(spec.source,gate);
+    var source=extracted.source;
+    var requested:Array<PublicSourceModuleImport> =
+      spec.imports == null ? [] : spec.imports.copy();
+    for (entry in extracted.imports) requested.push({
+      module:HostTextGrants.PROVIDER, symbol:entry.symbol,alias:entry.alias,
+      scheme:{term:entry.type,quantified:[],comparable:[]}
+    });
+    if (requested.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
 
-    var modern = numeric.LanguageVersion.isModern(spec.source);
+    var modern = numeric.LanguageVersion.isModern(source);
     var checker = new TypeChecker();
     var aliases = new StringMap<Bool>();
     var imports:Array<LinkedModuleImport> = [];
-    for (item in spec.imports) {
+    for (item in requested) {
       if (item == null) throw 'Module compiler: invalid public import';
       requireName(item.module, 'import module');
       requireName(item.symbol, 'import symbol');
@@ -239,7 +251,7 @@ class ModuleLinker {
       if (item.relation != null) {
         if (item.scheme != null)
           throw 'Module compiler: choose either relation or HM scheme';
-        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(spec.source)))
+        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(source)))
           throw 'Module compiler: relation imports require Nail 0.49';
         var contract=TypeRelation.validate(item.relation);
         for (row in contract.rows)
@@ -269,7 +281,7 @@ class ModuleLinker {
         throw 'Module compiler: duplicate declaration ' + name;
       defined.set(name, true);
     }
-    for (form in new Parser(spec.source).parse()) switch (form) {
+    for (form in new Parser(source).parse()) switch (form) {
       case Define(name, _): declare(name);
       case RecordType(name, _, fields):
         if (!~/^[A-Z][A-Za-z0-9]*$/.match(spec.name) ||
@@ -287,7 +299,7 @@ class ModuleLinker {
         throw 'Module compiler: top-level expressions are not permitted';
     }
 
-    checker.check(spec.source);
+    checker.check(source);
     var exports:Array<LinkedModuleExport> = [];
     var seen = new StringMap<Bool>();
     for (name in spec.exports) {
@@ -297,7 +309,7 @@ class ModuleLinker {
       if (!defined.exists(name))
         throw 'Module compiler: export must be a local definition ' + name;
       if (checker.hasPublicRelation(name)) {
-        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(spec.source)))
+        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(source)))
           throw 'Public interface: constrained export requires a relation-aware ABI';
         var contract=checker.publicRelation(name);
         for (row in contract.rows)
@@ -311,12 +323,12 @@ class ModuleLinker {
       }
     }
 
-    var reference = BytecodeCompiler.compileSource(spec.source);
+    var reference = BytecodeCompiler.compileSource(source);
     var boot = new BootRuntime(maxSteps);
-    var sourceFree = boot.compile(spec.source);
+    var sourceFree = boot.compile(source);
     if (BootstrapImage.encode(reference) != BootstrapImage.encode(sourceFree))
       throw 'Module compiler: reference and source-free Nail bytecode disagree';
-    return moduleArtifact(spec.name,spec.source,imports,exports,sourceFree);
+    return moduleArtifact(spec.name,source,imports,exports,sourceFree);
   }
 
   /** Derive monomorphic public signatures from source with the existing

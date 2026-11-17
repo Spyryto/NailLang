@@ -398,3 +398,33 @@ vengono rifiutati. La funzione si può revocare anche dopo il link.
 Il bridge non concede alcun accesso implicito a file, rete o oggetti
 JavaScript/PHP. I test Haxe/Node/PHP della ricetta sono integrati in
 `HostFunctionRegistryTestMain.hx` e nel workflow CI.
+
+
+## Nail 0.53 — Import host alla fine del file
+
+Quando l'applicazione host espone una funzione `fetchMany`, il sorgente
+del modulo può contenere sia la richiesta della capability sia il
+contratto tipizzato. Non serve più ripetere il tipo nella lista
+`PublicSourceModuleSpec.imports`.
+
+```nail
+nail 0.53 ;
+def first key =
+  match readMany key with
+  | Ok items -> head items
+  | Error reason -> reason ;
+
+import fetchMany as readMany from NailHost :
+  Text -> CoreResult [ List [ Text ] , Text ] ;
+```
+
+`ModuleLinker.compilePublic({ name:'Songs', source:source,
+exports:['first'] })` genera l'import tipizzato. L'host usa ancora
+`grantFunction('Songs','fetchMany',type,callback)` e collega
+l'immagine con `linkImages(...,grants)`. Un tipo dichiarato nel
+sorgente non autorizza alcuna operazione da solo.
+
+L'import può stare a fine file, ma **non** introduce uno scope locale:
+tutte le definizioni del modulo possono utilizzare `readMany`.
+Per la forma `use Syntax { ... }` e per gli import di normali
+moduli runtime dobbiamo ancora decidere la semantica.
