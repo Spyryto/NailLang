@@ -111,3 +111,20 @@ on Haxe `MacroExpander` and AST adapters; rewriting that component in Nail
 would be a substantive hygiene and bootstrap project. This refactor saves
 a full redundant AST scan, **not** total source code; no throughput gain is
 claimed without a separate benchmark.
+
+## 2026-11-17 — Imported macro dialect fix (issue #17)
+
+**Rule:** imported template macro modules must declare the caller's *exact*
+`nail X.Y ;` version if the caller is versioned. If the caller is unversioned,
+so must the module be. Experimental `# nail: 0.29` Exact is still segregated
+from default unversioned Float. This applies to **transitive** imports too.
+
+The Haxe reference parser previously checked only the legacy Exact flag,
+allowing an unversioned macro's Float-typed literal to enter a modern caller
+while Nail's self-compiler rewrote the same literal to `Int`. The shared
+`MacroModuleDialect` validator now rejects that ambiguity **before**
+template expansion and emits a named, actionable diagnostic. Matching numeric
+headers preserve existing hygiene and compiler bytecode parity.
+
+The decision deliberately favors an explicit compilation contract, not
+automatic cross-version macro compatibility or an extra conversion pass.

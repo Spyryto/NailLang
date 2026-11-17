@@ -4,6 +4,7 @@ import nail.Vm;
 import nail.BootRuntime;
 import nail.BootstrapImage;
 import nail.BytecodeCompiler;
+import nail.TypeChecker;
 
 /** Regression for macro expansion before numeric rewrite and only once.
     Both Haxe's AST compiler and Nail's source-free compiler must agree.
@@ -56,6 +57,25 @@ class SinglePassMacroTestMain {
       'expected diagnostic ' + needle + ' got ' + got);
   }
 
+
+  // Compilation of rejected source never mutates the global bindings.
+  // Reuse bootstrapped runtimes across rejection probes to keep CI focused
+  // on language diagnostics rather than repeated standard-library loading.
+  static var rejectingVm:Vm = null;
+  static var rejectingBoot:BootRuntime = null;
+  static function rejectAll(source:String, modules:String->Null<String>,
+      phrase:String):Void {
+    if (rejectingVm == null) {
+      rejectingVm = new Vm(40000000);
+      rejectingVm.loadStdlib();
+      rejectingBoot = new BootRuntime(40000000);
+    }
+    fails(() -> BytecodeCompiler.compileSource(source, modules), phrase);
+    fails(() -> new TypeChecker().check(source, modules), phrase);
+    fails(() -> rejectingVm.compileWithNail(source, modules), phrase);
+    fails(() -> rejectingBoot.compile(source, modules), phrase);
+  }
+
   public static function main():Void {
     runCase(
       'macro lift x = quote ( unquote x + 1 ) ; expand lift 41 ;',
@@ -97,6 +117,39 @@ class SinglePassMacroTestMain {
     runCase(
       'nail 0.49 ; import twice from outer ; expand twice 40 ;',
       ['I:42/1'], nested);
+
+
+    // Macro numeric literals are interpreted in the declaring module's
+    // language dialect. Versionless modules may only enter versionless callers;
+    // versioned modules must match the caller's exact Nail version.
+    var bare = (name:String) -> name == 'numbers'
+      ? 'macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
+    runCase('import next from numbers ; expand next 41 ;', [42], bare);
+    var exact = (name:String) -> name == 'numbers'
+      ? '# nail: 0.29\nmacro next x = quote ( unquote x + 1 ) ; export next ;'
+      : null;
+    runCase('# nail: 0.29\nimport next from numbers ; expand next 41 ;',
+      ['E:42/1'], exact);
+
+    rejectAll('nail 0.49 ; import next from numbers ; expand next 41 ;',
+      bare, 'expected 0.49, got unversioned');
+    var older = (name:String) -> name == 'numbers'
+      ? 'nail 0.48 ; macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
+    rejectAll('nail 0.49 ; import next from numbers ; expand next 41 ;',
+      older, 'expected 0.49, got 0.48');
+    rejectAll('import next from numbers ; expand next 41 ;',
+      resolver, 'expected unversioned, got 0.49');
+    rejectAll('# nail: 0.29\nimport next from numbers ; expand next 41 ;',
+      bare, 'incompatible numeric dialect');
+
+    var wrongNested = (name:String) -> switch name {
+      case 'outer': 'nail 0.49 ; import next from inner ; macro twice x = quote '
+        + '( expand next ( expand next ( unquote x ) ) ) ; export twice ;';
+      case 'inner': 'nail 0.48 ; macro next x = quote ( unquote x + 1 ) ; export next ;';
+      case _: null;
+    };
+    rejectAll('nail 0.49 ; import twice from outer ; expand twice 40 ;',
+      wrongNested, 'incompatible Nail version: inner');
 
     // Count invocations rather than merely comparing outputs: an unnecessary
     // second pass returns equal bytecode but still traverses the complete AST.
