@@ -52,6 +52,13 @@ jobs:
           node build/tests/relation-module-abi.js
           haxe relation-module-abi-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-relation-module-abi/index.php
+      - name: Verify structured source analysis (Haxe, Node, PHP)
+        run: |
+          haxe source-analysis-test-interp.hxml
+          haxe source-analysis-test-js.hxml
+          node build/tests/source-analysis.js
+          haxe source-analysis-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-source-analysis/index.php
       - name: Verify single-pass hygienic macros and numeric rewrite parity (Haxe, JS, PHP)
         run: |
           haxe single-pass-macro-test-interp.hxml
