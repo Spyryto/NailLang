@@ -724,20 +724,6 @@ def parseMacroDirective importing tokens =
 
 # Relation rows are type declarations erased by the Nail-written compiler.
 # Each input pair has one supported output; no arbitrary runtime instances.
-def relationResult relation first second =
-  if first == " Int " then
-    if second == " Int " then
-      if relation == " Div " then " Ratio " else " Int "
-    else if second == " Ratio " then " Ratio "
-    else " None "
-  else if first == " Ratio " then
-    if second == " Ratio " then " Ratio "
-    else if second == " Int " then " Ratio "
-    else " None "
-  else if first == " Float " then
-    if second == " Float " then " Float " else " None "
-  else " None " ;
-
 # Generic relation rows in Nail v0.49 are only static metadata.
 # Source-free compilation discards them; the Haxe TypeChecker checks them.
 def parseGeneralRelationTail tokens count =
@@ -753,22 +739,6 @@ def parseGeneralRelationRow tokens =
     parseError " Expected : after relation name "
   else parseGeneralRelationTail ( tail ( tail tokens ) ) 0 ;
 
-def parseNumericRelationRow tokens =
-  let relation = parsePeek tokens in
-  let next = tail tokens in
-  if parsePeek next != " : " then parseError " Expected : in numeric relation "
-  else let args = tail next in
-    let first = parsePeek args in
-    let second = parsePeek ( tail args ) in
-    let output = parsePeek ( tail ( tail args ) ) in
-    if parsePeek ( tail ( tail ( tail args ) ) ) != " ; " then
-      parseError " Expected ; after numeric row "
-    else
-      let expected = relationResult relation first second in
-      if output == expected then parsePair ( syntaxNode " RelationDecl " [] )
-        ( tail ( tail ( tail ( tail args ) ) ) )
-      else parseError " Unsupported numeric relation row " ;
-
 def isGeneralRelationHead tokens =
   if isEmpty tokens then false
   else if isEmpty ( tail tokens ) then false
@@ -777,10 +747,6 @@ def isGeneralRelationHead tokens =
 
 def parseForm tokens =
   if isGeneralRelationHead tokens then parseGeneralRelationRow tokens
-  else if isFormKeyword tokens " Div " then parseNumericRelationRow tokens
-  else if isFormKeyword tokens " Add " then parseNumericRelationRow tokens
-  else if isFormKeyword tokens " Sub " then parseNumericRelationRow tokens
-  else if isFormKeyword tokens " Mul " then parseNumericRelationRow tokens
   else if isFormKeyword tokens " type " then parseTypeDefinition ( tail tokens )
   else if isFormKeyword tokens " def " then parseNamedDefinition " " ( tail tokens )
   else if isFormKeyword tokens " macro " then parseNamedDefinition " #macro_decl_ " ( tail tokens )
