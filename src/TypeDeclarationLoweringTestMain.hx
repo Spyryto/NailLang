@@ -86,8 +86,11 @@ class TypeDeclarationLoweringTestMain {
       equal(expected, boot.compile(source), 'source-free Nail compiler matches reference');
 
       var actual = Json.stringify(boot.runPlain(source));
-      ok(actual == entry.result,
-        'source-free execution: ' + source + ' expected ' + entry.result + ', got ' + actual);
+      // PHP's JSON encoder escapes '/', unlike Haxe/JS; canonicalize on
+      // the current target before comparing structured sample results.
+      var expectedResult = Json.stringify(Json.parse(entry.result));
+      ok(actual == expectedResult,
+        'source-free execution: ' + source + ' expected ' + expectedResult + ', got ' + actual);
       ok(Json.stringify(new ByteVm(60000000).runPlain(expected)) == actual,
         'reference bytecode execution matches source-free execution');
     }
