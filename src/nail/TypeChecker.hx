@@ -7,6 +7,7 @@ import nail.Ast.Form;
 import nail.NType;
 import nail.TypeRelation.RelationContract;
 import nail.Value;
+import nail.SourcePositions.SourceSpan;
 
 /** Hindley–Milner type inference over the existing five-node AST.
     - Eager application and lexical lambda bindings.
@@ -16,6 +17,9 @@ import nail.Value;
     - Checking is transactional with respect to the type environment.
  */
 class TypeChecker {
+  /** Span of the form whose inference failed during the latest check().
+      Null when parsing failed before a complete form was available. */
+  public var lastFailureSpan(default, null):Null<SourceSpan> = null;
   var global:StringMap<TypeScheme>;
   var records:StringMap<Int>;
   var sums:StringMap<Int>;
@@ -45,7 +49,7 @@ class TypeChecker {
 
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String, ?modules:String->Null<String>):Array<String> {
-
+    lastFailureSpan = null;
     var parser = new Parser(source);
     var forms = parser.parse(modules);
     var rows = numeric.NumericRelation.decodeRows(parser.declaredDivRows);
@@ -65,7 +69,13 @@ class TypeChecker {
     if (parser.languageVersion == '0.49')
       for (name in parser.declaredRelations.keys())
         solver.generalDeclarations.set(name,parser.declaredRelations.get(name));
-    var inferred = solver.run(forms);
+    var inferred:Array<String>;
+    try inferred = solver.run(forms)
+    catch (failure:Dynamic) {
+      if (solver.activeForm != null)
+        lastFailureSpan = parser.provenance.spanOfForm(solver.activeForm);
+      throw failure;
+    }
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
     records = solver.records;
@@ -437,6 +447,8 @@ private class InferFrame {
 
 /** Per-call unifier and program checker. It only mutates its private copy of globals. */
 private class Inference {
+  /** Last visited original form; the analyzer may attach diagnostics to it. */
+  public var activeForm:Null<Form> = null;
   public var globals(default, null):StringMap<TypeScheme>;
   public var records(default, null):StringMap<Int>;
   public var sums(default, null):StringMap<Int>;
@@ -1360,7 +1372,9 @@ private class Inference {
 
   public function run(forms:Array<Form>):Array<String> {
     var inferred:Array<NType> = [];
-    for (form in forms) switch (form) {
+    for (form in forms) {
+      activeForm = form;
+      switch (form) {
       case SumType(name, params, constructors):
         if (globals.exists(name) || records.exists(name) || sums.exists(name)) throw 'Type error: already defined ' + name;
         var polyArgs:Array<NType> = [];
@@ -1532,6 +1546,7 @@ private class Inference {
       case Evaluate(expr):
         validateMatches(expr);
         inferred.push(infer(expr, globals));
+      }
     }
     return [for (t in inferred) describe(t)];
   }
