@@ -58,8 +58,11 @@ typedef PublicSourceModuleImport = {
 typedef PublicSourceModuleSpec = {
   var name:String;
   var source:String;
-  /** v0.53 source declarations may supply imports directly. */
+  /** Explicit imports still work; source declarations can replace them. */
   @:optional var imports:Array<PublicSourceModuleImport>;
+  /** Trusted precompiled image interfaces for v0.54 selective imports.
+      These images are never loaded implicitly or consulted at runtime. */
+  @:optional var dependencies:Array<String>;
   var exports:Array<String>;
 }
 
@@ -224,8 +227,11 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     // Runtime declarations in source are hoisted at module level, and
     // erased before both compiler implementations see the program.
-    var gate = numeric.LanguageVersion.declared(spec.source) == '0.53';
-    var extracted = HostImportDeclarations.extract(spec.source,gate);
+    var sourceVersion=numeric.LanguageVersion.declared(spec.source);
+    var sourceImports=sourceVersion == '0.53' || sourceVersion == '0.54';
+    var moduleImports=sourceVersion == '0.54';
+    var extracted=HostImportDeclarations.extract(
+      spec.source,sourceImports,moduleImports);
     var source=extracted.source;
     var requested:Array<PublicSourceModuleImport> =
       spec.imports == null ? [] : spec.imports.copy();
@@ -233,7 +239,40 @@ class ModuleLinker {
       module:HostTextGrants.PROVIDER, symbol:entry.symbol,alias:entry.alias,
       scheme:{term:entry.type,quantified:[],comparable:[]}
     });
-    if (requested.length > 512 || spec.exports.length > 512)
+    // This is a build-time interface lookup only. Link-time still checks the
+    // canonical signature and explicit dependencies, independently.
+    var available=new StringMap<CompiledModule>();
+    var images=spec.dependencies==null ? [] : spec.dependencies;
+    if (images.length>MAX_MODULES)
+      throw 'Module compiler: too many dependency interfaces';
+    for (image in images) {
+      var dependency=ModuleImage.decode(image);
+      if (dependency.name==HostTextGrants.PROVIDER || dependency.name==spec.name
+          || available.exists(dependency.name))
+        throw 'Module compiler: duplicate or invalid dependency interface';
+      available.set(dependency.name,dependency);
+    }
+    for (entry in extracted.modules) {
+      var dependency=available.get(entry.module);
+      if (dependency==null)
+        throw 'Module compiler: missing dependency interface '+entry.module;
+      if (dependency.dialect!='modern')
+        throw 'Module compiler: incompatible dependency numeric dialect';
+      var found:Null<LinkedModuleExport>=null;
+      for (ex in dependency.exports)
+        if (ex.name==entry.symbol) found=ex;
+      if (found==null)
+        throw 'Module compiler: '+entry.module+' does not export '+entry.symbol;
+      if (found.relation!=null)
+        requested.push({module:entry.module,symbol:entry.symbol,
+          alias:entry.alias,relation:found.relation});
+      else if (found.scheme!=null)
+        requested.push({module:entry.module,symbol:entry.symbol,
+          alias:entry.alias,scheme:found.scheme});
+      else throw 'Module compiler: missing typed public scheme for '
+        +entry.module+'.'+entry.symbol;
+    }
+    if (requested.length>512 || spec.exports.length>512)
       throw 'Module compiler: interface size limit exceeded';
 
     var modern = numeric.LanguageVersion.isModern(source);
@@ -319,7 +358,8 @@ class ModuleLinker {
       } else {
         var publicScheme = checker.publicScheme(name, true); // sums still gated
         if (modern) requireModernType(publicScheme.term);
-        exports.push({name:name, signature:checker.signature(name)});
+        exports.push({name:name, signature:checker.signature(name),
+          scheme:modern ? publicScheme : null});
       }
     }
 
