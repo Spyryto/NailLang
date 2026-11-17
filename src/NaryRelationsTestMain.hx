@@ -114,6 +114,24 @@ class NaryRelationsTestMain {
     // Source without new semantics remains fully compatible.
     eq(new TypeChecker().check('nail 0.48 ; 2 / 3 ;'),['Ratio'],
       'v0.48 numeric source remains compatible');
+    // Upper boundary: sixteen input parameters and one result type.
+    var sixteen=[for (i in 0...17) 'Int'].join(' ');
+    var parameters=[for (i in 1...17) 'p'+i].join(' ');
+    var arguments=[for (i in 1...17) Std.string(i)].join(' ');
+    var maxArity='nail 0.49 ; Many : '+sixteen+' ; '
+      +'def first '+parameters+' : Many = p1 ; first '+arguments+' ;';
+    eq(new TypeChecker().check(maxArity),['Int'],
+      'maximum supported arity is 16');
+    eq(new Vm().runPlain(maxArity),['I:1/1'],
+      'sixteen-argument function executes');
+    var maxReference=BytecodeCompiler.compileSource(maxArity);
+    ok(BootstrapImage.encode(new BootRuntime(40000000).compile(maxArity))
+      ==BootstrapImage.encode(maxReference),
+      'sixteen-argument function self-hosts to identical bytecode');
+    fails(() -> TypeRelation.parseRow(['Int']),
+      'expected 1 to 16 parameter types');
+    fails(() -> TypeRelation.parseRow([for (i in 0...18) 'Int']),
+      'expected 1 to 16 parameter types');
     trace('Nail v0.49 n-ary relation checks passed: '+count);
   }
 }
