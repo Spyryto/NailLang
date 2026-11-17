@@ -537,30 +537,22 @@ class Vm {
     root.bind(alias, capability.asValue());
   }
 
-  /** Execute validated core forms using the same evaluator on every target. */
+  /** Execute core forms through one definition/evaluation path.
+      Haxe's declaration lowering remains the independent bootstrap seed. */
   function executeForms(forms:Array<Form>):Array<Value> {
     var output:Array<Value> = [];
     for (form in forms) {
-      switch (form) {
-        case SumType(name, _, constructors):
-          for (definition in SumLowering.definitions(name, constructors)) switch (definition) {
-            case Define(generatedName, body):
-              if (root.hasHere(generatedName)) throw 'Already defined: ' + generatedName;
-              root.bind(generatedName, evaluate(body, root));
-            case _: throw 'Invalid sum lowering';
-          }
-        case RecordType(name, _, fields):
-          for (definition in RecordLowering.definitions(name, fields)) switch (definition) {
-            case Define(generatedName, body):
-              if (root.hasHere(generatedName)) throw 'Already defined: ' + generatedName;
-              root.bind(generatedName, evaluate(body, root));
-            case _: throw 'Invalid record lowering';
-          }
+      var lowered:Array<Form> = switch (form) {
+        case SumType(name, _, constructors): SumLowering.definitions(name, constructors);
+        case RecordType(name, _, fields): RecordLowering.definitions(name, fields);
+        case _: [form];
+      };
+      for (entry in lowered) switch (entry) {
         case Define(name, body):
           if (root.hasHere(name)) throw 'Already defined: ' + name;
-          var value = evaluate(body, root);
-          root.bind(name, value);
+          root.bind(name, evaluate(body, root));
         case Evaluate(body): output.push(evaluate(body, root));
+        case _: throw 'Unlowered declaration';
       }
     }
     return output;
