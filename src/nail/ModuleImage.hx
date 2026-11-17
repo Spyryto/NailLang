@@ -18,6 +18,8 @@ typedef LinkedModuleExport = {
   var name:String;
   var signature:String;
   @:optional var relation:RelationContract;
+  /** v0.54: canonical, non-executable public type evidence. */
+  @:optional var scheme:TypeScheme;
 }
 
 /** A self-contained separately compiled unit: source is not needed to link. */
@@ -144,7 +146,9 @@ class ModuleImage {
       }],
       exports:[for (item in module.exports)
         {name:item.name, signature:item.signature,
-         relation:item.relation == null ? null : encodeRelation(item.relation)}],
+         relation:item.relation == null ? null : encodeRelation(item.relation),
+         scheme:modern && item.scheme != null
+           ? PublicSchemeImage.encode(item.scheme) : null}],
       bytecode:program
     };
     if (modern) {
@@ -225,9 +229,13 @@ class ModuleImage {
       if (importAliases.exists(label))
         throw 'Module image: cannot export an imported alias ' + label;
       var signed=signature(Reflect.field(item,'signature'));
+      var relation=decodeRelation(Reflect.field(item,'relation'),signed,modern);
+      var rawScheme=Reflect.field(item,'scheme');
+      if (rawScheme!=null && (!modern || relation!=null))
+        throw 'Module image: incompatible public scheme metadata';
       exports.push({
-        name:label, signature:signed,
-        relation:decodeRelation(Reflect.field(item,'relation'),signed,modern)
+        name:label, signature:signed, relation:relation,
+        scheme:rawScheme==null ? null : PublicSchemeImage.decode(rawScheme,signed)
       });
     }
     // Older modern sources can share the v3 transport but cannot claim

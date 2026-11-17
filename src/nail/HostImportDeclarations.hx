@@ -14,13 +14,20 @@ typedef ParsedHostImport = {
   var type:NType;
 }
 
+typedef ParsedModuleImport = {
+  var module:String;
+  var symbol:String;
+  var alias:String;
+}
+
 typedef HostImportExtraction = {
   var source:String;
   var imports:Array<ParsedHostImport>;
+  var modules:Array<ParsedModuleImport>;
 }
 
 class HostImportDeclarations {
-  public static inline var VERSION = '0.53';
+  public static inline var VERSION = '0.54';
   public static inline var MAX_IMPORTS = 64;
   public static inline var MAX_TYPE_DEPTH = 24;
 
@@ -85,10 +92,12 @@ class HostImportDeclarations {
       imports (import x from OtherModule ;) or quoted strings. A runtime
       import can appear before or after the consuming definition: it is a
       module-scoped declaration, not a sequential statement. */
-  public static function extract(source:String, enabled:Bool):HostImportExtraction {
-    if (!enabled) return {source:source,imports:[]};
+  public static function extract(source:String, enabled:Bool,
+      allowModules:Bool = false):HostImportExtraction {
+    if (!enabled) return {source:source,imports:[],modules:[]};
     var tokens=SourcePositions.scan(source);
     var imports:Array<ParsedHostImport> = [];
+    var modules:Array<ParsedModuleImport> = [];
     var removed:Array<{start:Int,end:Int}> = [];
     var depth=0;
     var i=0;
@@ -127,6 +136,23 @@ class HostImportDeclarations {
             removed.push({start:tokens[i].start,end:tokens[j].end});
             i=j+1;
             continue;
+          } else if (allowModules && j < tokens.length) {
+            var provider=tokens[j++].text;
+            if (!ModuleImage.validName(provider) ||
+                !ModuleImage.validName(symbol) ||
+                !ModuleImage.validName(alias) ||
+                provider == HostTextGrants.PROVIDER)
+              throw error('invalid module import',tokens[i]);
+            // No signature after a normal module import: the provider's
+            // compiled and verified public interface supplies it.
+            if (j>=tokens.length || tokens[j].text!=';')
+              throw error('expected ; after module import',tokens[i]);
+            if (modules.length>=MAX_IMPORTS)
+              throw error('too many module imports',tokens[i]);
+            modules.push({module:provider,symbol:symbol,alias:alias});
+            removed.push({start:tokens[i].start,end:tokens[j].end});
+            i=j+1;
+            continue;
           }
         }
       }
@@ -139,7 +165,8 @@ class HostImportDeclarations {
       }
       i++;
     }
-    if (removed.length == 0) return {source:source,imports:imports};
+    if (removed.length == 0)
+      return {source:source,imports:imports,modules:modules};
     var out=new StringBuf();
     var offset=0;
     for (range in removed) {
@@ -152,6 +179,6 @@ class HostImportDeclarations {
       offset=range.end;
     }
     out.add(source.substring(offset));
-    return {source:out.toString(),imports:imports};
+    return {source:out.toString(),imports:imports,modules:modules};
   }
 }

@@ -41,6 +41,13 @@ jobs:
           node build/tests/host-source-imports.js
           haxe host-source-imports-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-host-source-imports/index.php
+      - name: Verify v0.54 typed module source imports (Haxe, Node, PHP)
+        run: |
+          haxe module-source-imports-test-interp.hxml
+          haxe module-source-imports-test-js.hxml
+          node build/tests/module-source-imports.js
+          haxe module-source-imports-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-module-source-imports/index.php
       - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
         run: |
           haxe official-bootstrap-test-interp.hxml

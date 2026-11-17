@@ -339,3 +339,52 @@ haxe host-source-imports-test-php.hxml && php build/tests/php-host-source-import
 Per ora solo il compilatore di moduli pubblici interpreta questa nuova
 sintassi; gli import runtime di moduli Nail e i namespace qualificati
 non sono compresi nell'incremento.
+
+
+### v0.54 — Compilazione di moduli con import selettivi
+
+Il provider viene compilato una volta, con una propria interfaccia
+pubblica verificata. Un programma host può compilare il modulo client
+usando direttamente la sua immagine, senza duplicare il tipo dell'import:
+
+```nail
+nail 0.54 ;
+def say name = greet name ;
+import greet from Words ;
+```
+
+```haxe
+var provider = nail.ModuleImage.encode(
+  nail.ModuleLinker.compilePublic({
+    name:'Words',
+    source:'nail 0.54 ; def greet name = textConcat " Ciao " name ;',
+    exports:['greet']
+  }));
+
+var client = nail.ModuleImage.encode(
+  nail.ModuleLinker.compilePublic({
+    name:'Client', source:source, exports:['say'],
+    dependencies:[provider]
+  }));
+
+// L'immagine del provider serve sia alla compilazione del client,
+// sia successivamente al collegamento ed all'esecuzione.
+var linked = nail.ModuleLinker.linkImages([client, provider]);
+var answer = linked.invoke('Client', 'say', nail.Value.Text('Nail'));
+```
+
+Si possono importare anche funzioni polimorfe e vincolate con `Eq`:
+la loro descrizione strutturata è conservata nell'interfaccia compilata
+dalla 0.54, ma validata sempre contro la firma canonica. Il compilatore
+non cerca moduli per nome e il linker continua a rifiutare dipendenze
+mancanti, firme incompatibili e ABI diversi.
+
+```sh
+haxe seed-image.hxml
+haxe module-source-imports-test-interp.hxml
+haxe module-source-imports-test-js.hxml && node build/tests/module-source-imports.js
+haxe module-source-imports-test-php.hxml && php build/tests/php-module-source-imports/index.php
+```
+
+`use Module { ... }` non è ancora stato implementato; la scelta della
+sua sintassi e del suo scope è sospesa in attesa di discussione.
