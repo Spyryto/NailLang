@@ -2,6 +2,7 @@ package nail;
 
 import nail.Ast.Expr;
 import nail.Ast.Form;
+import nail.BindingAnalysis.BindingIdentity;
 import nail.SourcePositions.SourceSpan;
 import nail.SourcePositions.SourceToken;
 
@@ -104,8 +105,10 @@ class SourceAnalysis {
       };
       if (root == null) continue;
       var pending:Array<Expr> = [root];
-      while (pending.length > 0) switch (pending.pop()) {
-        case Var(name) as expr:
+      while (pending.length > 0) {
+        var expr = pending.pop();
+        switch (expr) {
+        case Var(name):
           // Native primitives and generated identifiers remain an internal
           // implementation detail; surface references have original spans.
           if (StringTools.startsWith(name, '#')) continue;
@@ -122,6 +125,7 @@ class SourceAnalysis {
           pending.push(yes);
           pending.push(condition);
         case Literal(_):
+        }
       }
     }
     results.sort((a, b) -> a.span.start == b.span.start
@@ -138,7 +142,7 @@ class SourceAnalysis {
     catch (error:Dynamic) {
       var message = Std.string(error);
       var tokens:Array<SourceToken> = [];
-      try tokens = SourcePositions.scan(source) catch (_:Dynamic) {}
+      try { tokens = SourcePositions.scan(source); } catch (_:Dynamic) {}
       report.diagnostics.push({phase:'parse', message:message,
         span:parseErrorSpan(source, tokens, message)});
       return report;
@@ -165,7 +169,7 @@ class SourceAnalysis {
 
     var checker = new TypeChecker();
     var inferred:Array<String>;
-    try inferred = checker.check(source, modules)
+    try inferred = checker.checkParsed(parser, forms)
     catch (error:Dynamic) {
       report.diagnostics.push({phase:'type', message:Std.string(error),
         span:checker.lastFailureSpan});
