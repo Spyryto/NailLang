@@ -1,0 +1,3 @@
+-cp src
+-main SourceAnalysisTestMain
+-php build/tests/php-source-analysis
