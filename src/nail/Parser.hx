@@ -8,6 +8,11 @@ import nail.SumLowering;
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
   final tokens:Array<String>;
+  /** Experimental opt-in contextual DSL interfaces. This deliberately
+      does not change the normal 0.54 parser or language version. The
+      caller supplies visible field names (from a checked interface). */
+  final contextFields:Null<haxe.ds.StringMap<Array<String>>>;
+  var nextContext:Int = 0;
   /** Original token coordinates, parallel to tokens. */
   public final tokenPositions:Array<nail.SourcePositions.SourceToken>;
   /** Optional original-source spans for the parser's core nodes. */
@@ -30,7 +35,9 @@ class Parser {
   public final generalRows:haxe.ds.StringMap<Array<Array<String>>>;
 
 
-  public function new(source:String) {
+  public function new(source:String,
+      ?contextFields:haxe.ds.StringMap<Array<String>>) {
+    this.contextFields=contextFields;
     languageVersion = numeric.LanguageVersion.declared(source);
     modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
@@ -271,6 +278,40 @@ class Parser {
       namedList(names)), namedList(values));
   }
 
+  /** A context block and a record literal have disjoint openings:
+      Name { field = expr ... } is an existing named-record constructor;
+      Name { expression } opens a context if the experimental caller
+      supplied a checked interface for Name.
+      No new AST constructor or VM opcode: lower to nested lexical let
+      bindings with a single receiver evaluation. */
+  function parseContext(name:String):Expr {
+    expect('{');
+    var members=contextFields.get(name);
+    if (members==null)
+      throw 'Context probe: missing checked interface for '+name;
+    if (members.length==0 || members.length>128)
+      throw 'Context probe: invalid field count for '+name;
+    var seen=new haxe.ds.StringMap<Bool>();
+    for (member in members) {
+      if (!isName(member) || member=='_' || seen.exists(member))
+        throw 'Context probe: invalid or duplicate field '+member;
+      seen.set(member,true);
+    }
+    var inner=expression();
+    expect('}');
+    // The internal name cannot be written by Nail source code.
+    var receiver='#nail_context_'+(nextContext++);
+    var i=members.length;
+    while(i>0) {
+      i--;
+      var member=members[i];
+      var projection:Expr=Apply(Apply(Var('#recordGet'),
+        Var(receiver)),Literal(Text(member)));
+      inner=Apply(Lambda(member,inner),projection);
+    }
+    return Apply(Lambda(receiver,inner),Var(name));
+  }
+
   function atom():Expr {
     var first = at;
     return provenance.expression(atomUntracked(), first, at);
@@ -349,8 +390,18 @@ class Parser {
     }
     if (token == 'true' || token == 'false') return Literal(Boolean(token == 'true'));
     if (isName(token)) {
-      if (recordTypePattern.match(token) && peek() == '{')
-        return parseNamedRecord(token);
+      if (peek() == '{') {
+        // Syntactic lookahead only; the type checker is not consulted.
+        // A field assignment after '{' always means a record constructor.
+        if (recordTypePattern.match(token) &&
+            at+2<tokens.length && isName(tokens[at+1]) &&
+            tokens[at+2]=='=')
+          return parseNamedRecord(token);
+        if (contextFields!=null && contextFields.exists(token))
+          return parseContext(token);
+        if (recordTypePattern.match(token))
+          return parseNamedRecord(token);
+      }
       return Var(modernMode ? modernBuiltinName(token) : exactMode ? exactBuiltinName(token) : token);
     }
     throw 'Unexpected token ' + token + ' at token ' + at;
