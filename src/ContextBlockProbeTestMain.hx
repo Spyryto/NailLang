@@ -120,7 +120,7 @@ class ContextBlockProbeTestMain {
       'curried annotations do not alter function evaluation');
     var valueAlias=typedHeader
       +'def htmlValue : Html = { h2 = fun x -> x , div = fun x -> x } ; '
-      +'htmlValue { h2 " Value " } ;';
+      +'htmlValue . h2 " Value " ;';
     equal(typeRows(valueAlias,new StringMap()).types,['Text'],
       'value annotation gives the checker a named structural contract');
     // The parser only opens contextual names that were explicitly annotated
