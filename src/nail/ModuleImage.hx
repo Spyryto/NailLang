@@ -127,6 +127,8 @@ class ModuleImage {
       if (item.relation != null) relations=true;
     if (relations && !modern)
       throw 'Module image: relation metadata requires modern numeric ABI';
+    if (relations && module.sourceVersion != '0.49')
+      throw 'Module image: relation metadata requires Nail 0.49';
     if (modern && !validSourceVersion(module.sourceVersion))
       throw 'Module image: unsupported modern source version';
     if (!modern && module.dialect != '0.27' && module.dialect != '0.29')
@@ -184,6 +186,8 @@ class ModuleImage {
           !validSourceVersion(cast versionField))
         throw 'Module image: unsupported modern source version';
       if (relational) {
+        if (versionField != '0.49')
+          throw 'Module image: relation metadata requires Nail 0.49';
         if (Reflect.field(data,'relationAbi') != RELATION_ABI)
           throw 'Module image: incompatible relation ABI';
       } else if (Reflect.hasField(data,'relationAbi'))
