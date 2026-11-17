@@ -54,7 +54,7 @@ class OfficialBootstrapTestMain {
 
     // Older bootstrap decoders reject the new image at the format gate.
     fails(() -> BootstrapImage.decode(Json.stringify({
-      format:BootstrapImage.MODERN_FORMAT, languageVersion:'0.51',
+      format:BootstrapImage.MODERN_FORMAT, languageVersion:'0.52',
       records:Reflect.field(raw,'records')
     })), 'language version');
     fails(() -> BootstrapImage.decode(Json.stringify({
@@ -63,7 +63,7 @@ class OfficialBootstrapTestMain {
       records:Reflect.field(raw,'records')
     })), 'format');
     fails(() -> new BootRuntime(35000000).runPlain(
-      'nail 0.51 ; 1 ;'), 'Unsupported Nail language version');
+      'nail 0.52 ; 1 ;'), 'Unsupported Nail language version');
     var legacy=BootstrapImage.encode(image);
     ok(!BootstrapImage.isModernImage(legacy),
       'new image marker is not silently added to legacy envelope');
