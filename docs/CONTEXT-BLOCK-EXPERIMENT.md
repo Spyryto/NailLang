@@ -97,10 +97,13 @@ until an auditable stable ABI exists.
    `( chooseRenderer target ) { ... }`. This keeps the parser's experiment
    bounded while demonstrating that the *lowered core* only needs a single
    receiver evaluation.
-4. Every field of the supplied interface is projected eagerly in this
-   prototype. A production design could instead lower **referenced**
-   fields. Thus validation currently rejects missing fields even if the
-   body does not use them.
+4. The prototype now projects only **free field references**
+   actually used by the contextual expression. An unused interface field
+   does not become a type requirement; local lambdas, `let` bindings
+   and nested contexts correctly shadow corresponding names. This
+   remains lexically resolved against the externally supplied candidate
+   field set; automatic discovery for an unknown parameter's context is
+   still a distinct design problem.
 5. Positions of generated projections and lexical binders are not yet
    source-provenance mapped. This must be solved before production diagnostics.
 6. Unlike public module imports (0.54), the experimental record interface
