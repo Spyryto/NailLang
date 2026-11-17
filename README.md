@@ -25,6 +25,7 @@ This repository reconstructs the original NailSeed prototype as a clean, version
 - Current Haxe/JS/PHP build and targeted test workflow: .github/workflows/ci.yml
 - Tagged distributions (full VM and source-free boot): .github/workflows/release.yml
 - Stage-zero seed vs Nail self-hosted stages, runtime boundary and verification: docs/BOOTSTRAP.md
+- Editor-independent structured source analysis: docs/ANALYSIS.md
 
 The v0.16, v0.28 and v0.29 numeric experiments are preserved under experiments/numeric in their historical tags. They are research experiments, not replacements for the main compiler. Python is not required for local builds and tests; 270 independent numeric reference cases are committed.
 
