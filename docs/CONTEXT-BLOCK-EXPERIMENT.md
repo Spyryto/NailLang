@@ -17,6 +17,13 @@ def view title text = Html { [ h2 title , div text ] } ;
 The contextual expression is not a macro transformer and is not automatically
 a sequence of effects: it returns the value of the contained expression.
 
+**Capitalization:** `Html { expression }` and `html { expression }`
+share the same grammar. The identifiers themselves remain case-sensitive,
+so they can refer to different structural values and produce different results.
+Uppercase remains meaningful for nominal type declarations and constructors,
+not for contextual block recognition. A value named `Html` does not become
+a DSL merely because it is capitalized.
+
 ## What is implemented
 
 An **opt-in parser proof**:
@@ -31,9 +38,11 @@ The parser distinguishes `Person { name = value }` from
 `Html { expression }` by the immediate tokens `name =`, not by type
 inference. Existing lowercase function application to an anonymous record
 (`render { name = value }`) is likewise preserved. Other legacy record
-constructions remain unchanged. The explicit context map supplies the
-list of imported field names and is intentionally
-**not** inferred from an arbitrary record value in this experiment.
+constructions remain unchanged. The context field map can now be **derived
+from an already checked, closed structural value interface** with
+`ContextInterfaces.fromChecked(checker, ["Html", "html"])`.
+This bridge does not infer interfaces from unknown function parameters or
+automatically integrate context discovery into the complete source compiler.
 
 The block is lowered immediately to the existing five-expression AST core:
 
