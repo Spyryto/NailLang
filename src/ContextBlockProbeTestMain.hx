@@ -127,7 +127,7 @@ class ContextBlockProbeTestMain {
     // in the function; bare values are not automatically opened here.
     fails(() -> typeRows(typedHeader+
       'def render ( html : Missing ) title = html { h2 title } ;',
-      new StringMap()), 'unknown structural contract',
+      new StringMap()), 'unknown type',
       'unknown parameter contract rejected');
     fails(() -> typeRows(typedHeader+
       'def render ( html : Html ) title = html { h2 title } ; '
