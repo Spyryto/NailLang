@@ -32,6 +32,8 @@ class PublicSchemeImage {
         encodeType(b,depth+1,budget)];
       case TStructural(fields): ['struct',[for (f in fields)
         {name:f.name,type:encodeType(f.type,depth+1,budget)}]];
+      case TOpenStructural(_, _):
+        throw 'Public scheme image: open structural rows are experimental';
       case TRecord(name): ['record',name];
       case TRecordApplied(name,items): ['applied',name,
         [for (t in items) encodeType(t,depth+1,budget)]];
