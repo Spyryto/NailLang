@@ -581,3 +581,66 @@ This is an **optional distribution signing tool** with one Node runtime
 dependency, not part of `haxe seed-image.hxml`, the Nail compiler,
 or the regular JS/PHP local build. Test it with
 `node --test tools/sign-modules.test.mjs`.
+
+
+## v0.51 — typed synchronous host functions (NailHost)
+
+`HostTextGrants.grantFunction(module, symbol, type, callback, maxCalls)`
+extends the existing explicit `NailHost` provider. It does not give Nail
+ambient access to Node.js, browsers, PHP globals or the filesystem.
+
+The host specifies a closed, monomorphic curried `NType` and supplies a
+callback receiving `Array<Value>`. Supported argument and ordinary result
+types: `Text`, `Bool`, `Int`, `Ratio`, `Float`. Results may also use
+`CoreResult[A, B]` where `A` and `B` are supported atomic types.
+All arguments and returned values are checked at the runtime boundary.
+Callbacks are synchronous, support 1–8 arguments and are curried in Nail.
+
+```haxe
+var type = nail.NType.TFunction(
+  nail.NType.TText,
+  nail.NType.TSum('CoreResult',[nail.NType.TText,nail.NType.TText]));
+var grants = new nail.HostTextGrants();
+grants.grantFunction('Greeter','greet',type,args -> {
+  return switch (args[0]) {
+    case nail.Value.Text(name):
+      nail.ResultValue.ok(nail.Value.Text('Ciao, ' + name));
+    case _: throw 'unreachable: checked by the bridge';
+  };
+}, 100);
+```
+
+Compile a Nail module with a public import manifest referencing
+`module:'NailHost', symbol:'greet'`, `alias:'hostGreet'` and a
+monomorphic `scheme` whose `term` equals the type above. The linker
+checks canonical signatures before installing the function. The Nail
+source can then call `hostGreet` normally.
+
+```nail
+nail 0.51 ;
+def greeting name =
+  match hostGreet name with
+  | Ok value -> value
+  | Error reason -> reason ;
+```
+
+`Ok` and `Error` are source-level aliases for the historical
+`CoreOk` and `CoreErr` constructors. They share the same
+`CoreResult` representation and exhaustive match identity;
+`Ok?`, `Error?`, `Ok.0`, `Error.0` are available too.
+The literal source-syntax error node called `Error` remains a distinct
+compiler-internal Syntax tag; the namespaces do not conflict.
+
+Registration is per consumer module and host symbol. The grant is not
+serialized in the module image. `revokeFunction(module,symbol)` takes
+effect even on captured/partially applied imports. Calls have a quota
+(default 1,024 attempted completions), with no callback access for
+rejected argument types. Exceptions are sanitized before reaching Nail;
+type/return-shape violations fail closed. The embedding application
+must still ensure that callback implementations are trustworthy,
+bounded, nonblocking and authenticated before granting them to compiled
+images. There is no arbitrary object bridge, reflective FFI, async
+protocol or automatic filesystem/network access in 0.51.
+
+Run `haxe host-functions-test-interp.hxml`, or compile the
+`host-functions-test-js.hxml` / `host-functions-test-php.hxml` targets.
