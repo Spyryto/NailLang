@@ -75,20 +75,6 @@ class NumericRelation {
           + left + ' ' + right;
   }
 
-  public static function decodeRows(raw:Array<{left:String,right:String,result:String}>,
-      relation:String = 'Div'):Array<BinaryRelationRow> {
-    if (raw == null) return [];
-    if (raw.length > 5) throw 'Type relation: too many '+relation+' rows';
-    var result:Array<BinaryRelationRow>=[];
-    var seen:Array<{left:String,right:String,result:String}>=[];
-    for (r in raw) {
-      requireModernRow(r.left,r.right,r.result,seen,relation);
-      seen.push(r);
-      result.push(row(fromName(r.left),fromName(r.right),fromName(r.result)));
-    }
-    return result;
-  }
-
   public static function result(name:String,a:NType,b:NType,
       ?declared:Array<BinaryRelationRow>):NType {
     for (r in rows(name, declared))
