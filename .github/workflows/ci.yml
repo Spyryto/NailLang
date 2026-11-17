@@ -98,8 +98,10 @@ jobs:
           node build/tests/explicit-relations.js
           haxe explicit-relations-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
-      - name: Check Nail-written modern compiler fixed point
-        run: haxe rebootstrap-image.hxml
+      - name: Check Nail-written modern compiler fixed point on Node
+        run: |
+          haxe rebootstrap-node.hxml
+          node build/tests/rebootstrap-node.js
       - name: Test distributed source-free bootstrap runtime (Haxe, Node, PHP)
         run: |
           haxe boot-test-interp.hxml

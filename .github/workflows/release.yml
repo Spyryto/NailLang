@@ -92,7 +92,8 @@ jobs:
           XDEBUG_MODE=off php build/tests/php-arithmetic-relations/index.php
           haxe modern-bootstrap-test-js.hxml
           node build/tests/modern-bootstrap.js
-          haxe rebootstrap-image.hxml
+          haxe rebootstrap-node.hxml
+          node build/tests/rebootstrap-node.js
           haxe boot-test-interp.hxml
           haxe boot-test-js.hxml
           node build/tests/boot.js

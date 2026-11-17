@@ -1,0 +1,5 @@
+-cp src
+-main RebootstrapNodeMain
+-D nail_seed_only
+-D js-es=6
+-js build/tests/rebootstrap-node.js

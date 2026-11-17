@@ -157,7 +157,8 @@ Haxe `--interp` variant remains available for debugging.
 
 ```sh
 haxe seed-image.hxml
-haxe rebootstrap-image.hxml
+haxe rebootstrap-node.hxml
+node build/tests/rebootstrap-node.js
 haxe boot-js.hxml
 haxe boot-php.hxml
 node -e 'const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); console.log(NailSeedBoot.create().runPlain("nail 0.47 ; 1 / 3 + 1 / 6 ;"))'
@@ -186,3 +187,9 @@ dei moduli compilati separatamente (`runtime-module.v1`).
 **Limite residuo:** l'esecuzione `BootRuntime.run` non invoca
 automaticamente `TypeChecker`; quando serve la garanzia delle firme
 dichiarate, eseguire `TypeChecker.check` prima della compilazione.
+
+### Ricompilazione senza Node
+
+La procedura `haxe rebootstrap-image.hxml` rimane supportata per un
+ambiente che dispone solo di Haxe: produce la stessa immagine con verifica
+del punto fisso, ma il suo interprete è più lento della variante Node.
