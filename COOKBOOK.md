@@ -2,6 +2,8 @@
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
+**Se arrivi da Dart**, parti dal [cookbook comparativo Nail × Dart](./COOKBOOK-DART.md) per `for`, `while`, `map`, `fold`, record e ADT; il [Lookbook](./LOOKBOOK.md) distingue costrutti mancanti e alternative già esprimibili in Nail 0.49.
+
 Ricette progressive per usare **questa** versione, non le feature delle release successive. Separare gli snippet in file diversi quando ridefiniscono lo stesso nome; leggere sempre i risultati come valori restituiti dalla VM, non come output automatico della pagina web.
 
 ## Ricetta 1 — risultato immediato
