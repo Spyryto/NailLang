@@ -52,6 +52,13 @@ jobs:
           node build/tests/relation-module-abi.js
           haxe relation-module-abi-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-relation-module-abi/index.php
+      - name: Verify single-pass hygienic macros and numeric rewrite parity (Haxe, JS, PHP)
+        run: |
+          haxe single-pass-macro-test-interp.hxml
+          haxe single-pass-macro-test-js.hxml
+          node build/tests/single-pass-macro.js
+          haxe single-pass-macro-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-single-pass-macro/index.php
       - name: Verify independent runtime primitive core (Haxe, Node, PHP)
         run: |
           haxe runtime-core-test-interp.hxml
