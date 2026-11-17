@@ -428,3 +428,32 @@ L'import può stare a fine file, ma **non** introduce uno scope locale:
 tutte le definizioni del modulo possono utilizzare `readMany`.
 Per la forma `use Syntax { ... }` e per gli import di normali
 moduli runtime dobbiamo ancora decidere la semantica.
+
+
+## v0.54 — Richiamare una funzione Nail esportata da un modulo
+
+In una build a moduli, il modulo `Words` può esportare una funzione
+`greet` e il client può importarla anche in fondo al file:
+
+```nail
+nail 0.54 ;
+def welcome name = greet name ;
+import greet from Words ;
+```
+
+Oppure con un alias:
+
+```nail
+nail 0.54 ;
+def welcome name = hello name ;
+import greet as hello from Words ;
+```
+
+La build passa l'immagine compilata di `Words` a
+`ModuleLinker.compilePublic` tramite `dependencies`, che recupera
+la firma dalla sua interfaccia senza richiedere il sorgente originale.
+Il linker riceve entrambe le immagini durante l'esecuzione.
+
+Questa ricetta non permette di chiamare qualsiasi funzione in un file:
+solo gli export pubblici sono importabili, i nomi locali importati
+restano espliciti e la dichiarazione non concede capability host.
