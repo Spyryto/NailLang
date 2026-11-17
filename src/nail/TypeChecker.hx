@@ -74,7 +74,7 @@ class TypeChecker {
     }
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
-      newTables, functionContracts);
+      newTables, functionContracts, parser.experimentalContexts);
     solver.declarations = parser.declaredRelations;
     if (parser.modernMode)
       for (name in parser.declaredRelations.keys()) {
@@ -167,6 +167,7 @@ class TypeChecker {
           throw 'Module type error: invalid structural record interface';
         for (field in fields) pending.push(field.type);
       case TFunction(a, b): pending.push(b); pending.push(a);
+      case TOpenStructural(_, _): throw 'Module type error: experimental open rows cannot be imported';
       case TVariable(_):
         throw 'Module type error: polymorphic import signatures are not yet supported';
       case TSum('CoreResult', args) if (args.length == 2):
@@ -197,6 +198,7 @@ class TypeChecker {
           throw 'Public interface: invalid structural record fields';
         for (field in fields) work.push(field.type);
       case TFunction(a, b): work.push(b); work.push(a);
+      case TOpenStructural(_, _): throw 'Public interface: experimental open rows cannot be exported';
       case TVariable(_):
         throw 'Public interface: unconstrained type variable in export ' + name;
       case TSum('CoreResult', args) if (args.length == 2):
@@ -243,6 +245,7 @@ class TypeChecker {
             throw 'Public interface: invalid structural record fields';
           for (field in fields) pending.push(field.type);
         case TFunction(a, b): pending.push(b); pending.push(a);
+        case TOpenStructural(_, _): throw 'Public interface: experimental open rows cannot be exported';
         case TVariable(id):
           if (!quantified.exists(id))
             throw 'Public interface: free type variable in public scheme';
@@ -471,13 +474,16 @@ private class Inference {
   public final modernMode:Bool;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
+  final openRows:Bool;
 
   public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
       knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>,
       modernMode:Bool = false,
       ?knownTables:StringMap<RelationContract>,
-      ?knownContracts:StringMap<RelationContract>) {
+      ?knownContracts:StringMap<RelationContract>,
+      openRows:Bool = false) {
+    this.openRows=openRows;
     nextId = start;
     generalContracts = new StringMap();
     if (knownTables != null)
@@ -670,6 +676,9 @@ private class Inference {
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TStructural(fields): for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -685,6 +694,9 @@ private class Inference {
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TStructural(fields): for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
       }
@@ -811,6 +823,9 @@ private class Inference {
           for (item in types) stack.push(item);
         case TStructural(fields):
           for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -1351,6 +1366,7 @@ private class Inference {
             if (!TypeChecker.validStructural(fields))
               throw 'Generated type contract: invalid structural record type';
             for (field in fields) pending.push(field.type);
+          case TOpenStructural(_, _): throw 'Generated type contract: experimental open rows forbidden';
           case _:
         }
       }
