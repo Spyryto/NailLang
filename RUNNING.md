@@ -224,6 +224,9 @@ haxe seed-image.hxml
 haxe nary-relations-test-interp.hxml
 haxe nary-relations-test-js.hxml && node build/tests/nary-relations.js
 haxe nary-relations-test-php.hxml && php build/tests/php-nary-relations/index.php
+haxe relation-module-abi-test-interp.hxml
+haxe relation-module-abi-test-js.hxml && node build/tests/relation-module-abi.js
+haxe relation-module-abi-test-php.hxml && php build/tests/php-relation-module-abi/index.php
 haxe modern-module-abi-test-interp.hxml
 haxe modern-module-abi-test-js.hxml && node build/tests/modern-module-abi.js
 haxe modern-module-abi-test-php.hxml && php build/tests/php-modern-module-abi/index.php
