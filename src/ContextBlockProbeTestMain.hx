@@ -111,6 +111,14 @@ class ContextBlockProbeTestMain {
     equal(run(nested,ctx),[['H:First','S:C:Inner']],
       'inner context shadows an outer field with the same name');
 
+    var onlyOuterH2='def Html = { '
+      +'h2 = fun x -> textConcat " H: " x } ; '+svg
+      +'Html { [ h2 " Outer " , Svg { div ( circle " Inner " ) } ] } ;';
+    equal(typeRows(onlyOuterH2,ctx).types,['[Text]'],
+      'nested context shadows outer div without requiring its field');
+    equal(run(onlyOuterH2,ctx),[['H:Outer','S:C:Inner']],
+      'nested contexts only project actually referenced fields');
+
     var global='def h2 x = textConcat " Global: " x ; '+setup
       +'Html { h2 " Selected " } ;';
     equal(run(global,ctx),['H:Selected'],
@@ -140,8 +148,8 @@ class ContextBlockProbeTestMain {
     equal(run(macroCase,ctx),['H:M'],
       'macro expansion works after contextual lowering to core AST');
 
-    // The same context value can travel through a function parameter at
-    // runtime, but closed structural HM cannot infer a free parameter row.
+    // A context value is a parameter: the opt-in solver infers only fields
+    // referenced in the block, without a named interface or new VM opcode.
     var param=setup
       +'def display html title = html { h2 title } ; '
       +'display Html " Dynamic " ;';
@@ -151,6 +159,15 @@ class ContextBlockProbeTestMain {
       'open row constraints type-check a contextual record argument');
     ok(typeRows(param,ctx).checker.signature('display').indexOf('h2:')>=0,
       'context parameter signature requires h2 without an interface');
+
+    var onlyH2=setup
+      +'def small = { h2 = fun x -> textConcat " Small: " x } ; '
+      +'def display html title = html { h2 title } ; '
+      +'display small " Minimal " ;';
+    equal(typeRows(onlyH2,ctx).types,['Text'],
+      'contextual DSL accepts a smaller structural record with h2 only');
+    equal(run(onlyH2,ctx),['Small:Minimal'],
+      'unused interface fields are not eagerly projected at runtime');
 
     var plain='def getH2 renderer title = renderer . h2 title ; '
       +setup
