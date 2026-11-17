@@ -1,0 +1,13 @@
+# Nail v0.47: exact by default, Float only with decimal points.
+nail 0.47 ;
+
+Add : Int Int Int ;
+Div : Int Int Ratio ;
+
+def add x y : Add = x + y ;
+def divide x y : Div = x / y ;
+
+add 20 22 ;
+divide 1 3 ;
+1 / 3 + 1 / 6 ;
+toFloat ( 1 / 2 ) ;

@@ -34,7 +34,9 @@ class Rebootstrap {
       case _:
         throw 'Self-compiler returned non-Syntax value';
     }
-    var rebuilt = BootstrapImage.encode(program);
+    var rebuilt = BootstrapImage.isModernImage(seedImage)
+      ? BootstrapImage.encodeModern(program)
+      : BootstrapImage.encode(program);
     // Decode validates arities, stack balance, and the Bytecode root.
     BootstrapImage.decode(rebuilt);
     return rebuilt;

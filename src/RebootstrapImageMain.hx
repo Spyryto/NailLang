@@ -9,7 +9,8 @@ class RebootstrapImageMain {
   static function main():Void {
     var seed = Resource.getString('bootstrap_image');
     if (seed == null) throw 'Missing stage-zero image';
-    var source = File.getContent('stdlib.nail');
+    var source = 'nail ' + numeric.LanguageVersion.CURRENT
+      + ' ;\n' + File.getContent('stdlib.nail');
     var image = Rebootstrap.verify(seed, source);
     FileSystem.createDirectory('build');
     FileSystem.createDirectory('build/bootstrap');

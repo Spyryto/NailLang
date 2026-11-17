@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.46
+# Eseguire NailLang — v0.47
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -152,3 +152,44 @@ migrazione completa dei test e dell'ABI non è terminata.
 
 The whole-stdlib modern bootstrap test runs on Node for speed; the
 Haxe `--interp` variant remains available for debugging.
+
+## v0.47 — Compilatore Nail indipendente dal parser Haxe
+
+```sh
+haxe seed-image.hxml
+haxe rebootstrap-node.hxml
+node build/tests/rebootstrap-node.js
+haxe boot-js.hxml
+haxe boot-php.hxml
+node -e 'const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); console.log(NailSeedBoot.create().runPlain("nail 0.47 ; 1 / 3 + 1 / 6 ;"))'
+php build/boot/php/index.php examples/numbers-047.nail
+```
+
+I due compilati `boot` incorporano la **nuova immagine bootstrap v2**,
+prodotta dal compilatore Nail con le regole `Int`, `Ratio`, `Float`.
+Non richiedono il parser Haxe né Haxe sulla macchina di esecuzione.
+Sono disponibili anche come ZIP separati nelle GitHub Releases, senza
+appesantire la distribuzione tradizionale della VM completa. L'immagine
+standalone JSON si trova in `build/bootstrap/self-image.json`.
+
+```sh
+haxe official-bootstrap-test-interp.hxml
+haxe official-bootstrap-test-js.hxml && node build/tests/official-bootstrap.js
+haxe official-bootstrap-test-php.hxml && php build/tests/php-official-bootstrap/index.php
+haxe modern-bootstrap-test-js.hxml && node build/tests/modern-bootstrap.js
+```
+
+Le immagini v2 includono `languageVersion: "0.47"` e il decoder
+v0.47 rifiuta quelle con una versione del compilatore non supportata.
+Questo campo riguarda il **compiler bootstrap**, non la versione ABI
+dei moduli compilati separatamente (`runtime-module.v1`).
+
+**Limite residuo:** l'esecuzione `BootRuntime.run` non invoca
+automaticamente `TypeChecker`; quando serve la garanzia delle firme
+dichiarate, eseguire `TypeChecker.check` prima della compilazione.
+
+### Ricompilazione senza Node
+
+La procedura `haxe rebootstrap-image.hxml` rimane supportata per un
+ambiente che dispone solo di Haxe: produce la stessa immagine con verifica
+del punto fisso, ma il suo interprete è più lento della variante Node.

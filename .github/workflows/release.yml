@@ -43,6 +43,11 @@ jobs:
       - name: Test current Haxe, JavaScript and PHP implementations
         run: |
           haxe seed-image.hxml
+          haxe official-bootstrap-test-interp.hxml
+          haxe official-bootstrap-test-js.hxml
+          node build/tests/official-bootstrap.js
+          haxe official-bootstrap-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-official-bootstrap/index.php
           haxe host-text-writes-test-interp.hxml
           haxe host-text-writes-test-js.hxml
           node build/tests/host-text-writes.js
@@ -87,9 +92,19 @@ jobs:
           XDEBUG_MODE=off php build/tests/php-arithmetic-relations/index.php
           haxe modern-bootstrap-test-js.hxml
           node build/tests/modern-bootstrap.js
-          haxe rebootstrap-image.hxml
+          haxe rebootstrap-node.hxml
+          node build/tests/rebootstrap-node.js
+          haxe boot-test-interp.hxml
+          haxe boot-test-js.hxml
+          node build/tests/boot.js
+          haxe boot-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-boot/index.php
           haxe js.hxml
           haxe php.hxml
+          haxe boot-js.hxml
+          haxe boot-php.hxml
+          node -e 'const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const result=NailSeedBoot.create().runPlain("nail 0.47 ; 1 / 3 + 1 / 6 ;"); if (JSON.stringify(result)!==JSON.stringify(["R:1/2"])) throw Error(JSON.stringify(result));'
+          XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-047.nail
       - name: Package versioned distributions
         shell: bash
         run: |
@@ -97,7 +112,9 @@ jobs:
           mkdir -p dist
           (cd build/js && zip -q "../../dist/naillang-$tag-js.zip" nailseed.js)
           (cd build && zip -qr "../dist/naillang-$tag-php.zip" php)
-          cp build/bootstrap/stdlib-image.json "dist/naillang-$tag-bootstrap-image.json"
+          (cd build/boot/js && zip -q "../../../dist/naillang-$tag-boot-js.zip" nailseed-boot.js)
+          (cd build/boot && zip -qr "../../dist/naillang-$tag-boot-php.zip" php)
+          cp build/bootstrap/self-image.json "dist/naillang-$tag-bootstrap-image.json"
       - name: Publish tag and release only after tests succeed
         env:
           GH_TOKEN: ${{ github.token }}

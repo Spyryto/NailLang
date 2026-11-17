@@ -40,7 +40,7 @@ class Parser {
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
-    if (modernMode) at = 3; // explicit "nail 0.45 ;" or "nail 0.46 ;" header
+    if (modernMode) at = 3; // explicit versioned Nail source header
   }
 
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
@@ -478,7 +478,7 @@ class Parser {
       if (modernMode && ['Div','Add','Sub','Mul'].indexOf(peek()) >= 0
           && at + 1 < tokens.length && tokens[at + 1] == ':') {
         var relation = take();
-        if (relation != 'Div' && languageVersion != '0.46')
+        if (relation != 'Div' && languageVersion == '0.45')
           throw 'Type relation: ' + relation + ' requires Nail 0.46';
         expect(':');
         var left = take(), right = take(), output = take();
@@ -538,7 +538,7 @@ class Parser {
           if (modernMode && (macroDeclaration || params.length != 2 ||
               ['Div','Add','Sub','Mul'].indexOf(relation) < 0))
             throw 'Type relation: only binary Div/Add/Sub/Mul declarations are supported';
-          if (modernMode && relation != 'Div' && languageVersion != '0.46')
+          if (modernMode && relation != 'Div' && languageVersion == '0.45')
             throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (exactMode)
             throw 'Type relation: exact source dialect is not supported yet';
