@@ -62,17 +62,33 @@ local bindings *inside* the block supersede context bindings; context fields
 supersede globals/outer parameters. No hidden member calls or name lookup
 at runtime is added.
 
-The same AST works in the existing Haxe bytecode compiler and VM, and the
-existing type checker verifies closed structural records of functions.
+The same AST works in the existing Haxe bytecode compiler and VM. An opt-in
+checker experiment (activated by the parser's explicit context-probe mode)
+also infers **open structural rows** for unknown record parameters:
+
+```nail
+def getH2 renderer title = renderer . h2 title ;
+# Inferred: renderer must supply h2, but may contain other fields.
+```
+
+This is not a nominal interface, needs no `implements` declaration, and
+introduces **no new runtime value or bytecode opcode**. The inference
+representation `TOpenStructural(fields,rest)` is normalized, generalized
+and unified with concrete closed rows. The existing source-language 0.54
+checker intentionally retains its current behavior outside this opt-in probe.
+Public module scheme serialization explicitly rejects experimental open rows
+until an auditable stable ABI exists.
 
 ## Boundaries deliberately explored
 
-1. A record **passed as a function parameter** works at runtime, because the
-   lowering accesses ordinary fields. However, the current HM checker cannot
-   infer an unknown record parameter's fields (`TVariable` projection
-   currently requires a unique nominal accessor). Full static typing of
-   generic context parameters requires **open rows / row polymorphism**
-   or explicit type evidence/annotations.
+1. A record **passed as a function parameter** now works with both
+   the runtime and the opt-in open-row checker. A single `h2` requirement
+   may be satisfied by different records that contain additional fields.
+   This is only an experimental inference feature; public row schemes,
+   row-tail lacks constraints, and cross-module ABI are not finished.
+   General contextual block parsing still requires a known name-to-field
+   interface supplied by the experimental caller; inference of **which
+   unresolved names belong to the context** is a distinct compiler concern.
 2. `Person { field = value }` is a nominal record constructor and
    `render { field = value }` is ordinary application to an anonymous
    record, **not** a context expression. Future assignment syntax or
@@ -108,8 +124,8 @@ php build/tests/php-context-block-probe/index.php
 Tests cover: source grammar disambiguation, nominal/anonymous record
 construction inside the block, nested contexts and field collisions,
 local shadowing, hygienic macro expansion, successful runtime parameter
-values versus currently impossible static inference, malformed context
-interfaces and unclosed blocks.
+values with open-row static inference, rejection of absent or mistyped
+required fields, malformed context interfaces and unclosed blocks.
 
 **Decision still open:** use `Html { ... }`, an explicit `with Html { ... }`,
 a distinct punctuation form, or an alternative. Do not merge the draft PR
