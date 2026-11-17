@@ -117,6 +117,15 @@ class ContextBlockProbeTestMain {
     equal(types(disambiguated,ctx),['Text'],
       'the constructor type is verified normally');
 
+    // Lowercase f { field = expr } is already ordinary application to an
+    // anonymous record. The contextual syntax must not hijack that form.
+    var applied='def html options = options . value ; '
+      +'html { value = " Applied " } ;';
+    equal(run(applied,ctx),['Applied'],
+      'lowercase function application to a structural record is preserved');
+    equal(types(applied,ctx),['Text'],
+      'record argument grammar is selected without any type lookup');
+
     var bad=contexts();
     bad.set('Html',['h2','h2']);
     fails(() -> new Parser(simple,bad).parse(),
