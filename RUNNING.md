@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.48
+# Eseguire NailLang — v0.49
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -212,5 +212,23 @@ effettivo; non va dedotto dal tipo dei letterali.
 **Sicurezza**: il semplice JSON non prova l'autenticità di un modulo.
 Per distribuire moduli non fidati usare le verifiche già presenti
 di hash firmato, firma Ed25519 e grant espliciti prima del link.
-Le funzioni con vincoli numerici (`: Div`, `: Mul`, ...) non hanno ancora
-un ABI relazionale; gli export di quelle funzioni vengono rifiutati.
+Questa era una limitazione della v0.48: dalla v0.49 i vincoli hanno un ABI relazionale v3, accessibile tramite manifesti pubblici espliciti.
+
+
+## Test dei vincoli n-ari v0.49 e dell'ABI relazionale
+
+Dalla radice, dopo aver generato l'immagine del compilatore:
+
+```sh
+haxe seed-image.hxml
+haxe nary-relations-test-interp.hxml
+haxe nary-relations-test-js.hxml && node build/tests/nary-relations.js
+haxe nary-relations-test-php.hxml && php build/tests/php-nary-relations/index.php
+haxe modern-module-abi-test-interp.hxml
+haxe modern-module-abi-test-js.hxml && node build/tests/modern-module-abi.js
+haxe modern-module-abi-test-php.hxml && php build/tests/php-modern-module-abi/index.php
+```
+
+La nuova sintassi si usa inserendo `nail 0.49 ;` all'inizio del file e dichiarando le righe `R : T1 ... Tn Result ;` prima di `def f p1 ... pn : R = ... ;`. La compilazione ordinaria genera sempre bytecode Nail per la VM; **non** genera direttamente codice JavaScript o PHP a partire dal sorgente Nail.
+
+Per moduli con funzioni vincolate, usare `ModuleLinker.compilePublic`: un export locale `: R` serializza tutte le righe nella `relation` del formato `runtime-module.v3`; il consumer importa la funzione usando `PublicSourceModuleImport.relation` con lo stesso contratto. La verifica della firma avviene al link, senza codice sorgente. L'ABI numerico continua a essere `int-ratio-float.v1` e i moduli moderni senza relazioni restano in `runtime-module.v2`.
