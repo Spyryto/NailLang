@@ -169,6 +169,107 @@ class HostFunctionRegistryTestMain {
     fails(() -> reserved.grantFunction('Greeter','greet',greetType(),
       _ -> Text('wrong'),0),'invalid function grant');
 
-    trace('NailLang v0.51 host registry: '+checks+' checks passed');
+    // v0.52: immutable list values cross the FFI as normal typed Nail
+    // values; neither the host nor source receives a mutable foreign array.
+    var listResultType = TFunction(TText,
+      TSum('CoreResult',[TList(TText),TText]));
+    var listSpec:PublicSourceModuleSpec = {
+      name:'ListHost',
+      source:'nail 0.52 ; def first key = match readMany key with '
+        +'| Ok xs -> head xs | Error why -> why ;',
+      imports:[{module:HostTextGrants.PROVIDER,symbol:'fetchMany',
+        alias:'readMany',scheme:{
+          term:listResultType,quantified:[],comparable:[]
+        }}],
+      exports:['first']
+    };
+    var listImage=ModuleImage.encode(ModuleLinker.compilePublic(listSpec));
+    var listGrants=new HostTextGrants();
+    listGrants.grantFunction('ListHost','fetchMany',listResultType,
+      args -> ResultValue.ok(Cons(Text('first'),Cons(Text('second'),Nil))));
+    var lists=ModuleLinker.linkImages([listImage],40000000,listGrants);
+    eq(Vm.toPlain(lists.invoke('ListHost','first',Text('songs'))),
+      'first','typed list result survives match and head');
+    listGrants.revokeFunction('ListHost','fetchMany');
+    fails(() -> lists.invoke('ListHost','first',Text('songs')),
+      'revoked function grant');
+
+    var listInputType=TFunction(TList(TText),TText);
+    var listInputSpec:PublicSourceModuleSpec={
+      name:'ListInput',
+      source:'nail 0.52 ; def take words = takeHost words ;',
+      imports:[{module:HostTextGrants.PROVIDER,symbol:'take',
+        alias:'takeHost',scheme:{
+          term:listInputType,quantified:[],comparable:[]
+        }}],
+      exports:['take']
+    };
+    var listInputImage=ModuleImage.encode(
+      ModuleLinker.compilePublic(listInputSpec));
+    var inputs=new HostTextGrants();
+    var accepted=0;
+    inputs.grantFunction('ListInput','take',listInputType,args -> {
+      accepted++;
+      return switch(args[0]) {
+        case Cons(Text(word), _): Text(word);
+        case Nil: Text('empty');
+        case _: throw 'invalid list';
+      };
+    });
+    var inputBundle=ModuleLinker.linkImages([listInputImage],40000000,inputs);
+    eq(Vm.toPlain(inputBundle.invoke('ListInput','take',
+      Cons(Text('blue'),Cons(Text('jazz'),Nil)))),
+      'blue','host accepts immutable list inputs');
+    eq(Vm.toPlain(inputBundle.invoke('ListInput','take',Nil)),
+      'empty','empty list is valid');
+    fails(() -> inputBundle.invoke('ListInput','take',
+      Cons(Boolean(true),Nil)),'invalid function argument');
+    fails(() -> inputBundle.invoke('ListInput','take',
+      Cons(Text('fine'),Boolean(false))),'invalid function argument');
+    var tooLong:Value=Nil;
+    for (i in 0...HostTextGrants.MAX_HOST_VALUE_NODES)
+      tooLong=Cons(Text('x'),tooLong);
+    var oversized=tooLong;
+    fails(() -> inputBundle.invoke('ListInput','take',oversized),
+      'invalid function argument');
+    eq(accepted,2,'invalid lists never reach host callback');
+
+    var invalidLists=new HostTextGrants();
+    invalidLists.grantFunction('ListHost','fetchMany',listResultType,
+      _ -> ResultValue.ok(Cons(Boolean(true),Nil)));
+    fails(() -> ModuleLinker.linkImages([listImage],40000000,invalidLists)
+      .invoke('ListHost','first',Text('songs')),
+      'invalid function result');
+    var invalidTail=new HostTextGrants();
+    invalidTail.grantFunction('ListHost','fetchMany',listResultType,
+      _ -> ResultValue.ok(Cons(Text('x'),Boolean(true))));
+    fails(() -> ModuleLinker.linkImages([listImage],40000000,invalidTail)
+      .invoke('ListHost','first',Text('songs')),
+      'invalid function result');
+
+    var nestedType=TFunction(TList(TList(TText)),TText);
+    var nested=new HostTextGrants();
+    nested.grantFunction('Nested','inspect',nestedType,_ -> Text('nested'));
+    var nestedSpec:PublicSourceModuleSpec={
+      name:'Nested',
+      source:'nail 0.52 ; def test nested = inspectHost nested ;',
+      imports:[{module:HostTextGrants.PROVIDER,symbol:'inspect',
+        alias:'inspectHost',scheme:{
+          term:nestedType,quantified:[],comparable:[]
+        }}],
+      exports:['test']
+    };
+    var nestedImage=ModuleImage.encode(ModuleLinker.compilePublic(nestedSpec));
+    var nestedBundle=ModuleLinker.linkImages([nestedImage],40000000,nested);
+    eq(Vm.toPlain(nestedBundle.invoke('Nested','test',
+      Cons(Cons(Text('jazz'),Nil),Nil))),
+      'nested','nested lists preserve their element contracts');
+    fails(() -> nestedBundle.invoke('Nested','test',
+      Cons(Cons(Boolean(false),Nil),Nil)), 'invalid function argument');
+
+    fails(() -> new HostTextGrants().grantFunction('NoVector','read',
+      TFunction(TVector(TText),TText),_ -> Text('unsafe')),
+      'unsupported function input type');
+    trace('NailLang v0.52 host registry: '+checks+' checks passed');
   }
 }
