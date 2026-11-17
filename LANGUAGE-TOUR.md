@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.46
+# Nail Language Tour — v0.47
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -290,3 +290,34 @@ La libreria standard storica continua ad alimentare il bootstrap di
 produzione; un test separato di v0.46 prova a ricompilarla **interamente**
 nella nuova semantica e a verificarne il punto fisso. Il vecchio percorso
 non sarà eliminato finché tutti i test storici non saranno migrati.
+
+## v0.47 — Il compilatore distribuito usa finalmente Int, Ratio e Float
+
+La stdlib e il compilatore scritti in Nail vengono ora **compilati per
+la distribuzione con le regole di `nail 0.47 ;`**, non con le regole
+predefinite del vecchio `Number`. Un'immagine bootstrap dedicata
+contiene il compilatore che sa rigenerare sé stesso, senza richiamare il
+parser Haxe a runtime.
+
+```nail
+nail 0.47 ;
+Div : Int Int Ratio ;
+Add : Int Int Int ;
+def divide x y : Div = x / y ;
+def add x y : Add = x + y ;
+divide 3 2 ;
+add 1 2 ;
+```
+
+Sono ancora accettati i sorgenti dichiarati `nail 0.45 ;` e
+`nail 0.46 ;`, che hanno semantiche compatibili. La VM rifiuta una
+versione futura non supportata. **I tipi numerici e il versionamento
+dell'immagine sono due dimensioni diverse:** la nuova immagine ha formato
+`nailseed.postfix-image.v2`, distinto dall'immagine precedente.
+
+La rimozione definitiva del supporto non versionato è un passo
+successivo: alcuni test e moduli storici usano ancora gli operatori
+`Number`/`Exact`. La stdlib di produzione non dipende più dalla
+compilazione con quei tipi, ma i percorsi di compatibilità non sono
+ancora tutti rimossi dal runtime. L'API `BootRuntime.compile` non
+sostituisce il controllo statico tramite `TypeChecker.check`.

@@ -1,3 +1,44 @@
+# v0.47 — Versioned official compiler bootstrap
+
+The **production** bootstrap is now compiled from:
+```nail
+nail 0.47 ;
+# followed by stdlib.nail
+```
+
+It uses Int/Ratio/Float semantics within all Nail-written compiler and
+standard library definitions. The Haxe stage zero and Nail-written
+stages one/two must produce identical canonical structured bytecode.
+`haxe seed-image.hxml` produces the modern stage-zero image;
+`haxe rebootstrap-image.hxml` verifies and emits a modern self image.
+
+The **bootstrap-image format version** is now deliberately distinct:
+`nailseed.postfix-image.v2` with `languageVersion: "0.47"`.
+Old source-free VMs reject this envelope by their format check.
+The current decoder checks both structure and compiler-source version
+and rejects legacy ExactNumber literal leaves in a modern image.
+Legacy v1 and v2-exact formats remain accepted only along older
+compatibility/module APIs, not as the published bootstrap image.
+
+The user source language accepts compatible `nail 0.45 ;`,
+`nail 0.46 ;` and `nail 0.47 ;` programs; no dialect switch comments
+are needed for new programs. `Int`/ `Ratio`/ `Float` semantics and
+explicit `: Div`, `: Add`, `: Sub`, `: Mul` constraints remain
+unchanged.
+
+Distributions: the standard JS/PHP runtime remains available; an
+**additional** source-free `boot` JS/PHP variant embeds the modern
+Nail-written compiler and image and omits the source parser.
+The JSON compiler image is separately downloadable.
+
+**Transitional boundary:** old unversioned source code and old
+compiled-module `Number`/`Exact` ABIs still use compatibility code.
+This release does not claim that all legacy numeric primitive paths
+have been deleted. Constrained numeric type checking remains a
+separate TypeChecker API, not a promise of runtime enforcement.
+
+---
+
 # v0.46 — Closed arithmetic relations and modern bootstrap proof
 
 Language version is an explicit declaration, not a comment:

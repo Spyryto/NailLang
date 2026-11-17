@@ -20,6 +20,13 @@ jobs:
           node-version: '22'
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
+      - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
+        run: |
+          haxe official-bootstrap-test-interp.hxml
+          haxe official-bootstrap-test-js.hxml
+          node build/tests/official-bootstrap.js
+          haxe official-bootstrap-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-official-bootstrap/index.php
       - name: Verify v0.45 Int / Ratio / Float on Haxe, Node and PHP
         run: |
           haxe modern-numbers-test-interp.hxml
@@ -91,16 +98,27 @@ jobs:
           node build/tests/explicit-relations.js
           haxe explicit-relations-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
-      - name: Check Nail-written compiler fixed point
+      - name: Check Nail-written modern compiler fixed point
         run: haxe rebootstrap-image.hxml
-      - name: Compile JavaScript and PHP distributions
+      - name: Test distributed source-free bootstrap runtime (Haxe, Node, PHP)
+        run: |
+          haxe boot-test-interp.hxml
+          haxe boot-test-js.hxml
+          node build/tests/boot.js
+          haxe boot-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-boot/index.php
+      - name: Compile full VM and self-hosted source-free JS/PHP distributions
         run: |
           haxe js.hxml
           haxe php.hxml
+          haxe boot-js.hxml
+          haxe boot-php.hxml
       - uses: actions/upload-artifact@v4
         with:
           name: naillang-current-js-php
           path: |
             build/js/nailseed.js
             build/php/**
+            build/boot/js/nailseed-boot.js
+            build/boot/php/**
           if-no-files-found: error

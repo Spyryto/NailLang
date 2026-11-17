@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.46
+# Nail Cookbook — v0.47
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -212,3 +212,17 @@ La tabella `Add` definisce una relazione fra due tipi di input e il
 tipo di output, non un elenco di clausole runtime in stile Elixir.
 Se si elimina `: Add` dalla definizione, Nail **non** generalizza
 automaticamente il polimorfismo dell'operatore.
+
+## Ricetta 12 — Una frazione esatta nel runtime distribuito
+
+```nail
+nail 0.47 ;
+def bpm = 97 ;
+def secondsPerBeat = 60 / bpm ;
+secondsPerBeat ;              # Ratio 60/97
+toFloat secondsPerBeat ;      # Float approssimato, esplicitamente
+```
+
+Il runtime bootstrap distribuito usa il compilatore scritto in Nail,
+già compilato con `Int` e `Ratio`. È indipendente dal parser sorgente
+Haxe, a differenza della distribuzione standard della VM completa.
