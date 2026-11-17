@@ -185,13 +185,17 @@ class SharedResultTestMain {
     maker.check('def make x = CoreOk x ;');
     ok(maker.signature('make').indexOf('CoreResult[') >= 0,
       'Nail source can construct a Result without a type declaration');
-    // Existing v0.32 programs declare a local type named Result.
-    // The new standard name must not shadow it or change its identity.
+    // Result remains a valid user type name. The short constructor names
+    // Ok/Error became standard builtins in 0.51 and therefore cannot also
+    // be declared as unrelated top-level algebraic constructors.
     var oldResult = new TypeChecker();
-    oldResult.check('type Result a e = Ok a | Err e ; '
-      + 'def make x = Ok x ;');
+    oldResult.check('type Result a e = LegacyOk a | Err e ; '
+      + 'def make x = LegacyOk x ;');
     ok(oldResult.signature('make').indexOf('Result[') >= 0,
-      'existing user-defined Result ADTs remain source-compatible');
+      'user-defined Result ADTs retain their own nominal identity');
+    fails(() -> new TypeChecker().check('nail 0.51 ; '
+      + 'type Result a e = Ok a | Err e ;'),
+      'duplicate algebraic constructor Ok');
 
     trace('NailSeed v0.38 shared Result: ' + passed + ' checks passed');
   }
