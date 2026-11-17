@@ -89,7 +89,7 @@ class HostTextGrants {
     var cursor = type;
     while (true) switch (cursor) {
       case TFunction(input,output):
-        if (args.length >= 8 || !atomicType(input))
+        if (args.length >= 8 || !payloadType(input))
           throw 'Host grants: unsupported function input type';
         args.push(input);
         cursor = output;
@@ -120,20 +120,40 @@ class HostTextGrants {
     revokedFunctions.set(module + '.' + symbol,true);
   }
 
-  static function atomicType(type:NType):Bool return switch(type) {
-    case TText | TBoolean | TInt | TRatio | TFloat: true;
-    case _: false;
-  };
+  /** Host functions may exchange immutable linked lists, including nested
+      lists and CoreResult payloads. The host cannot pass mutable vectors or
+      nominal records: those need an ownership/copying contract first.
+      Both type nesting and value traversal are bounded before invocation. */
+  public static inline var MAX_HOST_VALUE_NODES = 4096;
+  public static inline var MAX_HOST_VALUE_DEPTH = 8;
 
-  static function returnType(type:NType):Bool return switch(type) {
+  static function payloadType(type:NType, depth:Int = 0):Bool {
+    if (depth > MAX_HOST_VALUE_DEPTH) return false;
+    return switch (type) {
+      case TText | TBoolean | TInt | TRatio | TFloat: true;
+      case TList(item): payloadType(item, depth + 1);
+      case _: false;
+    };
+  }
+
+  static function returnType(type:NType):Bool return switch (type) {
     case TSum('CoreResult', types) if (types.length == 2):
-      atomicType(types[0]) && atomicType(types[1]);
-    case _: atomicType(type);
+      payloadType(types[0]) && payloadType(types[1]);
+    case _: payloadType(type);
   };
 
-  static function validValue(type:NType, value:Value):Bool {
-    if (value == null) return false;
-    return switch(type) {
+  static function validValue(type:NType, value:Value):Bool
+    return validWithBudget(type, value, [0], 0);
+
+  /** Reject improper tails, mixed-type cells, and unbounded/cyclic data.
+      A shared node counter bounds long as well as nested lists. The loop
+      walks list tails iteratively, avoiding stack growth for flat lists. */
+  static function validWithBudget(type:NType, value:Value,
+      budget:Array<Int>, depth:Int):Bool {
+    if (value == null || depth > MAX_HOST_VALUE_DEPTH) return false;
+    budget[0]++;
+    if (budget[0] > MAX_HOST_VALUE_NODES) return false;
+    return switch (type) {
       case TText: switch(value) {case Text(_): true; case _: false;}
       case TBoolean: switch(value) {case Boolean(_): true; case _: false;}
       case TInt: switch(value) {
@@ -150,11 +170,30 @@ class HostTextGrants {
         case _: false;
       }
       case TFloat: switch(value) {case Number(n): Math.isFinite(n); case _: false;}
+      case TList(item):
+        var cursor = value;
+        var complete = false;
+        var permitted = true;
+        while (permitted && !complete) {
+          switch (cursor) {
+            case Nil: complete = true;
+            case Cons(head, tail):
+              if (!validWithBudget(item, head, budget, depth + 1))
+                permitted = false;
+              else {
+                budget[0]++;
+                if (budget[0] > MAX_HOST_VALUE_NODES) permitted = false;
+                else cursor = tail;
+              }
+            case _: permitted = false;
+          }
+        }
+        permitted && complete;
       case TSum('CoreResult', types) if (types.length == 2):
         try {
-          var tag=ResultValue.tag(value);
-          validValue(tag == ResultValue.OK ? types[0] : types[1],
-            ResultValue.get(value,tag));
+          var tag = ResultValue.tag(value);
+          validWithBudget(tag == ResultValue.OK ? types[0] : types[1],
+            ResultValue.get(value, tag), budget, depth + 1);
         } catch (_:Dynamic) false;
       case _: false;
     };
