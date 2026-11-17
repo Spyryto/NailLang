@@ -298,7 +298,7 @@ class ModuleLinker {
         throw 'Module compiler: export must be a local definition ' + name;
       if (checker.hasPublicRelation(name)) {
         if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(spec.source)))
-          throw 'Module compiler: relation exports require Nail 0.49';
+          throw 'Public interface: constrained export requires a relation-aware ABI';
         var contract=checker.publicRelation(name);
         for (row in contract.rows)
           for (type in row) requireModernType(type);
