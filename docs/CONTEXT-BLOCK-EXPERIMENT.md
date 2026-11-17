@@ -79,6 +79,44 @@ checker intentionally retains its current behavior outside this opt-in probe.
 Public module scheme serialization explicitly rejects experimental open rows
 until an auditable stable ABI exists.
 
+## Confirmed syntax: optional structural contracts
+
+The following **experimental** syntax is accepted by the opted-in parser
+and checked before compiling the erased core forms:
+
+```nail
+type Html = {
+  h2 : Text Text ,
+  div : Text Text
+} ;
+
+def render ( html : Html ) title =
+  html {
+    h2 title
+  } ;
+```
+
+Here the first parameter has an explicit, structural minimum contract.
+The second parameter still receives its type by inference. Primitive
+annotations are also supported:
+`def render ( html : Html ) ( title : Text ) = ... ;`.
+A declared value can use `def html : Html = ... ;`.
+
+These contracts are compile-time only and use the same lexical record
+field resolution as the earlier context experiment. Inferred open
+rows remain the mechanism that allows a value to contain additional
+fields. Type aliases are **not** nominal record declarations. Existing
+relations such as `def divide x y : Div = ... ;` continue to use
+the separate trailing function-constraint position.
+
+Current limitations: simple primitive or previously introduced alias
+types in these declarations only; no recursive/generic aliases,
+no function types with arbitrary nested grouping, and no automatic
+source-free/self-hosted parsing of the new surface syntax. Parser
+annotations are sidecar metadata; compiler or Syntax roundtrips that
+discard it do not preserve its static contract. Therefore this remains
+a draft language design, not published Nail syntax.
+
 ## Boundaries deliberately explored
 
 1. A record **passed as a function parameter** now works with both
