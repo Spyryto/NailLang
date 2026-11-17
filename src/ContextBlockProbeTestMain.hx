@@ -119,7 +119,8 @@ class ContextBlockProbeTestMain {
 
     // Lowercase f { field = expr } is already ordinary application to an
     // anonymous record. The contextual syntax must not hijack that form.
-    var applied='def html options = options . value ; '
+    var applied='def html options = if options == { value = " Applied " } '
+      +'then " Applied " else " Missing " ; '
       +'html { value = " Applied " } ;';
     equal(run(applied,ctx),['Applied'],
       'lowercase function application to a structural record is preserved');
