@@ -104,7 +104,7 @@ class ModernNumbersTestMain {
     for (item in negative) fails(() -> new TypeChecker().check(item.code),item.error);
     fails(() -> new Vm().run(header+'1 / 0 ;'),'Division by zero');
     fails(() -> new Vm().run(header+'1 + 2.0 ;'),'Mixed numeric domains');
-    fails(() -> new Parser('nail 0.53 ; 1 ;').parseRaw(),'Unsupported Nail language version');
+    fails(() -> new Parser('nail 0.54 ; 1 ;').parseRaw(),'Unsupported Nail language version');
     fails(() -> new Parser('nail 0.45 ; nail 0.45 ;').parseRaw(),'Unexpected');
     eq(new TypeChecker().preview('0.1 + 0.2 ;'),['Number'],
       'legacy bootstrap source remains unaffected');
