@@ -65,12 +65,12 @@ class NaryRelationsTestMain {
     var c=checker.publicRelation('square');
     ok(c.rows.length==3 && TypeRelation.arity(c)==1,
       'public unary relation includes all concrete cases');
-    var haxe=BytecodeCompiler.compileSource(source);
+    var reference=BytecodeCompiler.compileSource(source);
     eq(new Vm(40000000).runPlain(source),expected,'host AST runtime');
-    eq(new ByteVm(40000000).runPlain(haxe),expected,'reference bytecode');
+    eq(new ByteVm(40000000).runPlain(reference),expected,'reference bytecode');
     var boot=new BootRuntime(40000000);
     var self=boot.compile(source);
-    ok(BootstrapImage.encode(self)==BootstrapImage.encode(haxe),
+    ok(BootstrapImage.encode(self)==BootstrapImage.encode(reference),
       'Nail-written generic relation parser erases rows, preserves bytecode');
     eq(boot.runBytecode(self).map(Vm.toPlain),expected,'source-free runtime');
 
