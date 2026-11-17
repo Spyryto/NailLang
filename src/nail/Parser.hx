@@ -18,7 +18,6 @@ class Parser {
   static final recordTypePattern = ~/^[A-Z][A-Za-z_0-9]*$/;
   static final typeParamPattern = ~/^[a-z][a-z0-9_]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
-  static final spacePattern = ~/\s+/g;
 
   final exactMode:Bool;
   public final modernMode:Bool;
@@ -49,35 +48,6 @@ class Parser {
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
   // Contents are joined with one space and decoded as JSON string escapes.
   // Comments are ignored outside quoted text only.
-  static function tokenizeHost(source:String):Array<String> {
-    var result:Array<String> = [];
-    var quoted = false;
-    var parts:Array<String> = [];
-    for (line in source.split('\n')) {
-      var clean = StringTools.trim(line);
-      var words = clean == '' ? [] : spacePattern.split(clean);
-      for (word in words) {
-        if (quoted) {
-          if (word == '"') {
-            var value:String;
-            try value = haxe.Json.parse('"' + parts.join(' ') + '"')
-            catch (e:Dynamic) throw 'Invalid string escape: ' + Std.string(e);
-            result.push('\u0001' + value);
-            parts = [];
-            quoted = false;
-          } else parts.push(word);
-        } else if (StringTools.startsWith(word, '#')) {
-          break;
-        } else if (word == '"') {
-          quoted = true;
-          parts = [];
-        } else result.push(word);
-      }
-    }
-    if (quoted) throw 'Unterminated string literal';
-    return result;
-  }
-
   static function isName(s:Null<String>):Bool {
     if (s == null || !namePattern.match(s)) return false;
     return switch (s) {
