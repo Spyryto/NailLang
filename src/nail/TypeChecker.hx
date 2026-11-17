@@ -1453,6 +1453,11 @@ private class Inference {
               case _:
                 throw 'Type relation: definition arity does not match '+contract.name;
             }
+            switch(body) {
+              case Lambda(_,_):
+                throw 'Type relation: definition arity does not match '+contract.name;
+              case _:
+            }
             validator.validateMatches(body);
             var inferred=validator.infer(body,scope,{name:name,scheme:mono(expected)});
             validator.unify(inferred,row[n]);
