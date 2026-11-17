@@ -83,15 +83,15 @@ class SinglePassMacroTestMain {
       ['E:1/2']);
 
     var resolver = (name:String) -> name == 'numbers'
-      ? 'macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
+      ? 'nail 0.49 ; macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
     runCase(
       'nail 0.49 ; import next from numbers ; expand next 41 ;',
       ['I:42/1'], resolver);
 
     var nested = (name:String) -> switch name {
-      case 'outer': 'import next from inner ; macro twice x = quote '
+      case 'outer': 'nail 0.49 ; import next from inner ; macro twice x = quote '
         + '( expand next ( expand next ( unquote x ) ) ) ; export twice ;';
-      case 'inner': 'macro next x = quote ( unquote x + 1 ) ; export next ;';
+      case 'inner': 'nail 0.49 ; macro next x = quote ( unquote x + 1 ) ; export next ;';
       case _: null;
     };
     runCase(
