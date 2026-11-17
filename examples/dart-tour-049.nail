@@ -1,0 +1,49 @@
+# Runnable comparisons for the Dart-guided Nail cookbook.
+# Commands: haxe seed-image.hxml ; haxe boot-php.hxml
+#           php build/boot/php/index.php examples/dart-tour-049.nail
+# The expressions return VM values; they do NOT print through stdout.
+nail 0.49 ;
+
+# 1. Variable bindings and a plain function: 42.
+def twice x = x * 2 ;
+twice 21 ;
+
+# 2. A for-like range expressed by pure recursion: [1, 2, 3, 4, 5].
+def range start stop =
+  if start > stop then []
+  else cons start ( range ( start + 1 ) stop ) ;
+range 1 5 ;
+
+# 3. A while-like state transition: 5.
+def until value limit =
+  if value >= limit then value
+  else until ( value + 1 ) limit ;
+until 0 5 ;
+
+# 4. Iterating over data with stdlib combinators.
+map twice [ 1 , 2 , 3 ] ;
+filter ( fun x -> x > 2 ) [ 1 , 2 , 3 , 4 ] ;
+fold ( fun acc x -> acc + x ) 0 [ 1 , 2 , 3 , 4 ] ;
+
+# 5. Named and anonymous record fields.
+type Song { title Text bpm Int } ;
+def song = Song { bpm = 120 , title = " Swing " } ;
+song . bpm ;
+def anonymous = { title = " Blues " , bpm = 116 } ;
+anonymous . title ;
+
+# 6. A generic ADT in place of Dart nullable values.
+type Option a = None | Some a ;
+def orElse fallback option = match option with
+  | None -> fallback
+  | Some value -> value ;
+orElse 0 None ;
+orElse 0 ( Some 7 ) ;
+
+# 7. Numeric exactness is visible to the program.
+60 / 97 ;
+toFloat ( 60 / 97 ) ;
+
+# 8. Static template macro (not a runtime function).
+macro next x = quote ( unquote x + 1 ) ;
+expand next 41 ;
