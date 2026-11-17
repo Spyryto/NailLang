@@ -4,6 +4,8 @@ import haxe.ds.StringMap;
 import nail.Ast.Form;
 import nail.NType;
 import nail.TypeScheme;
+import nail.TypeRelation;
+import nail.TypeRelation.RelationContract;
 import nail.Value;
 import nail.ModuleImage.CompiledModule;
 import nail.ModuleImage.LinkedModuleImport;
@@ -49,7 +51,8 @@ typedef PublicSourceModuleImport = {
   var module:String;
   var symbol:String;
   var alias:String;
-  var scheme:TypeScheme;
+  @:optional var scheme:TypeScheme;
+  @:optional var relation:RelationContract;
 }
 
 typedef PublicSourceModuleSpec = {
@@ -233,14 +236,29 @@ class ModuleLinker {
       if (aliases.exists(item.alias))
         throw 'Module compiler: duplicate import alias ' + item.alias;
       aliases.set(item.alias, true);
-      TypeChecker.validatePublicScheme(item.scheme, true);
-      if (modern) requireModernType(item.scheme.term);
-      requireRecordOwner(item.scheme.term, item.module);
-      checker.importPublicScheme(item.alias, item.scheme, true);
-      imports.push({
-        module:item.module, symbol:item.symbol, alias:item.alias,
-        signature:checker.signature(item.alias)
-      });
+      if (item.relation != null) {
+        if (item.scheme != null)
+          throw 'Module compiler: choose either relation or HM scheme';
+        if (numeric.LanguageVersion.declared(spec.source) != '0.49')
+          throw 'Module compiler: relation imports require Nail 0.49';
+        var contract=TypeRelation.validate(item.relation);
+        for (row in contract.rows)
+          for (type in row) requireRecordOwner(type,item.module);
+        checker.importRelation(item.alias,contract);
+        imports.push({module:item.module,symbol:item.symbol,alias:item.alias,
+          signature:TypeRelation.abiSignature(contract),relation:contract});
+      } else {
+        if (item.scheme == null)
+          throw 'Module compiler: missing import scheme or relation';
+        TypeChecker.validatePublicScheme(item.scheme, true);
+        if (modern) requireModernType(item.scheme.term);
+        requireRecordOwner(item.scheme.term, item.module);
+        checker.importPublicScheme(item.alias, item.scheme, true);
+        imports.push({
+          module:item.module, symbol:item.symbol, alias:item.alias,
+          signature:checker.signature(item.alias)
+        });
+      }
     }
 
     var defined = new StringMap<Bool>();
@@ -278,9 +296,19 @@ class ModuleLinker {
       seen.set(name, true);
       if (!defined.exists(name))
         throw 'Module compiler: export must be a local definition ' + name;
-      var publicScheme = checker.publicScheme(name, true); // sums still gated
-      if (modern) requireModernType(publicScheme.term);
-      exports.push({name:name, signature:checker.signature(name)});
+      if (checker.hasPublicRelation(name)) {
+        if (numeric.LanguageVersion.declared(spec.source) != '0.49')
+          throw 'Module compiler: relation exports require Nail 0.49';
+        var contract=checker.publicRelation(name);
+        for (row in contract.rows)
+          for (type in row) requireModernType(type);
+        exports.push({name:name,signature:TypeRelation.abiSignature(contract),
+          relation:contract});
+      } else {
+        var publicScheme = checker.publicScheme(name, true); // sums still gated
+        if (modern) requireModernType(publicScheme.term);
+        exports.push({name:name, signature:checker.signature(name)});
+      }
     }
 
     var reference = BytecodeCompiler.compileSource(spec.source);

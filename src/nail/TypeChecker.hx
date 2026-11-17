@@ -319,6 +319,9 @@ class TypeChecker {
 
   /** Export the complete, verified relation contract rather than an
       untyped, unsound representation of a constrained function. */
+  public function hasPublicRelation(name:String):Bool
+    return functionContracts.exists(name);
+
   public function publicRelation(name:String):RelationContract {
     var contract = functionContracts.get(name);
     if (contract == null)
@@ -1437,6 +1440,14 @@ private class Inference {
           var contract=TypeRelation.select(generalDeclarations.get(name), generalContracts);
           var n=TypeRelation.arity(contract);
           for (row in contract.rows) {
+            for (type in row) switch(type) {
+              case TRecord(owner):
+                if (!records.exists(owner))
+                  throw 'Type relation: unknown record type ' + owner;
+                if (records.get(owner) != 0)
+                  throw 'Type relation: generic record types need concrete type arguments';
+              case _:
+            }
             var validator = new Inference(nextId,globals,records,sums,sumCases,
               constructorOwners,relations,modernMode,modernRows,
               modernOperatorRows,generalContracts,functionContracts);
