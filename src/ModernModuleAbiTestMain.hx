@@ -149,7 +149,7 @@ class ModernModuleAbiTestMain {
       Reflect.setField(x,'numericAbi','int-ratio-float.v2'))),
       'incompatible numeric ABI');
     fails(() -> ModuleImage.decode(edited(x ->
-      Reflect.setField(x,'sourceVersion','0.49'))),
+      Reflect.setField(x,'sourceVersion','0.50'))),
       'unsupported modern source version');
     fails(() -> ModuleImage.decode(edited(x ->
       Reflect.setField(x,'format',ModuleImage.FORMAT))),

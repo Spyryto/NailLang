@@ -3,10 +3,10 @@ package numeric;
 /** Only the current and semantically compatible language declarations are
     accepted; source versions do not select numeric modes or bytecode ABIs. */
 class LanguageVersion {
-  public static inline var CURRENT = '0.48';
+  public static inline var CURRENT = '0.49';
 
   public static function supported(version:String):Bool return switch (version) {
-    case '0.45' | '0.46' | '0.47' | CURRENT: true;
+    case '0.45' | '0.46' | '0.47' | '0.48' | CURRENT: true;
     case _: false;
   };
 
@@ -16,7 +16,7 @@ class LanguageVersion {
     if (tokens.length == 0 || tokens[0].text != 'nail') return null;
     if (tokens.length < 3 || tokens[2].text != ';' ||
         !supported(tokens[1].text))
-      throw 'Unsupported Nail language version (this VM supports 0.45, 0.46, 0.47 and '
+      throw 'Unsupported Nail language version (this VM supports 0.45, 0.46, 0.47, 0.48 and '
         + CURRENT + ')';
     return tokens[1].text;
   }
@@ -26,7 +26,7 @@ class LanguageVersion {
 
   public static function hasArithmeticRelations(source:String):Bool
     return switch (declared(source)) {
-      case '0.46' | '0.47' | CURRENT: true;
+      case '0.46' | '0.47' | '0.48' | CURRENT: true;
       case _: false;
     };
 }

@@ -596,9 +596,11 @@ def parseNamedDefinition prefix tokens =
         let startBody = if annotated then tail ( tail afterParams ) else afterParams in
           if annotated then
             if prefix != " " then parseError " Macro relations are not supported "
-            else if length ( syntaxChildren ( parseTree params ) ) != 2 then
-              parseError " Binary relation requires two parameters "
-            else if recognizedNumericRelation ( parsePeek afterParams ) then
+            else if isEmpty ( syntaxChildren ( parseTree params ) ) then
+              parseError " Relation requires parameters "
+            else if length ( syntaxChildren ( parseTree params ) ) > 16 then
+              parseError " Too many relation parameters "
+            else if isIdentifier ( parsePeek afterParams ) then
               if parsePeek ( tail afterParams ) != " = " then
                 parseError " Expected = after relation "
               else parseNamedBody prefix name ( parseTree params ) startBody
@@ -736,6 +738,21 @@ def relationResult relation first second =
     if second == " Float " then " Float " else " None "
   else " None " ;
 
+# Generic relation rows in Nail v0.49 are only static metadata.
+# Source-free compilation discards them; the Haxe TypeChecker checks them.
+def parseGeneralRelationTail tokens count =
+  if isEmpty tokens then parseError " Expected ; after type relation "
+  else if parsePeek tokens == " ; " then
+    if count < 2 then parseError " Relation needs input and result type "
+    else parsePair ( syntaxNode " RelationDecl " [] ) ( tail tokens )
+  else if count >= 17 then parseError " Too many relation types "
+  else parseGeneralRelationTail ( tail tokens ) ( count + 1 ) ;
+
+def parseGeneralRelationRow tokens =
+  if parsePeek ( tail tokens ) != " : " then
+    parseError " Expected : after relation name "
+  else parseGeneralRelationTail ( tail ( tail tokens ) ) 0 ;
+
 def parseNumericRelationRow tokens =
   let relation = parsePeek tokens in
   let next = tail tokens in
@@ -752,8 +769,15 @@ def parseNumericRelationRow tokens =
         ( tail ( tail ( tail ( tail args ) ) ) )
       else parseError " Unsupported numeric relation row " ;
 
+def isGeneralRelationHead tokens =
+  if isEmpty tokens then false
+  else if isEmpty ( tail tokens ) then false
+  else if parsePeek ( tail tokens ) != " : " then false
+  else isIdentifier ( parsePeek tokens ) ;
+
 def parseForm tokens =
-  if isFormKeyword tokens " Div " then parseNumericRelationRow tokens
+  if isGeneralRelationHead tokens then parseGeneralRelationRow tokens
+  else if isFormKeyword tokens " Div " then parseNumericRelationRow tokens
   else if isFormKeyword tokens " Add " then parseNumericRelationRow tokens
   else if isFormKeyword tokens " Sub " then parseNumericRelationRow tokens
   else if isFormKeyword tokens " Mul " then parseNumericRelationRow tokens
@@ -862,6 +886,10 @@ def stripNailHeader tokens =
           tail ( tail ( tail tokens ) )
         else tokens
       else if version == " 0.48 " then
+        if parsePeek ( tail ( tail tokens ) ) == " ; " then
+          tail ( tail ( tail tokens ) )
+        else tokens
+      else if version == " 0.49 " then
         if parsePeek ( tail ( tail tokens ) ) == " ; " then
           tail ( tail ( tail tokens ) )
         else tokens
