@@ -845,7 +845,8 @@ def supportedSourceVersion version =
   else if version == " 0.48 " then true
   else if version == " 0.49 " then true
   else if version == " 0.50 " then true
-  else version == " 0.51 " ;
+  else if version == " 0.51 " then true
+  else version == " 0.52 " ;
 
 def stripNailHeader tokens =
   if parsePeek tokens == " nail " then
