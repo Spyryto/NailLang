@@ -64,7 +64,10 @@ class Vm {
             scope = captured;
             hasResult = false;
           case ChooseBranch(yes, no, captured):
-            current = bool(result) ? yes : no;
+            current = switch (result) {
+              case Boolean(value): value ? yes : no;
+              case _: throw 'Expected boolean';
+            };
             scope = captured;
             hasResult = false;
           case ApplyFunction(fn):

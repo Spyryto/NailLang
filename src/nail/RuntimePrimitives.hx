@@ -127,13 +127,6 @@ class RuntimePrimitives {
     return finite((r.negative ? -n : n) / d);
   }
 
-  static function bool(v:Value):Bool {
-    return switch (v) {
-      case Boolean(b): b;
-      case _: throw 'Expected boolean';
-    };
-  }
-
   static function text(v:Value):String {
     return switch (v) {
       case Text(s): s;
