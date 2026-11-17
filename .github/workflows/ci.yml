@@ -168,6 +168,7 @@ jobs:
         run: node tools/check-boot-boundary.mjs
       - name: Smoke test compiled JS/PHP source-free distributions
         run: |
+          node -e 'const {NailSeed}=require("./build/js/nailseed.js"); const report=NailSeed.analyze("nail 0.50 ; def answer = 42 ; answer ;"); if (!report.ok || report.evaluations.length!==1 || report.evaluations[0].type!=="Int") throw Error(JSON.stringify(report));'
           node -e 'const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const result=NailSeedBoot.create().runPlain("nail 0.47 ; 1 / 3 + 1 / 6 ;"); if (JSON.stringify(result)!==JSON.stringify(["R:1/2"])) throw Error(JSON.stringify(result));'
           XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-047.nail
           out=$(XDEBUG_MODE=off php build/boot/php/index.php --macro-dir examples/macros examples/macro-next-049.nail)
