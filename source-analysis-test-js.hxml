@@ -1,0 +1,4 @@
+-cp src
+-main SourceAnalysisTestMain
+-js build/tests/source-analysis.js
+-D js-es=6
