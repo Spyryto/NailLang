@@ -952,11 +952,14 @@ private class Inference {
         case Literal(_): throw 'Type error: unsupported literal';
         case Var(name):
           var constrained=constrainedName(name, frame.scope);
-          if (constrained != null)
+          if (constrained != null) {
+            // Preserve the legacy v0.44-v0.48 binary diagnostic exactly.
+            if (!functionContracts.exists(constrained))
+              throw 'Type error: constrained function requires two directly applied arguments: ' + name;
             throw 'Type error: constrained function requires '
-              + (functionContracts.exists(constrained)
-                ? TypeRelation.arity(functionContracts.get(constrained)) : 2)
+              + TypeRelation.arity(functionContracts.get(constrained))
               + ' directly applied arguments: ' + name;
+          }
           var scheme:TypeScheme;
           if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
             var globalName = name.substr(MacroExpander.GLOBAL.length);
