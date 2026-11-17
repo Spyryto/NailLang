@@ -836,32 +836,21 @@ def lexNormal source i n current reversed =
 def tokenizeCode source = lexNormal source 0 ( textLength source ) " " [] ;
 
 
+# One version gate; adding a new Nail header must not duplicate the
+# token-consumption logic of the self-hosted source parser.
+def supportedSourceVersion version =
+  if version == " 0.45 " then true
+  else if version == " 0.46 " then true
+  else if version == " 0.47 " then true
+  else if version == " 0.48 " then true
+  else if version == " 0.49 " then true
+  else version == " 0.50 " ;
+
 def stripNailHeader tokens =
   if parsePeek tokens == " nail " then
-    let version = parsePeek ( tail tokens ) in
-      if version == " 0.45 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
-        else tokens
-      else if version == " 0.46 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
-        else tokens
-      else if version == " 0.47 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
-        else tokens
-      else if version == " 0.48 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
-        else tokens
-      else if version == " 0.49 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
-        else tokens
-      else if version == " 0.50 " then
-        if parsePeek ( tail ( tail tokens ) ) == " ; " then
-          tail ( tail ( tail tokens ) )
+    let rest = tail tokens in
+      if supportedSourceVersion ( parsePeek rest ) then
+        if parsePeek ( tail rest ) == " ; " then tail ( tail rest )
         else tokens
       else tokens
   else tokens ;
