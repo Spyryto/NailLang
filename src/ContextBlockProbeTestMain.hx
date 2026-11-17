@@ -38,6 +38,15 @@ class ContextBlockProbeTestMain {
     var checker=new TypeChecker();
     return checker.checkSyntax(SyntaxEncoder.program(forms));
   }
+  /** Opt-in checker reuses the originating parser and infers open row tails. */
+  static function typeRows(source:String,ctx:StringMap<Array<String>>)
+      :{types:Array<String>,checker:TypeChecker} {
+    var parser=new Parser(source,ctx);
+    var checker=new TypeChecker();
+    var types=checker.checkParsed(parser,parser.parse());
+    return {types:types,checker:checker};
+  }
+
   static function run(source:String,ctx:StringMap<Array<String>>):Array<Dynamic> {
     var forms=new Parser(source,ctx).parse();
     return new ByteVm(15000000).runPlain(BytecodeCompiler.compile(forms));
@@ -138,8 +147,34 @@ class ContextBlockProbeTestMain {
       +'display Html " Dynamic " ;';
     equal(run(param,ctx),['H:Dynamic'],
       'runtime record parameter is already executable without new VM opcodes');
-    fails(() -> types(param,ctx),'unknown record field h2',
-      'the type checker cannot infer an open structural row yet');
+    equal(typeRows(param,ctx).types,['Text'],
+      'open row constraints type-check a contextual record argument');
+    ok(typeRows(param,ctx).checker.signature('display').indexOf('h2:')>=0,
+      'context parameter signature requires h2 without an interface');
+
+    var plain='def getH2 renderer title = renderer . h2 title ; '
+      +setup
+      +'def alt = { h2 = fun x -> textConcat " Alt: " x } ; '
+      +'getH2 Html " Full " ; getH2 alt " Small " ;';
+    equal(typeRows(plain,ctx).types,['Text','Text'],
+      'closed records with different field sets satisfy the same open row');
+    equal(run(plain,ctx),['H:Full','Alt:Small'],
+      'row inference only changes static typing, not runtime calls');
+    var multiple='def readBoth renderer = [ renderer . h2 " One " , '
+      +'renderer . div " Two " ] ; '+setup+'readBoth Html ;';
+    equal(typeRows(multiple,ctx).types,['[Text]'],
+      'multiple projections from one unknown parameter compose row constraints');
+    equal(run(multiple,ctx),[['H:One','D:Two']],
+      'multiple required record fields execute without new VM opcodes');
+    var missing='def extract renderer = renderer . h2 " Missing " ; '
+      +'extract { div = fun x -> x } ;';
+    fails(() -> typeRows(missing,ctx),
+      'missing structural record fields',
+      'missing required field is rejected during inference');
+    var wrong='def extract renderer = renderer . h2 " Bad " ; '
+      +'extract { h2 = fun x -> x + 1 } ;';
+    fails(() -> typeRows(wrong,ctx),'cannot unify',
+      'structurally matching field must also have compatible function type');
 
     // The parser chooses by the tokens after '{', never by a type lookup.
     var disambiguated='type Html { h2 Text } ; '
