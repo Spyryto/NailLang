@@ -51,7 +51,14 @@ class TypeChecker {
   public function check(source:String, ?modules:String->Null<String>):Array<String> {
     lastFailureSpan = null;
     var parser = new Parser(source);
-    var forms = parser.parse(modules);
+    return checkParsed(parser, parser.parse(modules));
+  }
+
+  /** Check forms from their original parser in one pass. Analysis callers
+      reuse the parsed program, macro resolution and source coordinates rather
+      than reparsing the source (or fetching modules a second time). */
+  public function checkParsed(parser:Parser, forms:Array<Form>):Array<String> {
+    lastFailureSpan = null;
     var rows = numeric.NumericRelation.decodeRows(parser.declaredDivRows);
     var extraRows = new haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>();
     for (relation in parser.declaredOperatorRows.keys())
