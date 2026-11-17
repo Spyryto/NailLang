@@ -1,8 +1,8 @@
-# Nail Cookbook — v0.49
+# Nail Cookbook — v0.52
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
-Ricette progressive per usare **questa** versione, non le feature delle release successive. Separare gli snippet in file diversi quando ridefiniscono lo stesso nome; leggere sempre i risultati come valori restituiti dalla VM, non come output automatico della pagina web.
+Ricette progressive, incluse le tappe storiche dalla v0.49 alla versione corrente; ogni snippet mantiene il proprio header Nail. Separare gli snippet in file diversi quando ridefiniscono lo stesso nome; leggere sempre i risultati come valori restituiti dalla VM, non come output automatico della pagina web.
 
 ## Ricetta 1 — risultato immediato
 
@@ -343,3 +343,56 @@ Questo esempio richiede che l'host registri `greet` con firma
 Il valore non viene inventato dal linguaggio e non esiste accesso
 automatico alle API del sistema. Per il manifesto completo e la
 registrazione vedere `HOST-CAPABILITIES.md`.
+
+
+## Ricetta 18 — Ricevere una lista tipizzata dall'host (v0.52)
+
+Se una funzione esterna deve restituire più valori, non serve un array
+JavaScript/PHP mutabile né una nuova primitiva VM. Il modulo Nail può
+richiedere `Text -> CoreResult[List[Text], Text]` e usare la lista con
+le normali operazioni funzionali:
+
+```nail
+nail 0.52 ;
+def first key =
+  match readMany key with
+  | Ok items -> head items
+  | Error reason -> reason ;
+```
+
+Il nome `readMany` è un import nel manifesto: il programma host decide
+se concedere effettivamente questa funzionalità. Per esempio, in Haxe
+(e compilabile verso JavaScript/PHP):
+
+```haxe
+var listType = nail.NType.TFunction(nail.NType.TText,
+  nail.NType.TSum('CoreResult', [
+    nail.NType.TList(nail.NType.TText), nail.NType.TText
+  ]));
+var source = 'nail 0.52 ; def first key = match readMany key with '
+  + '| Ok items -> head items | Error reason -> reason ;';
+var spec:nail.ModuleLinker.PublicSourceModuleSpec = {
+  name:'Songs', source:source,
+  imports:[{
+    module:'NailHost', symbol:'fetchMany', alias:'readMany',
+    scheme:{term:listType, quantified:[], comparable:[]}
+  }],
+  exports:['first']
+};
+var image = nail.ModuleImage.encode(nail.ModuleLinker.compilePublic(spec));
+var grants = new nail.HostTextGrants();
+grants.grantFunction('Songs', 'fetchMany', listType, _ ->
+  nail.ResultValue.ok(nail.Value.Cons(nail.Value.Text('Jazz'),
+    nail.Value.Cons(nail.Value.Text('Blues'), nail.Value.Nil))));
+var linked = nail.ModuleLinker.linkImages([image], 40000000, grants);
+var result = nail.Vm.toPlain(linked.invoke('Songs', 'first',
+  nail.Value.Text('titles'))); // 'Jazz'
+```
+
+Una lista è un valore `Cons`/`Nil` immutabile. Alla frontiera con
+l'host, ogni cella e ogni elemento sono controllati; code scorrette,
+elementi di tipo diverso, liste troppo grandi e annidamenti eccessivi
+vengono rifiutati. La funzione si può revocare anche dopo il link.
+Il bridge non concede alcun accesso implicito a file, rete o oggetti
+JavaScript/PHP. I test Haxe/Node/PHP della ricetta sono integrati in
+`HostFunctionRegistryTestMain.hx` e nel workflow CI.
