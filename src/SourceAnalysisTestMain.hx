@@ -73,7 +73,8 @@ class SourceAnalysisTestMain {
     ok(current.ok && current.version == '0.50' &&
       current.evaluations.length == 1 &&
       current.evaluations[0].type == 'Int',
-      'v0.50 supports v0.49 n-ary relation definitions and analysis');
+      'v0.50 supports v0.49 n-ary relation definitions and analysis: '
+        + Json.stringify(current));
 
     var again = SourceAnalysis.analyze(source);
     ok(Json.stringify(again) == Json.stringify(result),
