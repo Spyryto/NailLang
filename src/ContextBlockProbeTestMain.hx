@@ -2,6 +2,7 @@ import haxe.Json;
 import haxe.ds.StringMap;
 import nail.Parser;
 import nail.TypeChecker;
+import nail.ContextInterfaces;
 import nail.BytecodeCompiler;
 import nail.ByteVm;
 import nail.SyntaxEncoder;
@@ -61,6 +62,38 @@ class ContextBlockProbeTestMain {
       'same lowered five-constructor AST executes in original VM');
     fails(() -> new Parser(simple).parse(),'Expected named record field',
       'feature must remain opt-in for the source parser');
+
+    // Contextual syntax never relies on identifier capitalization.
+    // Derive field names from actual checked structural *values* rather
+    // than handwritten interface lists in the parser.
+    var caseDeclarations=setup
+      +'def html = { h2 = fun x -> textConcat " lower: " x , '
+      +'div = fun x -> textConcat " lower-div: " x } ; ';
+    var caseChecker=new TypeChecker();
+    caseChecker.check(caseDeclarations);
+    var derived=ContextInterfaces.fromChecked(caseChecker,['Html','html']);
+    equal(derived.get('Html'),['div','h2'],
+      'uppercase context exposes the checked structural fields');
+    equal(derived.get('html'),['div','h2'],
+      'lowercase context exposes the same fields without a syntax rule');
+    var mixedCase=caseDeclarations
+      +'Html { h2 " Case " } ; '
+      +'html { h2 " Case " } ; '
+      +'Html { div " Case " } ; '
+      +'html { div " Case " } ;';
+    equal(types(mixedCase,derived),['Text','Text','Text','Text'],
+      'capitalization has no bearing on contextual type resolution');
+    equal(run(mixedCase,derived),
+      ['H:Case','lower:Case','D:Case','lower-div:Case'],
+      'Html and html are distinct values, not case-folded identifiers');
+    var nonRecordChecker=new TypeChecker();
+    nonRecordChecker.check('def Html = 4 ;');
+    fails(() -> ContextInterfaces.fromChecked(nonRecordChecker,['Html']),
+      'expected closed structural record value',
+      'an uppercase identifier is not automatically a DSL module');
+    fails(() -> ContextInterfaces.fromChecked(caseChecker,['Html','Html']),
+      'invalid or duplicate value name',
+      'duplicate context interface request rejected');
 
     var nested=setup+svg
       +'Html { [ h2 " First " , Svg { div ( circle " Inner " ) } ] } ;';
