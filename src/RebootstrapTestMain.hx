@@ -16,8 +16,10 @@ class RebootstrapTestMain {
 
   static function main():Void {
     var seed = Resource.getString('bootstrap_image');
-    var source = Resource.getString('stdlib_source');
-    if (seed == null || source == null) throw 'Missing bootstrap test resources';
+    var rawSource = Resource.getString('stdlib_source');
+    if (seed == null || rawSource == null) throw 'Missing bootstrap test resources';
+    var source = 'nail ' + numeric.LanguageVersion.CURRENT
+      + ' ;\n' + rawSource;
 
     var second:String;
     #if (php && !full_rebootstrap)

@@ -9,15 +9,18 @@ import nail.Vm;
     Its output is data embedded into the separately compiled boot runtime. */
 class BootstrapImageMain {
   static function main():Void {
-    var source = File.getContent('stdlib.nail');
+    var source = 'nail ' + numeric.LanguageVersion.CURRENT
+      + ' ;\n' + File.getContent('stdlib.nail');
     var bytecode = BytecodeCompiler.compileSource(source);
-    var encoded = BootstrapImage.encode(bytecode);
+    var encoded = BootstrapImage.encodeModern(bytecode);
     var roundTrip = BootstrapImage.decode(encoded);
     if (Json.stringify(Vm.toPlain(bytecode)) != Json.stringify(Vm.toPlain(roundTrip)))
       throw 'Bootstrap image failed round-trip validation';
     FileSystem.createDirectory('build');
     FileSystem.createDirectory('build/bootstrap');
     File.saveContent('build/bootstrap/stdlib-image.json', encoded + '\n');
-    Sys.println('Bootstrap image generated (' + encoded.length + ' characters)');
+    Sys.println('Modern bootstrap image for Nail '
+      + numeric.LanguageVersion.CURRENT + ' generated ('
+      + encoded.length + ' characters)');
   }
 }

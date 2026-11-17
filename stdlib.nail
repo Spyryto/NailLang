@@ -857,6 +857,10 @@ def stripNailHeader tokens =
         if parsePeek ( tail ( tail tokens ) ) == " ; " then
           tail ( tail ( tail tokens ) )
         else tokens
+      else if version == " 0.47 " then
+        if parsePeek ( tail ( tail tokens ) ) == " ; " then
+          tail ( tail ( tail tokens ) )
+        else tokens
       else tokens
   else tokens ;
 
