@@ -108,9 +108,14 @@ class TypeRelation {
         if (!Type.enumEq(inputs[i],row[i])) {match=false;break;}
       if (match) return row[n];
     }
+    var names:Array<String>=[];
+    for (item in inputs) {
+      var label='?';
+      try label=typeName(item) catch (_:Dynamic) {}
+      names.push(label);
+    }
     throw 'Type error: no ' + contract.name + ' instance for '
-      + [for (item in inputs) typeName(item)].join(' ')
-      + '; explicit conversion required';
+      + names.join(' ') + '; explicit conversion required';
   }
 
   public static function signature(contract:RelationContract):String {
