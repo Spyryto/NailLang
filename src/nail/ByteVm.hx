@@ -24,7 +24,7 @@ class ByteVm {
   public function new(maxSteps:Int = 100000) {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
-    globals = Vm.primitiveEnvironment();
+    globals = RuntimePrimitives.environment();
   }
 
   function tick():Void {
@@ -144,7 +144,7 @@ class ByteVm {
             case Native(name, arity, applied):
               var all = applied.copy();
               all.push(arg);
-              var value = all.length < arity ? Native(name, arity, all) : Vm.primitive(name, all);
+              var value = all.length < arity ? Native(name, arity, all) : RuntimePrimitives.apply(name, all);
               if (tail) {
                 completed = value;
                 delivering = true;
@@ -196,7 +196,7 @@ class ByteVm {
       case Native(name, arity, applied):
         var args = applied.copy();
         args.push(arg);
-        args.length < arity ? Native(name, arity, args) : Vm.primitive(name, args);
+        args.length < arity ? Native(name, arity, args) : RuntimePrimitives.apply(name, args);
       case HostFunction(_, invoke): invoke(arg);
       case _: throw 'Bytecode value is not callable';
     };
@@ -305,6 +305,6 @@ class ByteVm {
   }
 
   public function names():Array<String> return globals.keys();
-  public function runPlain(program:Value):Array<Dynamic> return Vm.plainResults(run(program));
+  public function runPlain(program:Value):Array<Dynamic> return RuntimeValues.plainResults(run(program));
 }
 

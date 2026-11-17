@@ -47,7 +47,7 @@ class BootRuntime {
   public function run(source:String, ?modules:String->Null<String>):Array<Value> return machine.run(compile(source, modules));
 
   @:keep
-  public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return Vm.plainResults(run(source, modules));
+  public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return RuntimeValues.plainResults(run(source, modules));
 
   /** Invoke a transformer written in Nail after loading its definitions.
       Uses only compiled bytecode and the source-free runtime. */

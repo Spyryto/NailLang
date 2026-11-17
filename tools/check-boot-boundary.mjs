@@ -7,7 +7,7 @@ import { join, basename } from 'node:path';
 const jsPath = 'build/boot/js/nailseed-boot.js';
 const phpPath = 'build/boot/php';
 const forbidden = ['Parser', 'BytecodeCompiler', 'RecordLowering',
-  'SumLowering', 'TypeChecker'];
+  'SumLowering', 'TypeChecker', 'Vm'];
 if (!existsSync(jsPath) || !existsSync(phpPath))
   throw new Error('Build boot-js.hxml and boot-php.hxml before checking the bootstrap boundary');
 

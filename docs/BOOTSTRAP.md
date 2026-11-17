@@ -50,9 +50,12 @@ elimination. They expose `BootRuntime` over `ByteVm`; parsing, macro
 expansion and compilation of user Nail source are implemented by the
 **precompiled Nail standard library**. The common VM, bytecode decoding,
 numeric primitives and necessary Syntax adapters remain implemented in Haxe.
-`ByteVm` now initializes its environment directly from the shared
-`Vm.primitiveEnvironment()` factory: source-free execution no longer constructs
-an AST `Vm` merely to access the primitives.
+Both evaluators now use `RuntimePrimitives.environment()` and
+`RuntimePrimitives.apply()`, so the source-free `ByteVm` no longer depends
+on the AST evaluator even for primitive dispatch. `RuntimeValues` owns
+JSON-friendly value presentation for both runtimes. The bundle guard checks
+for `Vm` as well as the compiler, parser and type checker: the source-free
+distribution must **not** include the Haxe AST VM at all.
 
 `node tools/check-boot-boundary.mjs` inspects **both generated artifacts**:
 neither may include Haxe `Parser`, `BytecodeCompiler`,
@@ -93,7 +96,32 @@ checks, the source-free CLI smoke tests, and bundled JS/PHP runtime checks.
 - The stage-zero **entry points** are under `tools/bootstrap/`; the shared
   seed compiler and runtime primitives stay under `src/nail/` so both
   the full developer target and bootstrap tests can reuse them.
-- A useful next experiment is extracting common primitives into a dedicated
-  `RuntimePrimitives` module, allowing `ByteVm` to instantiate its environment
-  without instantiating the AST `Vm`. That change needs a separate careful
-  differential performance/size test; it is not implied by moving build files.
+- Runtime primitives live in `RuntimePrimitives` (still implemented in Haxe).
+  Nail remains dependent on a portable low-level VM and finite native boundary.
+  Track source-free bundle size before claiming a performance or packaging gain.
+- A future experiment may split primitive families (numeric, Syntax, vectors)
+  only if it measurably improves cohesion; avoid unnecessary indirection.
+
+## Code size and runtime boundary measurement (2026-11-17)
+
+The AST evaluator was successfully separated from the source-free runtime
+**without duplicating primitive semantics**. Both evaluators use the same
+`RuntimePrimitives` entry points. `RuntimeValues` holds presentation only;
+the bytecode runtime and boot wrapper do not reference `Vm`.
+
+Production-file character counts relative to the pre-refactor branch:
+
+| Component | Before | After |
+| --- | ---: | ---: |
+| `Vm.hx` | 29,375 | 11,462 |
+| `ByteVm.hx` | 12,008 | 12,047 |
+| `BootRuntime.hx` | 2,535 | 2,546 |
+| New `RuntimePrimitives.hx` | 0 | 16,857 |
+| New `RuntimeValues.hx` | 0 | 1,622 |
+| **Total** | **43,918** | **44,534** |
+
+The production sources **increase by 616 characters** (excluding docs and
+tests). This is a separation of responsibilities and dead-code-elimination
+opportunity, **not** a claim of fewer total source lines, a smaller compiled
+artifact or faster execution. The CI packaging guard now rejects the AST VM
+class in addition to host compiler classes in both source-free bundles.
