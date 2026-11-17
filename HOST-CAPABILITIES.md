@@ -680,3 +680,42 @@ representation. The v0.51 revocation and call-budget semantics are
 unchanged; no new VM instruction or source syntax is introduced.
 
 Regressions: `host-functions-test-{interp,js,php}.hxml`.
+
+
+## v0.53 — Typed NailHost declarations in module source
+
+Instead of duplicating host imports and their types in the Haxe public
+manifest, a Nail 0.53 module may write:
+
+```nail
+nail 0.53 ;
+def first key = match readMany key with
+  | Ok items -> head items | Error reason -> reason ;
+import fetchMany as readMany from NailHost :
+  Text -> CoreResult [ List [ Text ] , Text ] ;
+```
+
+The optional `as` alias defaults to the imported symbol. These imports
+are **hoisted module declarations**, not sequential statements; putting
+them at the end is valid and keeps implementation code first. In
+`ModuleLinker.compilePublic({name,source,exports})` the compiler extracts
+them into the ordinary `PublicSourceModuleImport` manifest (so the Haxe
+`imports` array is optional). The extracted directive is replaced by
+whitespace, preserving newline and offset positions before both compilers
+run; ordinary expression macro imports are unchanged.
+
+The source may declare only a closed, monomorphic type built from
+`Text`, `Bool`, `Int`, `Ratio`, `Float`, `List [ T ]`,
+`CoreResult [ A , B ]` and `T -> U`. This source syntax does not
+create a host callback: registration, explicit per-module grants, exact
+canonical type matching, revocation and bounded invocation remain host
+responsibilities. The existing signed/trusted module gates also remain
+in place. There is no ambient FFI or import of arbitrary Haxe, JS or PHP
+objects.
+
+`NailHost` declarations are supported only via the public separate-module
+compiler; standalone `BootRuntime.run(source)` does not install grants
+or extract these imports. The declaration syntax is available starting in
+0.53 and is deliberately separate from static macro imports.
+
+Regressions: `host-source-imports-test-{interp,js,php}.hxml`.
