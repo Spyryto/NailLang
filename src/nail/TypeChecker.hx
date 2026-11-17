@@ -76,6 +76,10 @@ class TypeChecker {
       constructorOwners, relationByName, parser.modernMode,
       newTables, functionContracts, parser.experimentalContexts);
     solver.declarations = parser.declaredRelations;
+    if (parser.experimentalContexts) {
+      solver.parameterConstraints=parser.parameterConstraints;
+      solver.valueConstraints=parser.valueConstraints;
+    }
     if (parser.modernMode)
       for (name in parser.declaredRelations.keys()) {
         var relation=parser.declaredRelations.get(name);
@@ -488,6 +492,8 @@ private class Inference {
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
   final openRows:Bool;
+  public var parameterConstraints:StringMap<Array<{name:String,type:NType}>>=new StringMap();
+  public var valueConstraints:StringMap<NType>=new StringMap();
 
   public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
@@ -1664,6 +1670,47 @@ private class Inference {
         env.set(name, mono(provisional));
         validateMatches(expr);
         var t = infer(expr, env, {name:name, scheme:mono(provisional)});
+        // Optional contracts narrow inference. They never change the core
+        // expression or its runtime behavior; surplus record fields remain
+        // accepted through open structural tails.
+        var requirements=parameterConstraints.get(name);
+        if (requirements!=null) {
+          var currentType=t;
+          var currentBody=expr;
+          for (item in requirements) {
+            // Find the correct annotated binder in the curried source order.
+            // Every binder is checked at the exact parameter position.
+            var cursor=currentBody;
+            var typeCursor=t;
+            var found=false;
+            while(true) switch(cursor) {
+              case Lambda(param,rest):
+                var arg=fresh(),ret=fresh();
+                unify(typeCursor,TFunction(arg,ret));
+                if (param==item.name) {
+                  switch(item.type) {
+                    case TStructural(fields):
+                      unify(arg,TOpenStructural(fields,fresh()));
+                    case _:
+                      unify(arg,item.type);
+                  }
+                  found=true;
+                  break;
+                }
+                cursor=rest; typeCursor=ret;
+              case _:
+                break;
+            }
+            if (!found) throw 'Parameter annotation: missing parameter '+item.name;
+          }
+        }
+        var requiredValue=valueConstraints.get(name);
+        if (requiredValue!=null) switch(requiredValue) {
+          case TStructural(fields):
+            unify(t,TOpenStructural(fields,fresh()));
+          case _:
+            unify(t,requiredValue);
+        }
         unify(provisional, t);
         globals.set(name, generalize(t, globals));
       case Evaluate(expr):
