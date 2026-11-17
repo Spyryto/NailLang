@@ -4,6 +4,16 @@ NailLang is an experimental programming language implemented in Haxe, with JavaS
 
 **Current development: v0.49** — named finite type relations now accept 1–16 inputs plus one result type. A function explicitly annotated `: Constraint` is checked against every declared row and can be called with exactly the declared arity. The new `nailseed.runtime-module.v3` format carries checked relation contracts across separately compiled imports/exports without changing the `int-ratio-float.v1` numeric ABI. The v0.48 v2 and historical v1 module images remain supported.
 
+## Compatibility policy before 1.0
+
+**No backward compatibility is guaranteed before NailLang 1.0.** Each release may change or remove syntax, source semantics, runtime behavior, standard-library interfaces, or compiled module/bootstrap ABIs whenever simplifying or improving the language warrants it. Changes must be documented in the release notes.
+
+Historical versions remain accessible through Git tags, releases, and versioned documentation, together with their corresponding compiler/runtime artifacts. Running an old program with its historical toolchain is the reliable compatibility path.
+
+Compatibility with older source versions or compiled modules may be retained **only when it provides concrete value at acceptable complexity**, not as an architectural commitment. We may delete old compatibility paths and historical regression expectations from the current compiler; historical tests belong to their respective tagged versions. An ABI version is a format identifier, not a promise of cross-version support.
+
+The compatibility guarantees for 1.0 will be specified separately before that release.
+
 This repository reconstructs the original NailSeed prototype as a clean, version-by-version public Git history. Each historic version has its own commit and tag. The current branch contains a single src/ directory, rather than numbered version folders.
 
 - Language source and Haxe implementation: src/
