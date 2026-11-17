@@ -68,6 +68,13 @@ class SourceAnalysisTestMain {
       result.references[0].span.start < result.references[1].span.start,
       'references are ordered by source location');
 
+    var current = SourceAnalysis.analyze(
+      'nail 0.50 ; Scale : Int Int ; def square x : Scale = x * x ; square 4 ;');
+    ok(current.ok && current.version == '0.50' &&
+      current.evaluations.length == 1 &&
+      current.evaluations[0].type == 'Int',
+      'v0.50 supports v0.49 n-ary relation definitions and analysis');
+
     var again = SourceAnalysis.analyze(source);
     ok(Json.stringify(again) == Json.stringify(result),
       'analysis is deterministic and has no persistent state');

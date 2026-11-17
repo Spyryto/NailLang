@@ -6,7 +6,7 @@ exposes `NailSeed.analyze(source, modules?)`:
 
 ```js
 const { NailSeed } = require('./build/js/nailseed.js');
-const report = NailSeed.analyze('nail 0.49 ; def id x = x ; id 42 ;');
+const report = NailSeed.analyze('nail 0.50 ; def id x = x ; id 42 ;');
 console.log(report.ok, report.symbols, report.evaluations, report.diagnostics);
 ```
 
