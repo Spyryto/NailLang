@@ -45,6 +45,13 @@ jobs:
         run: |
           haxe modern-bootstrap-test-js.hxml
           node build/tests/modern-bootstrap.js
+      - name: Verify generic n-ary relations (Haxe, JS, PHP)
+        run: |
+          haxe nary-relations-test-interp.hxml
+          haxe nary-relations-test-js.hxml
+          node build/tests/nary-relations.js
+          haxe nary-relations-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-nary-relations/index.php
       - name: Verify modern Int/Ratio/Float module ABI (Haxe, Node, PHP)
         run: |
           haxe modern-module-abi-test-interp.hxml
