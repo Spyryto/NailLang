@@ -263,7 +263,10 @@ class ByteVm {
       ? call(globals.lookup('modernRewrite'), expanded)
       : numeric.NumericDialect.isExact(source)
       ? call(globals.lookup('exactRewrite'), expanded) : expanded;
-    return compileSyntax(typed);
+    // The host has already expanded macros before numeric rewriting.
+    // Do not rescan the resulting Syntax tree inside compileSyntax.
+    steps = 0;
+    return call(globals.lookup('compileExpandedSyntax'), typed);
   }
 
   /** Host-selected capability name; links only a callable and does not

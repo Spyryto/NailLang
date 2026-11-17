@@ -125,3 +125,28 @@ tests). This is a separation of responsibilities and dead-code-elimination
 opportunity, **not** a claim of fewer total source lines, a smaller compiled
 artifact or faster execution. The CI packaging guard now rejects the AST VM
 class in addition to host compiler classes in both source-free bundles.
+
+## Macro expansion boundary (2026-11-17)
+
+The source-free compiler uses the **Haxe** `MacroExpander` for hygienic
+template expansion via the `macroExpandSyntax` native primitive. Therefore
+`MacroExpander`, its AST/Syntax adapters, and the hygiene conventions are
+**still functional runtime dependencies** for macro-aware compilation. A
+source-free distribution means *no Haxe source parser or Haxe reference
+compiler*, **not** zero Haxe compiler-time services.
+
+Macro expansion is intentionally **once per compilation path**:
+
+- `compileSyntax` expands arbitrary user-provided `Syntax` and then calls
+  `compileExpandedSyntax`.
+- `compileModernSource` and `compileExactSource` expand macros **before**
+  rewriting numeric syntax, then call `compileExpandedSyntax` directly.
+- Compiling imported macro modules similarly expands them with the resolver
+  before rewriting, then calls the same internal entry point.
+
+Previously the last two paths invoked `compileSyntax` on already-expanded
+syntax, forcing an unnecessary second AST scan. The internal helper is an
+implementation contract, **not** a new source-language feature. Future
+dogfooding can replace the remaining native macro expansion only once a
+full Nail implementation preserves hygiene, lexical scope, imports, work
+limits, diagnostics and bootstrap fixed-point parity.
