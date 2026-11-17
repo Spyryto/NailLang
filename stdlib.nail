@@ -1024,29 +1024,35 @@ def compileGo tree tailMode = match coreRead tree with
 def compileExpr tree = compileGo tree false ;
 def compileTail tree = compileGo tree true ;
 
+# One AST constructor builder for both nominal records and ADT variants.
+def makeConstructor owner params names values =
+  parseLambdaWrap params
+    ( syntaxApply
+      ( syntaxApply
+        ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " owner ) )
+        ( syntaxList ( reverse names ) ) )
+      ( syntaxList ( reverse values ) ) ) ;
+
 def recordConstructor name fields =
   let params = map ( fun field -> syntaxName ( recordFieldName field ) ) fields in
   let names = map ( fun field -> syntaxLiteral " Text " ( recordFieldName field ) ) fields in
   let vals = map ( fun field -> syntaxVar ( recordFieldName field ) ) fields in
-  let make = syntaxApply
-    ( syntaxApply
-      ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " name ) )
-      ( syntaxList ( reverse names ) ) )
-    ( syntaxList ( reverse vals ) ) in
-  parseLambdaWrap params make ;
+  makeConstructor name params names vals ;
 
 # A declaration transformer produces ordinary syntax, never bytecode.
 # Its input is a parser-validated RecordType; type validation remains separate.
 def syntaxDefine name body = syntaxNode " Define " [ syntaxName name , body ] ;
 
+def fieldSyntax receiver field =
+  syntaxApply
+    ( syntaxApply ( syntaxVar " #recordGet " ) receiver )
+    ( syntaxLiteral " Text " field ) ;
+
 def recordAccessorDefinition name field =
   let fname = recordFieldName field in
   let getter = textConcat ( textConcat name " . " ) fname in
   syntaxDefine getter
-    ( syntaxLambda " #rec "
-      ( syntaxApply
-        ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar " #rec " ) )
-        ( syntaxLiteral " Text " fname ) ) ) ;
+    ( syntaxLambda " #rec " ( fieldSyntax ( syntaxVar " #rec " ) fname ) ) ;
 
 def recordDefinitions form =
   let parts = syntaxChildren form in
@@ -1057,11 +1063,16 @@ def recordDefinitions form =
 
 # Preserve the original declarations for nominal type checking. The second
 # Program is executable syntax. Both are available before bytecode emission.
-def expandRecordForms forms = match forms with
+# Shared, source-level declaration rewrite; returns executable Syntax only.
+# No special compiler opcode is introduced for records or sums.
+def expandForms transform forms = match forms with
   | [] -> []
-  | form :: rest -> append
-      ( if syntaxTag form == " RecordType " then recordDefinitions form else [ form ] )
-      ( expandRecordForms rest ) ;
+  | form :: rest -> append ( transform form ) ( expandForms transform rest ) ;
+
+def expandRecordForms forms =
+  expandForms ( fun form ->
+    if syntaxTag form == " RecordType " then recordDefinitions form else [ form ] )
+    forms ;
 
 def expandRecordDeclarations program =
   if syntaxTag program == " Program " then
@@ -1099,16 +1110,10 @@ def sumConstructor owner ctor =
   let params = sumArgumentNames fields 0 in
   let names = cons ( syntaxLiteral " Text " " #tag " ) ( sumFieldNames fields 0 ) in
   let values = cons ( syntaxLiteral " Text " name ) ( sumArgumentValues fields 0 ) in
-  let make = syntaxApply
-    ( syntaxApply ( syntaxApply ( syntaxVar " #recordMake " ) ( syntaxLiteral " Text " owner ) )
-      ( syntaxList ( reverse names ) ) )
-    ( syntaxList ( reverse values ) ) in
-  parseLambdaWrap params make ;
+  makeConstructor owner params names values ;
 
 def sumReceiver = syntaxVar " #sum " ;
-def sumGet key = syntaxApply
-  ( syntaxApply ( syntaxVar " #recordGet " ) sumReceiver )
-  ( syntaxLiteral " Text " key ) ;
+def sumGet key = fieldSyntax sumReceiver key ;
 def sumPredicate name =
   syntaxLambda " #sum "
     ( syntaxBinary " == " ( sumGet " #tag " ) ( syntaxLiteral " Text " name ) ) ;
@@ -1124,25 +1129,33 @@ def sumAccessors name fields i =
   | [] -> []
   | field :: rest ->
     cons
-      ( bcInstruction2 " DEFINE "
-        ( syntaxName ( textConcat ( textConcat name " . " ) ( sumIndex i ) ) )
-        ( bcCode ( compileTail ( sumAccessor name i ) ) ) )
+      ( syntaxDefine ( textConcat ( textConcat name " . " ) ( sumIndex i ) )
+        ( sumAccessor name i ) )
       ( sumAccessors name rest ( i + 1 ) ) ;
 
 def sumDefinitions owner ctor =
   let name = sumCtorName ctor in
   append
-    [ bcInstruction2 " DEFINE " ( syntaxName name )
-        ( bcCode ( compileTail ( sumConstructor owner ctor ) ) ) ,
-      bcInstruction2 " DEFINE " ( syntaxName ( textConcat name " ? " ) )
-        ( bcCode ( compileTail ( sumPredicate name ) ) ) ]
+    [ syntaxDefine name ( sumConstructor owner ctor ) ,
+      syntaxDefine ( textConcat name " ? " ) ( sumPredicate name ) ]
     ( sumAccessors name ( sumCtorFields ctor ) 0 ) ;
 
-def compileSumType form =
+def sumTypeDefinitions form =
   let parts = syntaxChildren form in
   let owner = syntaxText ( head parts ) in
   let constructors = syntaxChildren ( head ( tail ( tail parts ) ) ) in
   fold ( fun acc ctor -> append acc ( sumDefinitions owner ctor ) ) [] constructors ;
+
+def expandTypeForm form =
+  if syntaxTag form == " RecordType " then recordDefinitions form
+  else if syntaxTag form == " SumType " then sumTypeDefinitions form
+  else [ form ] ;
+
+def expandTypeDeclarations program =
+  if syntaxTag program == " Program " then
+    syntaxNode " Program "
+      ( expandForms expandTypeForm ( syntaxChildren program ) )
+  else program ;
 
 def compileForm form =
   let parts = syntaxChildren form in
@@ -1154,20 +1167,12 @@ def compileForm form =
     bcInstruction1 " EVAL " ( bcCode ( compileTail ( head parts ) ) )
   else bcInstruction0 " INVALID_FORM " ;
 
-def compileForms forms =
-  match forms with
-  | [] -> []
-  | form :: rest ->
-    if syntaxTag form == " SumType " then
-      append ( compileSumType form ) ( compileForms rest )
-    else cons ( compileForm form ) ( compileForms rest ) ;
-
 def compileSyntax program =
   let expanded = macroExpandSyntax program in
   if syntaxTag expanded == " Program " then
-    let plan = expandRecordDeclarations expanded in
     syntaxNode " Bytecode "
-      ( compileForms ( syntaxChildren ( recordExpansionRuntime plan ) ) )
+      ( map compileForm
+        ( syntaxChildren ( expandTypeDeclarations expanded ) ) )
   else expanded ;
 
 def compileSource source = compileSyntax ( parseSource source ) ;
