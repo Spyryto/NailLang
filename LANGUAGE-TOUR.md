@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.50
+# Nail Language Tour — v0.52
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -465,3 +465,32 @@ l'identità interna `CoreResult`.
 L'host deve fornire la funzione e l'autorizzazione
 esplicitamente; senza grant il collegamento del modulo non riesce.
 Consultare `HOST-CAPABILITIES.md`.
+
+
+## v0.52 — Liste immutabili nell'FFI tipizzata
+
+Le funzioni concesse dall'host accettano e restituiscono ora anche
+`List[T]`, con `T` atomico o a sua volta lista; il payload di
+`CoreResult[A, B]` può contenere liste. Non cambia la sintassi Nail:
+lo stesso manifesto esplicito `NailHost` della 0.51 fornisce
+nome e tipo alla compilazione del modulo.
+
+```nail
+nail 0.52 ;
+def firstResult key =
+  match readMany key with
+  | Ok items -> head items
+  | Error reason -> reason ;
+```
+
+Il programma ha bisogno di un import esplicito `readMany` con tipo
+`Text -> CoreResult[List[Text], Text]` e della relativa autorizzazione
+dell'host. Una lista è una sequenza immutabile di celle `Cons`/`Nil`:
+non viene esposto un array JavaScript/PHP modificabile.
+
+Il runtime valida ogni elemento e ogni coda; valori malformati sono rifiutati
+prima di invocare il callback o prima di consegnare il suo risultato.
+La profondità massima è 8 e il limite di nodi visitati è 4096
+(per una lista piatta vengono contati anche le celle e i valori).
+`Vector`, record e oggetti arbitrari non fanno ancora parte di questo FFI.
+Consulta [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md).
