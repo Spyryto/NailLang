@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.47
+# Nail Cookbook — v0.48
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -226,3 +226,25 @@ toFloat secondsPerBeat ;      # Float approssimato, esplicitamente
 Il runtime bootstrap distribuito usa il compilatore scritto in Nail,
 già compilato con `Int` e `Ratio`. È indipendente dal parser sorgente
 Haxe, a differenza della distribuzione standard della VM completa.
+
+## Ricetta 13 — Tempo musicale esatto fra moduli
+
+Il modulo **Tempo** esporta il rapporto esatto:
+
+```nail
+nail 0.48 ;
+def secondsPerBeat = 60 / 97 ;
+```
+
+Il manifesto host esporta `secondsPerBeat : Ratio`. Il modulo
+**Phrase** importa quel simbolo come `tempo_secondsPerBeat : Ratio`:
+
+```nail
+nail 0.48 ;
+def twoBeats = tempo_secondsPerBeat * 2 ;
+```
+
+Il risultato è ancora `Ratio`, senza arrotondamenti. La compilazione
+separata usa `ModuleLinker.compileInferred` e
+`ModuleImage.encode`; poi `ModuleLinker.linkImages` carica soltanto i
+due JSON, senza leggere sorgenti Nail o eseguire il type checker.

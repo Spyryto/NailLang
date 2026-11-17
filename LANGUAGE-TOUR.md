@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.47
+# Nail Language Tour — v0.48
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
@@ -321,3 +321,54 @@ successivo: alcuni test e moduli storici usano ancora gli operatori
 compilazione con quei tipi, ma i percorsi di compatibilità non sono
 ancora tutti rimossi dal runtime. L'API `BootRuntime.compile` non
 sostituisce il controllo statico tramite `TypeChecker.check`.
+
+## v0.48 — ABI numerico dei moduli compilati separatamente
+
+I programmi `nail 0.48 ;` condividono la stessa semantica numerica
+delle versioni 0.45, 0.46 e 0.47. La novità è che ora è possibile
+**compilare e collegare moduli indipendenti** con tipi pubblici
+`Int`, `Ratio` e `Float`, senza convertirli in `Number`/`Exact`.
+
+Due moduli, compilati senza conoscere il codice sorgente dell'altro:
+
+```nail
+nail 0.48 ;
+def beats = 4 ;
+def quarter = 1 / 4 ;
+def gain = 0.75 ;
+```
+
+Il manifesto della libreria dichiara gli export
+`beats : Int`, `quarter : Ratio` e `gain : Float`.
+Un altro modulo può importarli tramite un manifesto di tipi Haxe:
+
+```nail
+nail 0.48 ;
+def bars = importedBeats + 4 ;
+def half = importedQuarter + ( 1 / 4 ) ;
+def louder = importedGain * 2.0 ;
+```
+
+Le importazioni, come nella precedente ABI, sono deliberate e autorizzate
+dall'host: non esiste importazione implicita di simboli globali.
+Il linker verifica **l'identità di ogni firma** e impedisce il
+collegamento fra un modulo con ABI legacy e uno con ABI moderna.
+
+Le immagini dei moduli nuovi usano `nailseed.runtime-module.v2`,
+`numericAbi: "int-ratio-float.v1"`, `sourceVersion: "0.48"`
+e contengono bytecode con rappresentazione esatta (`Int`, `Ratio`).
+**Il numero della versione del sorgente non è quello dell'ABI numerico.**
+Anche un modulo scritto con `nail 0.45 ;` può quindi essere collegato
+a uno con `nail 0.48 ;`, purché entrambi abbiano lo stesso ABI numerico.
+
+Una tabella di relazioni `Add`/`Sub`/`Mul`/`Div` continua a
+essere dichiarativa e locale al sorgente. **Il passaggio delle funzioni
+con `: Add` come valori di prima classe fra moduli non è ancora
+supportato**: richiede serializzare i vincoli, non soltanto i tipi
+concreti. Il checker rifiuta esplicitamente quell'export. Rimane inoltre
+l'obbligo di chiamare `TypeChecker.check` se si desiderano controlli
+statici prima dell'esecuzione di bytecode già compilato.
+
+Le immagini `runtime-module.v1` storiche sono ancora decodificabili
+per compatibilità, ma i loro tipi numerici non possono entrare in un
+modulo moderno attraverso un import.

@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.47
+# Eseguire NailLang — v0.48
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -193,3 +193,24 @@ dichiarate, eseguire `TypeChecker.check` prima della compilazione.
 La procedura `haxe rebootstrap-image.hxml` rimane supportata per un
 ambiente che dispone solo di Haxe: produce la stessa immagine con verifica
 del punto fisso, ma il suo interprete è più lento della variante Node.
+
+## Moduli compilati con ABI numerico v0.48
+
+```sh
+haxe seed-image.hxml
+haxe modern-module-abi-test-interp.hxml
+haxe modern-module-abi-test-js.hxml && node build/tests/modern-module-abi.js
+haxe modern-module-abi-test-php.hxml && php build/tests/php-modern-module-abi/index.php
+```
+
+`ModuleLinker.compile`, `compileInferred` e `compilePublic`
+accettano ora i programmi con intestazione `nail 0.45 ;` … `nail 0.48 ;`.
+Le interfacce `Int`, `Ratio`, `Float` sono serializzate con l'ABI
+`int-ratio-float.v1`. I moduli v2 contengono il `sourceVersion`
+effettivo; non va dedotto dal tipo dei letterali.
+
+**Sicurezza**: il semplice JSON non prova l'autenticità di un modulo.
+Per distribuire moduli non fidati usare le verifiche già presenti
+di hash firmato, firma Ed25519 e grant espliciti prima del link.
+Le funzioni con vincoli numerici (`: Div`, `: Mul`, ...) non hanno ancora
+un ABI relazionale; gli export di quelle funzioni vengono rifiutati.

@@ -21,6 +21,8 @@ typedef LinkedModuleExport = {
 typedef CompiledModule = {
   var name:String;
   var dialect:String;
+  /** Source declaration, present for modern numeric modules only. */
+  @:optional var sourceVersion:String;
   var imports:Array<LinkedModuleImport>;
   var exports:Array<LinkedModuleExport>;
   var code:Value;
@@ -31,6 +33,10 @@ typedef CompiledModule = {
     authenticity check or a replacement for type checking source. */
 class ModuleImage {
   public static inline var FORMAT = 'nailseed.runtime-module.v1';
+  /** Modern separately compiled module format, independently versioned
+      from compiler bootstrap images and source-language versions. */
+  public static inline var MODERN_FORMAT = 'nailseed.runtime-module.v2';
+  public static inline var MODERN_ABI = 'int-ratio-float.v1';
   static final identifier = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
 
   public static function validName(name:String):Bool
@@ -56,12 +62,20 @@ class ModuleImage {
     return cast value;
   }
 
+  static function validSourceVersion(version:String):Bool
+    return numeric.LanguageVersion.supported(version);
+
   public static function encode(module:CompiledModule):String {
-    var program = module.dialect == '0.29'
-      ? ExactImage.encode(module.code)
+    var modern = module.dialect == 'modern';
+    if (modern && !validSourceVersion(module.sourceVersion))
+      throw 'Module image: unsupported modern source version';
+    if (!modern && module.dialect != '0.27' && module.dialect != '0.29')
+      throw 'Module image: unsupported numeric dialect';
+    var program = modern ? BootstrapImage.encodeModern(module.code)
+      : module.dialect == '0.29' ? ExactImage.encode(module.code)
       : BootstrapImage.encode(module.code);
-    var data = {
-      format:FORMAT,
+    var data:Dynamic = {
+      format:modern ? MODERN_FORMAT : FORMAT,
       name:module.name,
       dialect:module.dialect,
       imports:[for (item in module.imports) {
@@ -72,6 +86,13 @@ class ModuleImage {
         {name:item.name, signature:item.signature}],
       bytecode:program
     };
+    if (modern) {
+      // A module ABI has its own version: 0.45/0.46/0.47 source programs
+      // share the same Int/Ratio/Float runtime representation.
+      Reflect.deleteField(data,'dialect');
+      Reflect.setField(data,'numericAbi',MODERN_ABI);
+      Reflect.setField(data,'sourceVersion',module.sourceVersion);
+    }
     return Json.stringify(data);
   }
 
@@ -81,12 +102,31 @@ class ModuleImage {
     var data:Dynamic;
     try data = Json.parse(encoded)
     catch (e:Dynamic) throw 'Module image: invalid JSON';
-    if (data == null || Reflect.field(data, 'format') != FORMAT)
+    var format = data == null ? null : Reflect.field(data, 'format');
+    var modern = format == MODERN_FORMAT;
+    if (format != FORMAT && !modern)
       throw 'Module image: incompatible format';
     var name = requireName(Reflect.field(data, 'name'), 'module name');
     if (name == HostTextGrants.PROVIDER)
       throw 'Module image: reserved host provider name';
-    var version = dialect(Reflect.field(data, 'dialect'));
+    var version:String;
+    var sourceVersion:Null<String> = null;
+    if (modern) {
+      if (Reflect.hasField(data,'dialect') ||
+          Reflect.field(data,'numericAbi') != MODERN_ABI)
+        throw 'Module image: incompatible numeric ABI';
+      var versionField:Dynamic=Reflect.field(data,'sourceVersion');
+      if (!Std.isOfType(versionField,String) ||
+          !validSourceVersion(cast versionField))
+        throw 'Module image: unsupported modern source version';
+      sourceVersion=cast versionField;
+      version='modern';
+    } else {
+      if (Reflect.hasField(data,'numericAbi') ||
+          Reflect.hasField(data,'sourceVersion'))
+        throw 'Module image: mixed legacy and modern metadata';
+      version = dialect(Reflect.field(data, 'dialect'));
+    }
     var rawImports:Dynamic = Reflect.field(data, 'imports');
     var rawExports:Dynamic = Reflect.field(data, 'exports');
     if (!Std.isOfType(rawImports, Array) || !Std.isOfType(rawExports, Array))
@@ -126,24 +166,28 @@ class ModuleImage {
     var rawCode:Dynamic = Reflect.field(data, 'bytecode');
     if (!Std.isOfType(rawCode, String))
       throw 'Module image: invalid bytecode payload';
+    if (modern && !BootstrapImage.isModernImage(cast rawCode))
+      throw 'Module image: incompatible modern bytecode format';
+    if (!modern && BootstrapImage.isModernImage(cast rawCode))
+      throw 'Module image: modern bytecode in legacy module';
     var code = version == '0.29'
       ? ExactImage.decode(cast rawCode)
       : BootstrapImage.decode(cast rawCode);
-    // A legacy module must never smuggle exact literal tags through a v1
-    // bytecode image even if the generic v1 structural decoder accepts them.
-    if (version == '0.27') {
-      var stack:Array<Value> = [code];
-      while (stack.length > 0) switch (stack.pop()) {
-        case SyntaxLeaf('ExactNumber', _):
-          throw 'Module image: exact literal in legacy module';
-        case SyntaxNode(_, items): stack.push(items);
-        case Cons(a, b): stack.push(a); stack.push(b);
-        case _:
-      }
+    // Never allow a v1 envelope to carry modern numeric literals, or
+    // the modern ABI to disguise values of the obsolete Exact domain.
+    var stack:Array<Value> = [code];
+    while (stack.length > 0) switch (stack.pop()) {
+      case SyntaxLeaf('ExactNumber', _) if (modern || version == '0.27'):
+        throw 'Module image: legacy ExactNumber literal incompatible with numeric ABI';
+      case SyntaxLeaf('Int', _) | SyntaxLeaf('Ratio', _) if (!modern):
+        throw 'Module image: modern numeric literal in legacy module';
+      case SyntaxNode(_, items): stack.push(items);
+      case Cons(a, b): stack.push(a); stack.push(b);
+      case _:
     }
     return {
-      name:name, dialect:version, imports:imports,
-      exports:exports, code:code
+      name:name, dialect:version, sourceVersion:sourceVersion,
+      imports:imports, exports:exports, code:code
     };
   }
 }

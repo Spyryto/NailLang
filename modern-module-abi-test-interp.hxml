@@ -1,0 +1,5 @@
+-cp src
+-main ModernModuleAbiTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+--interp
