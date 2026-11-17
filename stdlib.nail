@@ -146,6 +146,12 @@ def parseTree pair = head pair ;
 def parseRest pair = tail pair ;
 def parseError message = [ syntaxLeaf " Error " message ] ;
 def parseFailed pair = syntaxTag ( parseTree pair ) == " Error " ;
+
+# Static parser guard: unlike an eager function, never evaluates the
+# continuation after a failed parse. No runtime binding is installed.
+macro parseContinue checked next = quote (
+  if parseFailed ( unquote checked ) then unquote checked else unquote next
+) ;
 def parsePeek tokens =
   if isEmpty tokens then " <eof> " else syntaxText ( head tokens ) ;
 
@@ -274,10 +280,10 @@ def isPrefixSyntaxToken tokens =
 def parseListBranchNames recur first tailName afterNames =
   if parsePeek afterNames != " -> " then parseError " Expected -> "
   else let body = recur 0 ( tail afterNames ) in
-    if parseFailed body then body
-    else parsePair
-      ( syntaxNode " PairBranch " [ syntaxName first , syntaxName tailName , parseTree body ] )
-      ( parseRest body ) ;
+    expand parseContinue body (
+      parsePair
+        ( syntaxNode " PairBranch " [ syntaxName first , syntaxName tailName , parseTree body ] )
+        ( parseRest body ) ) ;
 
 def parseListBranch recur tokens =
   if isEmpty tokens then parseError " Expected list pattern "
@@ -285,14 +291,14 @@ def parseListBranch recur tokens =
     if first == " [] " then
       if parsePeek ( tail tokens ) != " -> " then parseError " Expected -> "
       else let body = recur 0 ( tail ( tail tokens ) ) in
-        if parseFailed body then body
-        else parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body )
+        expand parseContinue body (
+          parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body ) )
     else if first == " [ " then
       if parsePeek ( tail tokens ) != " ] " then parseError " Expected ] "
       else if parsePeek ( tail ( tail tokens ) ) != " -> " then parseError " Expected -> "
       else let body = recur 0 ( tail ( tail ( tail tokens ) ) ) in
-        if parseFailed body then body
-        else parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body )
+        expand parseContinue body (
+          parsePair ( syntaxNode " EmptyBranch " [ parseTree body ] ) ( parseRest body ) )
     else if isIdentifier first then
       let rest = tail tokens in
       if parsePeek rest != " :: " then parseError " Expected :: "
@@ -338,10 +344,10 @@ def parseSumBranch recur tokens =
     let params = parseParams " -> " ( tail tokens ) [] in
     if parseFailed params then params
     else let body = recur 0 ( parseRest params ) in
-      if parseFailed body then body
-      else parsePair
-        ( syntaxNode " SumBranch " [ syntaxName ctor , parseTree params , parseTree body ] )
-        ( parseRest body )
+      expand parseContinue body (
+        parsePair
+          ( syntaxNode " SumBranch " [ syntaxName ctor , parseTree params , parseTree body ] )
+          ( parseRest body ) )
   else parseError " Expected algebraic constructor " ;
 
 def sumBranchExists branches ctor =
@@ -356,10 +362,10 @@ def parseSumBranches recur tokens reversed =
     if isEmpty reversed then parseError " Expected variant branch "
     else parsePair ( syntaxNode " SumBranches " ( reverse reversed ) ) tokens
   else let branch = parseSumBranch recur ( tail tokens ) in
-    if parseFailed branch then branch
-    else let ctor = syntaxText ( head ( syntaxChildren ( parseTree branch ) ) ) in
+    expand parseContinue branch (
+      let ctor = syntaxText ( head ( syntaxChildren ( parseTree branch ) ) ) in
       if sumBranchExists reversed ctor then parseError " Duplicate variant branch "
-      else parseSumBranches recur ( parseRest branch ) ( cons ( parseTree branch ) reversed ) ;
+      else parseSumBranches recur ( parseRest branch ) ( cons ( parseTree branch ) reversed ) ) ;
 
 # In v0.18 constructor payload arity is limited to ten, so textAt supplies
 # the canonical field index without a Number-to-Text conversion primitive.
@@ -397,10 +403,10 @@ def parseMatchClauses recur scrutinee start =
   if parsePeek start != " | " then parseError " Expected | "
   else if isRecordTypeName ( parsePeek ( tail start ) ) then
     let branches = parseSumBranches recur start [] in
-    if parseFailed branches then branches
-    else parsePair
-      ( lowerSumMatch scrutinee ( syntaxChildren ( parseTree branches ) ) )
-      ( parseRest branches )
+    expand parseContinue branches (
+      parsePair
+        ( lowerSumMatch scrutinee ( syntaxChildren ( parseTree branches ) ) )
+        ( parseRest branches ) )
   else let first = parseListBranch recur ( tail start ) in
     if parseFailed first then first
     else if parsePeek ( parseRest first ) != " | " then parseError " Expected second | "
@@ -415,15 +421,15 @@ def parseMatchClauses recur scrutinee start =
 
 def parseListMatch recur tokens =
   let scrutinee = recur 0 tokens in
-  if parseFailed scrutinee then scrutinee
-  else if parsePeek ( parseRest scrutinee ) != " with " then parseError " Expected with "
-  else parseMatchClauses recur ( parseTree scrutinee ) ( tail ( parseRest scrutinee ) ) ;
+  expand parseContinue scrutinee (
+    if parsePeek ( parseRest scrutinee ) != " with " then parseError " Expected with "
+    else parseMatchClauses recur ( parseTree scrutinee ) ( tail ( parseRest scrutinee ) ) ) ;
 
 def parseFunctionMatch recur tokens =
   let subject = " #nail_function_subject_0 " in
   let branches = parseMatchClauses recur ( syntaxVar subject ) tokens in
-  if parseFailed branches then branches
-  else parsePair ( syntaxLambda subject ( parseTree branches ) ) ( parseRest branches ) ;
+  expand parseContinue branches (
+    parsePair ( syntaxLambda subject ( parseTree branches ) ) ( parseRest branches ) ) ;
 
 # Named record fields are a pure parsing/typing sugar for #recordMake.
 # Both lists preserve the user's source ordering, including evaluation order.
@@ -573,11 +579,11 @@ def hasConstraintBeforeEquals tokens =
 
 def parseNamedBody prefix name params tokens =
   let body = parseAt 0 tokens in
-    if parseFailed body then body
-    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
-    else parsePair
-      ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
-      ( tail ( parseRest body ) ) ;
+    expand parseContinue body (
+      if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
+      else parsePair
+        ( syntaxNode " Define " [ syntaxName ( textConcat prefix name ) , parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) ] )
+        ( tail ( parseRest body ) ) ) ;
 
 def recognizedNumericRelation name =
   if name == " Div " then true
@@ -682,10 +688,10 @@ def parseSumDefinition tokens =
     let params = parseParams " = " ( tail tokens ) [] in
     if parseFailed params then params
     else let ctors = parseSumCtors ( parseRest params ) [] in
-      if parseFailed ctors then ctors
-      else parsePair
-        ( syntaxNode " SumType " [ syntaxName name , parseTree params , parseTree ctors ] )
-        ( parseRest ctors )
+      expand parseContinue ctors (
+        parsePair
+          ( syntaxNode " SumType " [ syntaxName name , parseTree params , parseTree ctors ] )
+          ( parseRest ctors ) )
   else parseError " Expected algebraic type name " ;
 
 def hasRecordHeader tokens =
@@ -787,9 +793,9 @@ def parseForm tokens =
   else if isFormKeyword tokens " import " then parseMacroDirective true ( tail tokens )
   else if isFormKeyword tokens " export " then parseMacroDirective false ( tail tokens )
   else let expression = parseAt 0 tokens in
-    if parseFailed expression then expression
-    else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
-    else parsePair ( syntaxNode " Evaluate " [ parseTree expression ] ) ( tail ( parseRest expression ) ) ;
+    expand parseContinue expression (
+      if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
+      else parsePair ( syntaxNode " Evaluate " [ parseTree expression ] ) ( tail ( parseRest expression ) ) ) ;
 
 def parseForms tokens reversed =
   if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
