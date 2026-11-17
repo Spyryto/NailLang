@@ -282,6 +282,40 @@ class Parser {
       namedList(names)), namedList(values));
   }
 
+  /** Open only fields that are free in the block's core expression.
+      Lambda/let binders and nested contexts shadow those field names; this
+      keeps inferred rows minimal without querying runtime values or types.
+      All interface names are still validated, including unused ones. */
+  function usedContextMembers(inner:Expr, allowed:haxe.ds.StringMap<Bool>,
+      members:Array<String>):Array<String> {
+    var used=new haxe.ds.StringMap<Bool>();
+    var pending:Array<{tree:Expr,bound:haxe.ds.StringMap<Bool>}>=[
+      {tree:inner,bound:new haxe.ds.StringMap<Bool>()}
+    ];
+    while(pending.length>0) {
+      var current=pending.pop();
+      switch(current.tree) {
+        case Var(name):
+          if (allowed.exists(name) && !current.bound.exists(name))
+            used.set(name,true);
+        case Lambda(param,body):
+          var local=new haxe.ds.StringMap<Bool>();
+          for (name in current.bound.keys()) local.set(name,true);
+          local.set(param,true);
+          pending.push({tree:body,bound:local});
+        case Apply(fn,arg):
+          pending.push({tree:fn,bound:current.bound});
+          pending.push({tree:arg,bound:current.bound});
+        case If(condition,yes,no):
+          pending.push({tree:condition,bound:current.bound});
+          pending.push({tree:yes,bound:current.bound});
+          pending.push({tree:no,bound:current.bound});
+        case Literal(_):
+      }
+    }
+    return [for (member in members) if (used.exists(member)) member];
+  }
+
   /** A context block and a record literal have disjoint openings:
       Name { field = expr ... } is an existing named-record constructor;
       Name { expression } opens a context if the experimental caller
@@ -303,12 +337,13 @@ class Parser {
     }
     var inner=expression();
     expect('}');
+    var referenced=usedContextMembers(inner,seen,members);
     // The internal name cannot be written by Nail source code.
     var receiver='#nail_context_'+(nextContext++);
-    var i=members.length;
+    var i=referenced.length;
     while(i>0) {
       i--;
-      var member=members[i];
+      var member=referenced[i];
       var projection:Expr=Apply(Apply(Var('#recordGet'),
         Var(receiver)),Literal(Text(member)));
       inner=Apply(Lambda(member,inner),projection);
