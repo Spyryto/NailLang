@@ -1,8 +1,41 @@
-# Nail Language Tour — v0.48
+# Nail Language Tour — v0.49
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
 La v0.40 non cambia la grammatica Nail. Aggiunge un confine di **integrità dei moduli compilati**, lato host. La v0.39 aveva introdotto la scrittura controllata; la v0.40 impedisce che un'immagine sostitutiva non autorizzata si presenti con lo stesso nome di un modulo autorizzato.
+
+## Novità v0.49 — Vincoli per funzioni di qualunque arità (1–16)
+
+La relazione elenca **i tipi di tutti i parametri**, seguiti dal **tipo di ritorno**. Ogni riga deve avere la stessa arità e a una stessa tupla di parametri non possono corrispondere risultati differenti.
+
+```nail
+nail 0.49 ;
+Square : Int Int ;
+Square : Ratio Ratio ;
+Square : Float Float ;
+Blend : Int Int Int Int ;
+Blend : Float Float Float Float ;
+Echo : Text Text ;
+Echo : Bool Bool ;
+
+def square x : Square = x * x ;
+def blend a b c : Blend = a * b + c ;
+def echo x : Echo = x ;
+
+square 4 ;          # Int 16
+square ( 1 / 2 ) ;  # Ratio 1/4
+blend 2 3 4 ;      # Int 10
+echo " ciao " ;     # Text
+```
+
+`def blend a b c : Blend` indica **tre parametri reali**, non un tipo speciale per la funzione: la riga `Blend : Int Int Int Int` associa a quei tre `Int` un risultato `Int`. Per un vincolo con `n` parametri servono esattamente `n+1` tipi, perché l'ultimo è l'output. Non servono dichiarazioni di classi, metodi runtime o conversioni automatiche.
+
+Il checker verifica **il medesimo corpo** di una funzione per ogni riga concreta e risolve le chiamate tramite tutti i tipi degli argomenti. L'annotazione `: Square` è esplicita (scelta B): togliendola, non viene inferito automaticamente il polimorfismo degli operatori numerici. Le chiamate vincolate devono essere dirette e completamente applicate: applicazione parziale e passaggio della funzione sovraccarica come valore restano esclusi.
+
+### Esportazione e importazione fra moduli (v0.49)
+
+Il manifesto host `ModuleLinker.compilePublic` può esportare una funzione con `: Square` e importarla in un altro modulo fornendo il corrispondente `RelationContract`. Ogni firma e ogni riga di tipo sono conservate nel formato `nailseed.runtime-module.v3`, insieme a `relationAbi: "finite-relations.v1"`. Al link le firme canoniche devono essere identiche; un modulo v2 senza vincoli resta compatibile con il nuovo linker. Il modulo compilato non richiede sorgente né inferenza al caricamento. Il formato v3 non implementa *typeclass*, coercizioni o vincoli di ordine superiore.
+
 
 ## Sintassi: funzioni, record, risultati
 
@@ -362,10 +395,7 @@ Anche un modulo scritto con `nail 0.45 ;` può quindi essere collegato
 a uno con `nail 0.48 ;`, purché entrambi abbiano lo stesso ABI numerico.
 
 Una tabella di relazioni `Add`/`Sub`/`Mul`/`Div` continua a
-essere dichiarativa e locale al sorgente. **Il passaggio delle funzioni
-con `: Add` come valori di prima classe fra moduli non è ancora
-supportato**: richiede serializzare i vincoli, non soltanto i tipi
-concreti. Il checker rifiuta esplicitamente quell'export. Rimane inoltre
+essere dichiarativa e locale al sorgente. **Nella v0.48** l'export di funzioni con `: Add` era ancora rifiutato; dalla v0.49 è possibile esportarle con un manifesto relazionale esplicito in formato v3. Il passaggio come valore di prima classe rimane non supportato. Rimane inoltre
 l'obbligo di chiamare `TypeChecker.check` se si desiderano controlli
 statici prima dell'esecuzione di bytecode già compilato.
 

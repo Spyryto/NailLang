@@ -2,6 +2,7 @@ package nail;
 
 import haxe.Json;
 import nail.Value;
+import nail.TypeRelation.RelationContract;
 
 /** Import contracts stored in a compiled module's public interface.
     Text signatures are canonicalized by the Haxe type checker at build time. */
@@ -10,11 +11,13 @@ typedef LinkedModuleImport = {
   var symbol:String;
   var alias:String;
   var signature:String;
+  @:optional var relation:RelationContract;
 }
 
 typedef LinkedModuleExport = {
   var name:String;
   var signature:String;
+  @:optional var relation:RelationContract;
 }
 
 /** A self-contained separately compiled unit: source is not needed to link. */
@@ -36,6 +39,10 @@ class ModuleImage {
   /** Modern separately compiled module format, independently versioned
       from compiler bootstrap images and source-language versions. */
   public static inline var MODERN_FORMAT = 'nailseed.runtime-module.v2';
+  /** v3 extends modern numeric module images with finite type relations.
+      v2 images without constrained interfaces remain decodable and linkable. */
+  public static inline var RELATION_FORMAT = 'nailseed.runtime-module.v3';
+  public static inline var RELATION_ABI = 'finite-relations.v1';
   public static inline var MODERN_ABI = 'int-ratio-float.v1';
   static final identifier = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
 
@@ -65,8 +72,63 @@ class ModuleImage {
   static function validSourceVersion(version:String):Bool
     return numeric.LanguageVersion.supported(version);
 
+  /** Canonical, typed representation of a verified finite relation.
+      Signatures are checked against this metadata, never trusted alone. */
+  static function encodeRelation(contract:RelationContract):Dynamic {
+    var safe=TypeRelation.validate(contract);
+    return {
+      name:safe.name,
+      rows:[for (row in safe.rows) [for (type in row) TypeRelation.typeName(type)]]
+    };
+  }
+
+  static function decodeRelation(raw:Dynamic, signed:String, versioned:Bool)
+      :Null<RelationContract> {
+    if (raw == null) {
+      if (StringTools.startsWith(signed,'relation:'))
+        throw 'Module image: relation signature requires relation metadata';
+      return null;
+    }
+    if (!versioned)
+      throw 'Module image: relation metadata requires v3 ABI';
+    if (!Std.isOfType(Reflect.field(raw,'name'),String) ||
+        !Std.isOfType(Reflect.field(raw,'rows'),Array))
+      throw 'Module image: malformed relation metadata';
+    var sourceRows:Array<Dynamic>=cast Reflect.field(raw,'rows');
+    if (sourceRows.length == 0 || sourceRows.length > TypeRelation.MAX_ROWS)
+      throw 'Module image: invalid relation rows';
+    var rows:Array<Array<String>>=[];
+    for (row in sourceRows) {
+      if (!Std.isOfType(row,Array))
+        throw 'Module image: invalid relation row';
+      var types:Array<Dynamic>=cast row;
+      if (types.length < 2 || types.length > TypeRelation.MAX_ARITY+1)
+        throw 'Module image: invalid relation arity';
+      var names:Array<String>=[];
+      for (value in types) {
+        if (!Std.isOfType(value,String))
+          throw 'Module image: invalid relation type name';
+        names.push(cast value);
+      }
+      rows.push(names);
+    }
+    var contract=TypeRelation.decode(cast Reflect.field(raw,'name'),rows);
+    if (TypeRelation.abiSignature(contract) != signed)
+      throw 'Module image: relation signature mismatch';
+    return contract;
+  }
+
   public static function encode(module:CompiledModule):String {
     var modern = module.dialect == 'modern';
+    var relations=false;
+    for (item in module.imports)
+      if (item.relation != null) relations=true;
+    for (item in module.exports)
+      if (item.relation != null) relations=true;
+    if (relations && !modern)
+      throw 'Module image: relation metadata requires modern numeric ABI';
+    if (relations && module.sourceVersion != '0.49')
+      throw 'Module image: relation metadata requires Nail 0.49';
     if (modern && !validSourceVersion(module.sourceVersion))
       throw 'Module image: unsupported modern source version';
     if (!modern && module.dialect != '0.27' && module.dialect != '0.29')
@@ -75,15 +137,17 @@ class ModuleImage {
       : module.dialect == '0.29' ? ExactImage.encode(module.code)
       : BootstrapImage.encode(module.code);
     var data:Dynamic = {
-      format:modern ? MODERN_FORMAT : FORMAT,
+      format:relations ? RELATION_FORMAT : modern ? MODERN_FORMAT : FORMAT,
       name:module.name,
       dialect:module.dialect,
       imports:[for (item in module.imports) {
         module:item.module, symbol:item.symbol,
-        alias:item.alias, signature:item.signature
+        alias:item.alias, signature:item.signature,
+        relation:item.relation == null ? null : encodeRelation(item.relation)
       }],
       exports:[for (item in module.exports)
-        {name:item.name, signature:item.signature}],
+        {name:item.name, signature:item.signature,
+         relation:item.relation == null ? null : encodeRelation(item.relation)}],
       bytecode:program
     };
     if (modern) {
@@ -92,6 +156,7 @@ class ModuleImage {
       Reflect.deleteField(data,'dialect');
       Reflect.setField(data,'numericAbi',MODERN_ABI);
       Reflect.setField(data,'sourceVersion',module.sourceVersion);
+      if (relations) Reflect.setField(data,'relationAbi',RELATION_ABI);
     }
     return Json.stringify(data);
   }
@@ -103,7 +168,8 @@ class ModuleImage {
     try data = Json.parse(encoded)
     catch (e:Dynamic) throw 'Module image: invalid JSON';
     var format = data == null ? null : Reflect.field(data, 'format');
-    var modern = format == MODERN_FORMAT;
+    var relational=format == RELATION_FORMAT;
+    var modern = format == MODERN_FORMAT || relational;
     if (format != FORMAT && !modern)
       throw 'Module image: incompatible format';
     var name = requireName(Reflect.field(data, 'name'), 'module name');
@@ -119,11 +185,19 @@ class ModuleImage {
       if (!Std.isOfType(versionField,String) ||
           !validSourceVersion(cast versionField))
         throw 'Module image: unsupported modern source version';
+      if (relational) {
+        if (versionField != '0.49')
+          throw 'Module image: relation metadata requires Nail 0.49';
+        if (Reflect.field(data,'relationAbi') != RELATION_ABI)
+          throw 'Module image: incompatible relation ABI';
+      } else if (Reflect.hasField(data,'relationAbi'))
+        throw 'Module image: relation metadata requires v3 ABI';
       sourceVersion=cast versionField;
       version='modern';
     } else {
       if (Reflect.hasField(data,'numericAbi') ||
-          Reflect.hasField(data,'sourceVersion'))
+          Reflect.hasField(data,'sourceVersion') ||
+          Reflect.hasField(data,'relationAbi'))
         throw 'Module image: mixed legacy and modern metadata';
       version = dialect(Reflect.field(data, 'dialect'));
     }
@@ -144,11 +218,12 @@ class ModuleImage {
       var alias = requireName(Reflect.field(item, 'alias'), 'import alias');
       if (importAliases.exists(alias)) throw 'Module image: duplicate import alias ' + alias;
       importAliases.set(alias, true);
+      var signed=signature(Reflect.field(item,'signature'));
       imports.push({
         module:requireName(Reflect.field(item, 'module'), 'import module'),
         symbol:requireName(Reflect.field(item, 'symbol'), 'import symbol'),
-        alias:alias,
-        signature:signature(Reflect.field(item, 'signature'))
+        alias:alias, signature:signed,
+        relation:decodeRelation(Reflect.field(item,'relation'),signed,relational)
       });
     }
     for (item in exportsRaw) {
@@ -158,10 +233,17 @@ class ModuleImage {
       exportNames.set(label, true);
       if (importAliases.exists(label))
         throw 'Module image: cannot export an imported alias ' + label;
+      var signed=signature(Reflect.field(item,'signature'));
       exports.push({
-        name:label,
-        signature:signature(Reflect.field(item, 'signature'))
+        name:label, signature:signed,
+        relation:decodeRelation(Reflect.field(item,'relation'),signed,relational)
       });
+    }
+    if (relational) {
+      var has=false;
+      for (item in imports) if (item.relation != null) has=true;
+      for (item in exports) if (item.relation != null) has=true;
+      if (!has) throw 'Module image: unused relation ABI';
     }
     var rawCode:Dynamic = Reflect.field(data, 'bytecode');
     if (!Std.isOfType(rawCode, String))

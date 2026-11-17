@@ -5,6 +5,7 @@ import haxe.ds.StringMap;
 import nail.Ast.Expr;
 import nail.Ast.Form;
 import nail.NType;
+import nail.TypeRelation.RelationContract;
 import nail.Value;
 
 /** Hindley–Milner type inference over the existing five-node AST.
@@ -26,6 +27,8 @@ class TypeChecker {
     = new haxe.ds.StringMap();
   var lastModern:Bool = false;
   var relationByName:haxe.ds.StringMap<String>;
+  var generalContracts:StringMap<RelationContract> = new StringMap();
+  var functionContracts:StringMap<RelationContract> = new StringMap();
 
   public function new() {
     var solver = new Inference(0, new StringMap<TypeScheme>(), new StringMap<Int>(), new StringMap<Int>(),
@@ -51,9 +54,17 @@ class TypeChecker {
       extraRows.set(numeric.NumericRelation.modernName(relation),
         numeric.NumericRelation.decodeRows(
           parser.declaredOperatorRows.get(relation),relation));
+    var newTables = new StringMap<RelationContract>();
+    for (name in generalContracts.keys()) newTables.set(name,generalContracts.get(name));
+    for (name in parser.generalRows.keys())
+      newTables.set(name,TypeRelation.decode(name,parser.generalRows.get(name)));
     var solver = new Inference(nextId, global, records, sums, sumCases,
-      constructorOwners, relationByName, parser.modernMode, rows, extraRows);
+      constructorOwners, relationByName, parser.modernMode, rows, extraRows,
+      newTables, functionContracts);
     solver.declarations = parser.declaredRelations;
+    if (parser.languageVersion == '0.49')
+      for (name in parser.declaredRelations.keys())
+        solver.generalDeclarations.set(name,parser.declaredRelations.get(name));
     var inferred = solver.run(forms);
     // Commit only after the whole type-check succeeds.
     global = solver.globals;
@@ -65,6 +76,8 @@ class TypeChecker {
     relationByName = solver.relations;
     modernRows = solver.modernRows;
     modernOperatorRows = solver.modernOperatorRows;
+    generalContracts = solver.generalContracts;
+    functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
     return inferred;
   }
@@ -72,7 +85,8 @@ class TypeChecker {
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
     var solver = new Inference(nextId, global, records, sums, sumCases,
-      constructorOwners, relationByName, lastModern, modernRows, modernOperatorRows);
+      constructorOwners, relationByName, lastModern, modernRows, modernOperatorRows,
+      generalContracts, functionContracts);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
@@ -146,6 +160,8 @@ class TypeChecker {
       checked module manifest. Only ground non-nominal types are accepted
       until the public type/interface identity ABI is defined. */
   public function closedPublicType(name:String):NType {
+    if (functionContracts.exists(name))
+      throw 'Public interface: constrained export requires a relation-aware ABI';
     var found = global.get(name);
     if (found == null) throw 'Public interface: unknown export ' + name;
     if (found.quantified.length > 0 || found.comparable.length > 0)
@@ -295,10 +311,37 @@ class TypeChecker {
   public function publicScheme(name:String,
       allowQualifiedRecords:Bool = false):TypeScheme {
     if (relationByName.exists(name))
-      throw 'Public interface: constrained numeric exports require a relation-aware ABI';
+      throw 'Public interface: constrained export requires a relation-aware ABI';
     var found = global.get(name);
     if (found == null) throw 'Public interface: unknown export ' + name;
     return validatePublicScheme(found, allowQualifiedRecords);
+  }
+
+  /** Export the complete, verified relation contract rather than an
+      untyped, unsound representation of a constrained function. */
+  public function hasPublicRelation(name:String):Bool
+    return functionContracts.exists(name);
+
+  public function publicRelation(name:String):RelationContract {
+    var contract = functionContracts.get(name);
+    if (contract == null)
+      throw 'Public interface: unknown constrained export ' + name;
+    return TypeRelation.validate(contract);
+  }
+
+  /** Import a relation-aware function without erasing its finite overload set.
+      No Haxe class/typeclass runtime is introduced. */
+  public function importRelation(name:String, contract:RelationContract):Void {
+    if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(name) || global.exists(name))
+      throw 'Module type error: duplicate or invalid relation import ' + name;
+    var safe=TypeRelation.validate(contract);
+    var row=safe.rows[0], n=TypeRelation.arity(safe);
+    var ty:NType=row[n];
+    var i=n;
+    while(i>0) ty=TFunction(row[--i],ty);
+    global.set(name,{term:ty,quantified:[],comparable:[]});
+    relationByName.set(name,safe.name);
+    functionContracts.set(name,safe);
   }
 
   /** Import an independently supplied scheme with FRESH variable identities.
@@ -350,6 +393,12 @@ class TypeChecker {
     for (rel in modernOperatorRows.keys())
       instance.modernOperatorRows.set(rel,modernOperatorRows.get(rel).copy());
     instance.lastModern = lastModern;
+    instance.generalContracts = new StringMap();
+    for (name in generalContracts.keys())
+      instance.generalContracts.set(name,generalContracts.get(name));
+    instance.functionContracts = new StringMap();
+    for (name in functionContracts.keys())
+      instance.functionContracts.set(name,functionContracts.get(name));
     instance.relationByName = new haxe.ds.StringMap<String>();
     for (name in relationByName.keys())
       instance.relationByName.set(name, relationByName.get(name));
@@ -359,7 +408,8 @@ class TypeChecker {
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
     return new Inference(nextId, global, records, sums, sumCases, constructorOwners,
-      relationByName, lastModern, modernRows, modernOperatorRows).signature(name);
+      relationByName, lastModern, modernRows, modernOperatorRows,
+      generalContracts, functionContracts).signature(name);
   }
 
   public function names():Array<String> {
@@ -395,6 +445,9 @@ private class Inference {
   public var nextId(default, null):Int;
   public final relations:haxe.ds.StringMap<String>;
   public var declarations:haxe.ds.StringMap<String>;
+  public final generalDeclarations:StringMap<String> = new StringMap();
+  public final generalContracts:StringMap<RelationContract>;
+  public final functionContracts:StringMap<RelationContract>;
   public final modernMode:Bool;
   public var validatingConstraint:Bool = false;
   public final modernRows:Array<numeric.NumericRelation.BinaryRelationRow>;
@@ -407,8 +460,16 @@ private class Inference {
       knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>,
       modernMode:Bool = false,
       ?modernRows:Array<numeric.NumericRelation.BinaryRelationRow>,
-      ?operatorRows:haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>) {
+      ?operatorRows:haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>,
+      ?knownTables:StringMap<RelationContract>,
+      ?knownContracts:StringMap<RelationContract>) {
     nextId = start;
+    generalContracts = new StringMap();
+    if (knownTables != null)
+      for (name in knownTables.keys()) generalContracts.set(name,knownTables.get(name));
+    functionContracts = new StringMap();
+    if (knownContracts != null)
+      for (name in knownContracts.keys()) functionContracts.set(name,knownContracts.get(name));
     this.modernMode = modernMode;
     this.modernRows = modernRows == null ? [] : modernRows.copy();
     modernOperatorRows = new haxe.ds.StringMap();
@@ -460,6 +521,22 @@ private class Inference {
     if (StringTools.startsWith(name, MacroExpander.GLOBAL) ||
         scope.get(base) == globals.get(base)) return base;
     return null;
+  }
+
+  /** Detect a fully or partially applied constrained function by
+      its syntactic application head, respecting local shadowing. */
+  function constrainedCall(expr:Expr, scope:StringMap<TypeScheme>)
+      :Null<{name:String,args:Array<Expr>,contract:RelationContract}> {
+    var args:Array<Expr>=[];
+    var head=expr;
+    while (true) switch (head) {
+      case Apply(fn,arg): args.unshift(arg); head=fn;
+      case Var(name):
+        var base=constrainedName(name,scope);
+        var contract=base == null ? null : functionContracts.get(base);
+        return contract == null ? null : {name:base,args:args,contract:contract};
+      case _: return null;
+    }
   }
 
   function selectedRows(name:String):Array<numeric.NumericRelation.BinaryRelationRow> {
@@ -874,8 +951,15 @@ private class Inference {
         case Literal(Nil): results.push(TList(fresh())); work.pop();
         case Literal(_): throw 'Type error: unsupported literal';
         case Var(name):
-          if (constrainedName(name, frame.scope) != null)
-            throw 'Type error: constrained function requires two directly applied arguments: ' + name;
+          var constrained=constrainedName(name, frame.scope);
+          if (constrained != null) {
+            // Preserve the legacy v0.44-v0.48 binary diagnostic exactly.
+            if (!functionContracts.exists(constrained))
+              throw 'Type error: constrained function requires two directly applied arguments: ' + name;
+            throw 'Type error: constrained function requires '
+              + TypeRelation.arity(functionContracts.get(constrained))
+              + ' directly applied arguments: ' + name;
+          }
           var scheme:TypeScheme;
           if (StringTools.startsWith(name, MacroExpander.GLOBAL)) {
             var globalName = name.substr(MacroExpander.GLOBAL.length);
@@ -897,8 +981,20 @@ private class Inference {
             work.pop();
           }
 
-        // Closed, explicit overload set; never infer overloaded operators
-        // implicitly. Fully applied calls resolve on both argument types.
+        // v0.49: resolve any finite named relation by *all* argument
+        // types, never by the desired result type. No partial application.
+        case Apply(_,_) if (constrainedCall(frame.source,frame.scope) != null):
+          var call=constrainedCall(frame.source,frame.scope);
+          var arity=TypeRelation.arity(call.contract);
+          if (call.args.length != arity)
+            throw 'Type error: '+call.name+' requires '+arity
+              +' directly applied arguments';
+          var types:Array<NType>=[];
+          for (arg in call.args) types.push(normalize(infer(arg,frame.scope,current)));
+          results.push(TypeRelation.result(call.contract,types));
+          work.pop();
+
+        // Legacy binary relations remain compatible with earlier sources.
         case Apply(Apply(Var(name), firstArg), secondArg)
           if (constrainedName(name, frame.scope) != null):
           if (frame.phase == 0) {
@@ -1343,6 +1439,52 @@ private class Inference {
       case Define(name, expr):
         if (globals.exists(name)) throw 'Type error: already defined ' + name;
         var constrained = declarations.get(name);
+        if (generalDeclarations.exists(name)) {
+          var contract=TypeRelation.select(generalDeclarations.get(name), generalContracts);
+          var n=TypeRelation.arity(contract);
+          for (row in contract.rows) {
+            for (type in row) switch(type) {
+              case TRecord(owner):
+                if (!records.exists(owner))
+                  throw 'Type relation: unknown record type ' + owner;
+                if (records.get(owner) != 0)
+                  throw 'Type relation: generic record types need concrete type arguments';
+              case _:
+            }
+            var validator = new Inference(nextId,globals,records,sums,sumCases,
+              constructorOwners,relations,modernMode,modernRows,
+              modernOperatorRows,generalContracts,functionContracts);
+            var expected:NType=row[n];
+            for (i in 0...n) expected=fun(row[n-1-i],expected);
+            var scope=scopeCopy(validator.globals);
+            validator.globals.set(name,mono(expected));
+            scope.set(name,mono(expected));
+            var body:Expr=expr;
+            for (i in 0...n) switch(body) {
+              case Lambda(param,next):
+                scope.set(param,mono(row[i]));
+                body=next;
+              case _:
+                throw 'Type relation: definition arity does not match '+contract.name;
+            }
+            switch(body) {
+              case Lambda(_,_):
+                throw 'Type relation: definition arity does not match '+contract.name;
+              case _:
+            }
+            validator.validateMatches(body);
+            var inferred=validator.infer(body,scope,{name:name,scheme:mono(expected)});
+            validator.unify(inferred,row[n]);
+          }
+          // The body is one ordinary Nail function; the result contracts
+          // stay purely static and do not generate runtime methods.
+          var first=contract.rows[0], result:NType=first[n],i=n;
+          while(i>0) result=fun(first[--i],result);
+          globals.set(name,mono(result));
+          relations.set(name,contract.name);
+          functionContracts.set(name,contract);
+          continue;
+        }
         if (constrained != null) {
           // Each admitted signature is checked against the SAME body.
           // This is a finite overload contract, not inferred Num polymorphism.
@@ -1395,6 +1537,8 @@ private class Inference {
   }
 
   public function signature(name:String):String {
+    if (functionContracts.exists(name))
+      return TypeRelation.signature(functionContracts.get(name));
     if (relations.exists(name))
       return numeric.NumericRelation.signature(relations.get(name));
     var scheme = globals.get(name);

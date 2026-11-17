@@ -35,7 +35,7 @@ class ModernModuleAbiTestMain {
       imports:[],exports:[]};
 
   public static function main():Void {
-    ok(LanguageVersion.CURRENT=='0.48','current language is v0.48');
+    ok(LanguageVersion.supported('0.48'),'v0.48 source remains compatible');
     var source=src('0.48',
       'def beats = 4 ; def part = 1 / 3 ; def gain = 0.75 ;');
     var core:InferredSourceModuleSpec={
@@ -149,7 +149,7 @@ class ModernModuleAbiTestMain {
       Reflect.setField(x,'numericAbi','int-ratio-float.v2'))),
       'incompatible numeric ABI');
     fails(() -> ModuleImage.decode(edited(x ->
-      Reflect.setField(x,'sourceVersion','0.49'))),
+      Reflect.setField(x,'sourceVersion','0.50'))),
       'unsupported modern source version');
     fails(() -> ModuleImage.decode(edited(x ->
       Reflect.setField(x,'format',ModuleImage.FORMAT))),

@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.48** — independently compiled modules support the Int/Ratio/Float numeric ABI in `nailseed.runtime-module.v2`, with distinct source-version and numeric-ABI metadata, strict linker compatibility, and Haxe/JS/PHP tests. Legacy runtime-module.v1 remains available for existing sources.
+**Current development: v0.49** — named finite type relations now accept 1–16 inputs plus one result type. A function explicitly annotated `: Constraint` is checked against every declared row and can be called with exactly the declared arity. The new `nailseed.runtime-module.v3` format carries checked relation contracts across separately compiled imports/exports without changing the `int-ratio-float.v1` numeric ABI. The v0.48 v2 and historical v1 module images remain supported.
 
 This repository reconstructs the original NailSeed prototype as a clean, version-by-version public Git history. Each historic version has its own commit and tag. The current branch contains a single src/ directory, rather than numbered version folders.
 

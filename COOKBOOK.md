@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.48
+# Nail Cookbook — v0.49
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 
@@ -248,3 +248,27 @@ Il risultato è ancora `Ratio`, senza arrotondamenti. La compilazione
 separata usa `ModuleLinker.compileInferred` e
 `ModuleImage.encode`; poi `ModuleLinker.linkImages` carica soltanto i
 due JSON, senza leggere sorgenti Nail o eseguire il type checker.
+
+
+## Ricetta 14 — Un unico algoritmo con firme unarie e ternarie (v0.49)
+
+```nail
+nail 0.49 ;
+Scale : Int Int ;
+Scale : Ratio Ratio ;
+Scale : Float Float ;
+Mix : Int Int Int Int ;
+Mix : Float Float Float Float ;
+
+def scale x : Scale = x * x ;
+def mix a b c : Mix = a * b + c ;
+
+scale 3 ;           # Int 9
+scale ( 1 / 2 ) ;   # Ratio 1/4
+mix 2 3 4 ;        # Int 10
+mix 2.0 3.0 4.0 ;  # Float 10.0
+```
+
+La forma `Scale : Int Int` indica **un argomento Int e un risultato Int**. Nella firma `Mix : Int Int Int Int` gli argomenti sono tre, l'ultimo `Int` è il risultato. È vietato associare alla stessa tupla degli argomenti due risultati diversi. Il corpo resta uno solo, convalido per tutte le righe. La chiamata a una funzione vincolata deve essere completa, non `mix 2`; non vengono aggiunte conversioni implicite né inferenza automatica dei sovraccarichi.
+
+Per condividere `scale` fra moduli, il provider la esporta tramite `ModuleLinker.compilePublic` e il client passa lo stesso `RelationContract` nel manifesto di import. Il formato JSON v3 conserva le righe e permette al linker di controllare il contratto senza rileggere il sorgente Nail.

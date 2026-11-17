@@ -27,6 +27,8 @@ class Parser {
   public final declaredOperatorRows:haxe.ds.StringMap<Array<{left:String,right:String,result:String}>>;
   /** Opt-in type relation declarations; erased before bytecode generation. */
   public final declaredRelations:haxe.ds.StringMap<String>;
+  /** Generalized v0.49 relation signatures (type names, result last). */
+  public final generalRows:haxe.ds.StringMap<Array<Array<String>>>;
 
 
   public function new(source:String) {
@@ -37,6 +39,7 @@ class Parser {
     declaredOperatorRows = new haxe.ds.StringMap();
     if (modernMode && exactMode) throw 'Source cannot combine numeric dialects';
     declaredRelations = new haxe.ds.StringMap<String>();
+    generalRows = new haxe.ds.StringMap();
     tokenPositions = SourcePositions.scan(source);
     provenance = new SourceProvenance(tokenPositions);
     tokens = [for (token in tokenPositions) token.text];
@@ -474,7 +477,30 @@ class Parser {
     var forms:Array<Form> = [];
     while (peek() != null) {
       var first = at;
-      // Row declarations are static type metadata, not runtime forms.
+      // v0.49 relations have an arbitrary positive arity (last type is
+      // the return type). Declarations are compile-time metadata only.
+      if (languageVersion == '0.49' && at + 1 < tokens.length
+          && tokens[at + 1] == ':' &&
+          ~/^[A-Z][A-Za-z0-9_]*$/.match(peek())) {
+        var relation=take();
+        expect(':');
+        var row:Array<String>=[];
+        while (peek() != ';' && peek() != null) {
+          if (row.length > nail.TypeRelation.MAX_ARITY + 1)
+            throw 'Type relation: too many types';
+          row.push(take());
+        }
+        expect(';');
+        nail.TypeRelation.parseRow(row);
+        var found=generalRows.get(relation);
+        if (found == null) found=[];
+        if (found.length >= nail.TypeRelation.MAX_ROWS)
+          throw 'Type relation: too many rows';
+        found.push(row);
+        generalRows.set(relation,found);
+        continue;
+      }
+      // Legacy finite binary arithmetic relation rows remain unchanged.
       if (modernMode && ['Div','Add','Sub','Mul'].indexOf(peek()) >= 0
           && at + 1 < tokens.length && tokens[at + 1] == ':') {
         var relation = take();
@@ -535,14 +561,20 @@ class Parser {
           if (!modernMode && (macroDeclaration || params.length != 2 ||
               relation != 'Div'))
             throw 'Type relation: only binary Div declarations are supported';
-          if (modernMode && (macroDeclaration || params.length != 2 ||
+          if (languageVersion == '0.49') {
+            if (macroDeclaration || params.length < 1 ||
+                params.length > nail.TypeRelation.MAX_ARITY ||
+                !~/^[A-Z][A-Za-z0-9_]*$/.match(relation))
+              throw 'Type relation: expected 1 to 16 parameters and named constraint';
+          } else if (modernMode && (macroDeclaration || params.length != 2 ||
               ['Div','Add','Sub','Mul'].indexOf(relation) < 0))
             throw 'Type relation: only binary Div/Add/Sub/Mul declarations are supported';
           if (modernMode && relation != 'Div' && languageVersion == '0.45')
             throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (exactMode)
             throw 'Type relation: exact source dialect is not supported yet';
-          declaredRelations.set(name, modernMode
+          declaredRelations.set(name, languageVersion == '0.49'
+            ? relation : modernMode
             ? numeric.NumericRelation.modernName(relation) : relation);
         }
         expect('=');

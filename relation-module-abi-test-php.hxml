@@ -1,0 +1,5 @@
+-cp src
+-main RelationModuleAbiTestMain
+-resource stdlib.nail@stdlib
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-php build/tests/php-relation-module-abi

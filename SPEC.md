@@ -1,3 +1,14 @@
+# v0.49 — Finite named n-ary relations and module ABI v3
+
+- Header: `nail 0.49 ;` (previous modern sources 0.45–0.48 remain accepted).
+- Declaration: `Constraint : T1 ... Tn Result ;` with 1 ≤ n ≤ 16, 1–128 rows per name; every row has the same arity and the parameter tuple functionally determines the result type. Duplicate parameter tuples are rejected even if their results happen to agree.
+- Function: `def fn p1 ... pn : Constraint = body ;`. The body is checked separately for each concrete signature; direct, fully applied calls resolve from all argument types alone. All types in a row must be concrete; no implicit number conversion, automatic operator-polymorphism inference, first-class overloaded values, or higher-order constraints.
+- Relations are static metadata: both Haxe and Nail-written source compilers erase the declarations/annotations and generate identical ordinary bytecode, leaving the runtime dispatch unchanged.
+- Module ABI: `nailseed.runtime-module.v3` with `numericAbi: "int-ratio-float.v1"` and `relationAbi: "finite-relations.v1"` for constrained imports/exports. The v3 interface carries canonicalized typed rows; the reader validates them against the signature and rejects incompatible or downgraded interfaces. `ModuleLinker.compilePublic` accepts explicit `relation` on an import and inferred verified relation metadata on an export. Runtime-module.v2 remains supported for unconstrained modern interfaces.
+- The module source language, numeric ABI, portable module image format and bootstrap compiler image version are independently tracked. The module boundary is static and first-order; linking cannot perform new type inference.
+
+---
+
 # v0.48 — Numeric runtime module ABI, separate from source version
 
 ## Distinct, explicit version boundaries
