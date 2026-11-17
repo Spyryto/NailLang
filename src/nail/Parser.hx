@@ -12,6 +12,9 @@ class Parser {
       does not change the normal 0.54 parser or language version. The
       caller supplies visible field names (from a checked interface). */
   final contextFields:Null<haxe.ds.StringMap<Array<String>>>;
+  /** Explicitly opted-in, experimental contextual + open-row inference.
+      Normal versioned 0.54 programs retain their current type semantics. */
+  public final experimentalContexts:Bool;
   var nextContext:Int = 0;
   /** Original token coordinates, parallel to tokens. */
   public final tokenPositions:Array<nail.SourcePositions.SourceToken>;
@@ -38,6 +41,7 @@ class Parser {
   public function new(source:String,
       ?contextFields:haxe.ds.StringMap<Array<String>>) {
     this.contextFields=contextFields;
+    this.experimentalContexts=contextFields!=null;
     languageVersion = numeric.LanguageVersion.declared(source);
     modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
