@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.53
+# Nail Language Tour — v0.54
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md) · [Cookbook Dart → Nail](./COOKBOOK-DART.md) · [Lookbook](./LOOKBOOK.md)
 
@@ -535,3 +535,48 @@ Gli import di macro `import next from numbers ;` non cambiano.
 Gli import runtime di altri moduli Nail e la forma `use Module { ... }`
 non sono ancora implementati; meritano una progettazione separata
 per non sovrapporre i due meccanismi.
+
+
+## v0.54 — Import selettivi tra moduli compilati
+
+I moduli Nail compilati separatamente possono importare una singola
+funzione da un altro modulo senza riscriverne il tipo nel manifesto Haxe.
+Il nome è importato nello scope del modulo, quindi la dichiarazione può
+seguire le funzioni che la utilizzano:
+
+```nail
+nail 0.54 ;
+def create value = leaf " Var " value ;
+import leaf from Syntax ;
+```
+
+Si può anche rinominare esplicitamente un simbolo:
+
+```nail
+nail 0.54 ;
+def create value = createLeaf " Var " value ;
+import leaf as createLeaf from Syntax ;
+```
+
+Questi import sono risolti da `ModuleLinker.compilePublic`, **soltanto
+quando l'host di compilazione fornisce esplicitamente l'immagine compilata
+del modulo `Syntax`** tramite il campo `dependencies`. L'interfaccia
+pubblica contiene una rappresentazione serializzata del tipo HM,
+compresi i quantificatori e gli eventuali vincoli `Eq`, e deve
+corrispondere esattamente alla firma canonica. Non occorrono i sorgenti
+del modulo importato.
+
+La dipendenza non viene caricata automaticamente: al link bisogna
+fornire sia l'immagine del client sia quella del provider. Rimangono le
+verifiche sulle firme e sugli ABI. L'immagine fornita al compilatore è
+materiale **fidato dalla build**: per distribuire codice di provenienza
+esterna, restano necessari i controlli di integrità/autenticità.
+
+Questa sintassi nel contesto di `compilePublic` indica un import
+**runtime**. Gli import delle macro del compilatore sono gestiti dalla
+pipeline delle macro e non vengono convertiti automaticamente in
+runtime. Non c'è un meccanismo generale di ricerca moduli.
+
+La notazione `Syntax.leaf` e la forma `use Syntax { ... }` **non**
+sono state introdotte: la semantica di `use` resta intenzionalmente da
+concordare prima di qualsiasi implementazione.
