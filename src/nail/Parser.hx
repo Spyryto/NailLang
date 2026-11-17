@@ -12,6 +12,11 @@ class Parser {
       does not change the normal 0.54 parser or language version. The
       caller supplies visible field names (from a checked interface). */
   final contextFields:Null<haxe.ds.StringMap<Array<String>>>;
+  /** Experimental type declarations are erased, but preserved as
+      checker-facing metadata until type analysis has completed. */
+  public final typeAliases:haxe.ds.StringMap<nail.NType>;
+  public final parameterConstraints:haxe.ds.StringMap<Array<{name:String, type:nail.NType}>>;
+  public final valueConstraints:haxe.ds.StringMap<nail.NType>;
   /** Explicitly opted-in, experimental contextual + open-row inference.
       Normal versioned 0.54 programs retain their current type semantics. */
   public final experimentalContexts:Bool;
@@ -42,6 +47,9 @@ class Parser {
       ?contextFields:haxe.ds.StringMap<Array<String>>) {
     this.contextFields=contextFields;
     this.experimentalContexts=contextFields!=null;
+    typeAliases=new haxe.ds.StringMap<nail.NType>();
+    parameterConstraints=new haxe.ds.StringMap<Array<{name:String,type:nail.NType}>>();
+    valueConstraints=new haxe.ds.StringMap<nail.NType>();
     languageVersion = numeric.LanguageVersion.declared(source);
     modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
@@ -485,6 +493,63 @@ class Parser {
     return left;
   }
 
+  /** Experimental structural type aliases: type Html = {
+      h2 : Text Text , div : Text Text } ;
+      This is a compile-time contract only, not a nominal runtime record.
+      Function types use the existing whitespace-delimited arity convention. */
+  function typeAtom(name:String):nail.NType {
+    return switch(name) {
+      case 'Text': nail.NType.TText;
+      case 'Bool': nail.NType.TBoolean;
+      case 'Number': nail.NType.TNumber;
+      case 'Int': nail.NType.TInt;
+      case 'Float': nail.NType.TFloat;
+      case 'Ratio': nail.NType.TRatio;
+      case 'Exact': nail.NType.TExact;
+      case 'Syntax': nail.NType.TSyntax;
+      case _:
+        var alias=typeAliases.get(name);
+        if (alias==null) throw 'Type alias: unknown type '+name;
+        alias;
+    };
+  }
+
+  function parseStructuralAlias(typeName:String):Void {
+    if (!experimentalContexts)
+      throw 'Type alias: structural aliases are experimental';
+    if (typeAliases.exists(typeName))
+      throw 'Type alias: duplicate alias '+typeName;
+    expect('='); expect('{');
+    var fields:Array<nail.NType.StructuralField>=[];
+    var seen=new haxe.ds.StringMap<Bool>();
+    if (peek()=='}') throw 'Type alias: expected at least one field';
+    while(true) {
+      var field=take();
+      if (!isName(field) || seen.exists(field))
+        throw 'Type alias: invalid or duplicate field';
+      seen.set(field,true);
+      expect(':');
+      var types:Array<nail.NType>=[];
+      while(peek()!=',' && peek()!='}' && peek()!=null) {
+        var word=take();
+        if (!isName(word)) throw 'Type alias: expected type name';
+        types.push(typeAtom(word));
+        if (types.length>17) throw 'Type alias: too many function types';
+      }
+      if (types.length==0) throw 'Type alias: missing field type';
+      var t=types.pop();
+      while(types.length>0) t=nail.NType.TFunction(types.pop(),t);
+      fields.push({name:field,type:t});
+      if (fields.length>128) throw 'Type alias: too many fields';
+      if (peek()=='}') break;
+      expect(',');
+      if (peek()=='}') throw 'Type alias: trailing comma';
+    }
+    expect('}'); expect(';');
+    fields.sort((a,b)->Reflect.compare(a.name,b.name));
+    typeAliases.set(typeName,nail.NType.TStructural(fields));
+  }
+
   /** Only simple named fields and previously declared record types in v0.17. */
   function parseRecordType(typeName:String):Form {
     if (!isName(typeName) || !recordTypePattern.match(typeName))
@@ -590,6 +655,11 @@ class Parser {
         var cursor = at;
         while (cursor < tokens.length && tokens[cursor] != '{' &&
             tokens[cursor] != '=' && tokens[cursor] != ';') cursor++;
+        if (experimentalContexts && peek()=='=' && at+1<tokens.length
+            && tokens[at+1]=='{') {
+          parseStructuralAlias(typeName);
+          continue;
+        }
         forms.push(cursor < tokens.length && tokens[cursor] == '{'
           ? parseRecordType(typeName) : parseSumType(typeName));
       } else if (peek() == 'import' || peek() == 'export') {
@@ -611,14 +681,43 @@ class Parser {
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
         var positions:Array<Int> = [];
+        var constraints:Array<{name:String,type:nail.NType}>=[];
+        var bindings:Array<{name:String, previous:Null<Array<String>>}>=[];
+        var declaredValue:Null<nail.NType>=null;
 
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
-          var p = take();
-          if (!isName(p) || params.indexOf(p) >= 0)
-            throw 'Invalid or duplicate definition parameter';
+          var p:String;
+          if (experimentalContexts && peek()=='(') {
+            take();
+            p=take();
+            if (!isName(p) || params.indexOf(p)>=0)
+              throw 'Parameter annotation: invalid or duplicate name';
+            expect(':');
+            var typeName=take();
+            if (!isName(typeName) || !typeAliases.exists(typeName))
+              throw 'Parameter annotation: unknown structural contract '+typeName;
+            expect(')');
+            var t=typeAliases.get(typeName);
+            constraints.push({name:p,type:t});
+            if (contextFields!=null) switch(t) {
+              case nail.NType.TStructural(fields):
+                bindings.push({name:p,previous:contextFields.get(p)});
+                contextFields.set(p,[for (field in fields) field.name]);
+              case _: throw 'Parameter annotation: expected structural contract';
+            }
+          } else {
+            p=take();
+            if (!isName(p) || params.indexOf(p) >= 0)
+              throw 'Invalid or duplicate definition parameter';
+          }
           params.push(p);
           positions.push(atParameter);
+        }
+        if (peek()==':' && experimentalContexts && params.length==0
+            && at+1<tokens.length && typeAliases.exists(tokens[at+1])) {
+          take();
+          declaredValue=typeAliases.get(take());
         }
         if (peek() == ':') {
           take();
@@ -645,6 +744,12 @@ class Parser {
         expect('=');
         var body = lambdas(params, expression(), positions);
         expect(';');
+        for (entry in bindings) {
+          if (entry.previous==null) contextFields.remove(entry.name);
+          else contextFields.set(entry.name,entry.previous);
+        }
+        if (constraints.length>0) parameterConstraints.set(name,constraints);
+        if (declaredValue!=null) valueConstraints.set(name,declaredValue);
         forms.push(Define(macroDeclaration ? MacroExpander.DECL + name : name, body));
       } else {
         var body = expression(); expect(';'); forms.push(Evaluate(body));
