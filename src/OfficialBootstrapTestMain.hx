@@ -54,7 +54,7 @@ class OfficialBootstrapTestMain {
 
     // Older bootstrap decoders reject the new image at the format gate.
     fails(() -> BootstrapImage.decode(Json.stringify({
-      format:BootstrapImage.MODERN_FORMAT, languageVersion:'0.48',
+      format:BootstrapImage.MODERN_FORMAT, languageVersion:'0.49',
       records:Reflect.field(raw,'records')
     })), 'language version');
     fails(() -> BootstrapImage.decode(Json.stringify({
