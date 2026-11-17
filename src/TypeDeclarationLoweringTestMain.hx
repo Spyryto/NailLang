@@ -43,7 +43,7 @@ class TypeDeclarationLoweringTestMain {
     host.loadStdlib();
     var cases = [
       {source:'', result:'[]'},
-      {source:'def id x = x ; id 42 ;', result:'[42]'},
+      {source:'def localIdentity x = x ; localIdentity 42 ;', result:'[42]'},
       {source:'type Person { age Number } ; ( Person 42 ) . age ;', result:'[42]'},
       {source:'type Option a = None | Some a ; match Some 42 with | None -> 0 | Some x -> x ;',
         result:'[42]'},
