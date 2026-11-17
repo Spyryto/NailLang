@@ -270,6 +270,14 @@ class HostFunctionRegistryTestMain {
     fails(() -> new HostTextGrants().grantFunction('NoVector','read',
       TFunction(TVector(TText),TText),_ -> Text('unsafe')),
       'unsupported function input type');
+    var deepType:NType=TText;
+    for (i in 0...HostTextGrants.MAX_HOST_VALUE_DEPTH)
+      deepType=TList(deepType);
+    var tooDeep=deepType;
+    fails(() -> new HostTextGrants().grantFunction('Deep','read',
+      TFunction(TText,TSum('CoreResult',[tooDeep,TText])),
+      _ -> ResultValue.error(Text('bad'))),
+      'unsupported function result type');
     trace('NailLang v0.52 host registry: '+checks+' checks passed');
   }
 }
