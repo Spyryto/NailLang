@@ -155,7 +155,7 @@ class ModernModuleAbiTestMain {
       Reflect.setField(x,'format','nailseed.runtime-module.v2'))),
       'incompatible format');
     fails(() -> ModuleImage.decode(edited(x ->
-      Reflect.setField(x,'sourceVersion','0.52'))),
+      Reflect.setField(x,'sourceVersion','0.53'))),
       'unsupported modern source version');
     fails(() -> ModuleImage.decode(edited(x ->
       Reflect.setField(x,'format',ModuleImage.FORMAT))),
