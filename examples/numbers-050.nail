@@ -1,0 +1,4 @@
+nail 0.50 ;
+Square : Int Int ;
+def square x : Square = x * x ;
+square 4 ;

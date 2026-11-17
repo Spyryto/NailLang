@@ -108,7 +108,7 @@ class NaryRelationsTestMain {
       'nail 0.48 ; Square : Int Int ;').parseRaw(),
       'Expected');
     fails(() -> new Parser(
-      'nail 0.50 ; 1 ;').parseRaw(),
+      'nail 0.51 ; 1 ;').parseRaw(),
       'Unsupported Nail language version');
 
     // Source without new semantics remains fully compatible.

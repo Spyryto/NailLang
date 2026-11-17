@@ -1,8 +1,27 @@
-# Nail Language Tour — v0.49
+# Nail Language Tour — v0.50
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md)
 
 La v0.40 non cambia la grammatica Nail. Aggiunge un confine di **integrità dei moduli compilati**, lato host. La v0.39 aveva introdotto la scrittura controllata; la v0.40 impedisce che un'immagine sostitutiva non autorizzata si presenti con lo stesso nome di un modulo autorizzato.
+
+## Novità v0.50 — Analisi strutturata del sorgente
+
+NailLang espone un'API **per strumenti di sviluppo**, indipendente da VS Code o
+da un Language Server. `SourceAnalysis.analyze(source)` restituisce
+`diagnostics`, `symbols`, `references` ed `evaluations` con tipi
+inferiti e coordinate del sorgente. Non esegue il programma.
+
+```js
+const { NailSeed } = require('./build/js/nailseed.js');
+const report = NailSeed.analyze('nail 0.50 ; def id x = x ; id 42 ;');
+console.log(report.ok, report.evaluations);
+```
+
+I riferimenti identificano i binding senza rinominare il codice;
+gli errori di tipo sono associati al form originale e le posizioni non
+conosciute rimangono `null`. Sono supportati i vincoli della 0.49.
+La diagnostica completa, i limiti e i comandi sono in
+[Analisi statica](./docs/ANALYSIS.md). Il protocollo LSP è rimandato.
 
 ## Novità v0.49 — Vincoli per funzioni di qualunque arità (1–16)
 

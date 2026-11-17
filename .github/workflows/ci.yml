@@ -18,6 +18,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify structured source analysis (Haxe, Node, PHP)
+        run: |
+          haxe source-analysis-test-interp.hxml
+          haxe source-analysis-test-js.hxml
+          node build/tests/source-analysis.js
+          haxe source-analysis-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-source-analysis/index.php
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
       - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
@@ -161,6 +168,7 @@ jobs:
         run: node tools/check-boot-boundary.mjs
       - name: Smoke test compiled JS/PHP source-free distributions
         run: |
+          node -e 'const {NailSeed}=require("./build/js/nailseed.js"); const report=NailSeed.analyze("nail 0.50 ; def answer = 42 ; answer ;"); if (!report.ok || report.evaluations.length!==1 || report.evaluations[0].type!=="Int") throw Error(JSON.stringify(report));'
           node -e 'const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const result=NailSeedBoot.create().runPlain("nail 0.47 ; 1 / 3 + 1 / 6 ;"); if (JSON.stringify(result)!==JSON.stringify(["R:1/2"])) throw Error(JSON.stringify(result));'
           XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-047.nail
           out=$(XDEBUG_MODE=off php build/boot/php/index.php --macro-dir examples/macros examples/macro-next-049.nail)

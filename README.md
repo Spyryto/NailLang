@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.49** — named finite type relations now accept 1–16 inputs plus one result type. A function explicitly annotated `: Constraint` is checked against every declared row and can be called with exactly the declared arity. The new `nailseed.runtime-module.v3` format carries checked relation contracts across separately compiled imports/exports without changing the `int-ratio-float.v1` numeric ABI. The v0.48 v2 and historical v1 module images remain supported.
+**Current development: v0.50** — the full Haxe/JS/PHP developer toolchain exposes editor-neutral `analyze(source)` with structured diagnostics, original source spans, binding identities, inferred definition signatures and top-level expression types. This release does **not** add an LSP or change the language's five-node runtime core. The v0.49 n-ary type relations and relation-aware module ABI remain available.
 
 ## Compatibility policy before 1.0
 
@@ -25,6 +25,7 @@ This repository reconstructs the original NailSeed prototype as a clean, version
 - Current Haxe/JS/PHP build and targeted test workflow: .github/workflows/ci.yml
 - Tagged distributions (full VM and source-free boot): .github/workflows/release.yml
 - Stage-zero seed vs Nail self-hosted stages, runtime boundary and verification: docs/BOOTSTRAP.md
+- Editor-independent structured source analysis: docs/ANALYSIS.md
 
 The v0.16, v0.28 and v0.29 numeric experiments are preserved under experiments/numeric in their historical tags. They are research experiments, not replacements for the main compiler. Python is not required for local builds and tests; 270 independent numeric reference cases are committed.
 

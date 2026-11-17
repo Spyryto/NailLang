@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.49
+# Eseguire NailLang — v0.50
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -11,6 +11,18 @@ haxe php.hxml
 ```
 
 Sono i runtime/interpreti **scritti in Haxe**, compilati in JS e PHP, non un transpiler sorgente Nail → JS/PHP.
+
+## Analisi statica da JavaScript (v0.50)
+
+Dopo `haxe js.hxml`, l'interfaccia completa espone una query statica
+senza eseguire il programma:
+
+```sh
+node -e 'const {NailSeed}=require("./build/js/nailseed.js"); console.log(NailSeed.analyze("nail 0.50 ; def answer = 42 ; answer ;"));'
+```
+
+Questa funzionalità è nella distribuzione *full*, non in quella source-free.
+Vedi [docs/ANALYSIS.md](./docs/ANALYSIS.md).
 
 ## JavaScript da riga di comando
 

@@ -11,6 +11,10 @@ class Main {
   /** Optional static checker; calls to .check(source) persist top-level signatures. */
   public static function createTypeChecker():TypeChecker return new TypeChecker();
 
+  /** Structured source inspection for tooling; no runtime execution or LSP. */
+  public static function analyze(source:String, ?modules:String->Null<String>):nail.SourceAnalysis.AnalysisResult
+    return nail.SourceAnalysis.analyze(source, modules);
+
   /** Execute structured Nail bytecode with the shared primitive runtime. */
   public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
 

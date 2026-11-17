@@ -304,3 +304,21 @@ programma**: la dichiarazione mancante o una versione diversa producono
 un errore esplicito. Vale anche per gli import indiretti. Per i vecchi
 programmi senza header, le macro importate devono essere senza header;
 l'esperimento Exact con `# nail: 0.29` è separato da Float.
+
+## Ricetta 16 — Ispezionare il codice senza eseguirlo (v0.50)
+
+L'interfaccia JS completa permette di ottenere simboli, riferimenti, firme
+inferite e diagnostica con coordinate, senza lanciare il programma:
+
+```js
+const { NailSeed } = require('./build/js/nailseed.js');
+const report = NailSeed.analyze(
+  'nail 0.50 ; def identity x = x ; identity 42 ;'
+);
+console.log(report.ok, report.symbols, report.evaluations);
+```
+
+Per un programma errato, `ok` diventa `false` e `diagnostics` contiene
+`phase`, `message` e `span` (o `null` se non deducibile correttamente).
+Il compilatore non aggiunge un LSP in questa versione. Per dettagli:
+[API di analisi](./docs/ANALYSIS.md).
