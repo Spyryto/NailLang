@@ -58,14 +58,22 @@ class SinglePassMacroTestMain {
   }
 
 
+  // Compilation of rejected source never mutates the global bindings.
+  // Reuse bootstrapped runtimes across rejection probes to keep CI focused
+  // on language diagnostics rather than repeated standard-library loading.
+  static var rejectingVm:Vm = null;
+  static var rejectingBoot:BootRuntime = null;
   static function rejectAll(source:String, modules:String->Null<String>,
       phrase:String):Void {
+    if (rejectingVm == null) {
+      rejectingVm = new Vm(40000000);
+      rejectingVm.loadStdlib();
+      rejectingBoot = new BootRuntime(40000000);
+    }
     fails(() -> BytecodeCompiler.compileSource(source, modules), phrase);
     fails(() -> new TypeChecker().check(source, modules), phrase);
-    var vm = new Vm(40000000);
-    vm.loadStdlib();
-    fails(() -> vm.compileWithNail(source, modules), phrase);
-    fails(() -> new BootRuntime(40000000).compile(source, modules), phrase);
+    fails(() -> rejectingVm.compileWithNail(source, modules), phrase);
+    fails(() -> rejectingBoot.compile(source, modules), phrase);
   }
 
   public static function main():Void {
