@@ -135,6 +135,38 @@ class ModuleLinker {
 
   /** Printable canonical type signatures are produced by the existing
       Hindley-Milner checker, not by a second ad-hoc type formatter. */
+  /** v0.48: never encode obsolete numeric types in a modern public ABI.
+      This applies recursively to function, vector, list and record types. */
+  static function requireModernType(type:NType):Void {
+    var pending:Array<NType>=[type];
+    while (pending.length > 0) switch (pending.pop()) {
+      case TNumber | TExact:
+        throw 'Module compiler: legacy Number/Exact type in modern numeric ABI';
+      case TList(x) | TVector(x): pending.push(x);
+      case TFunction(a,b): pending.push(a); pending.push(b);
+      case TStructural(fields):
+        for (f in fields) pending.push(f.type);
+      case TRecordApplied(_,args) | TSum(_,args):
+        for (x in args) pending.push(x);
+      case _:
+    }
+  }
+
+  static function numericDialect(source:String):String
+    return numeric.LanguageVersion.isModern(source) ? 'modern'
+      : numeric.NumericDialect.isExact(source) ? '0.29' : '0.27';
+
+  static function moduleArtifact(name:String,source:String,
+      imports:Array<LinkedModuleImport>,exports:Array<LinkedModuleExport>,
+      code:Value):CompiledModule {
+    var modern = numeric.LanguageVersion.isModern(source);
+    return ModuleImage.decode(ModuleImage.encode({
+      name:name, dialect:numericDialect(source),
+      sourceVersion:modern ? numeric.LanguageVersion.declared(source) : null,
+      imports:imports, exports:exports, code:code
+    }));
+  }
+
   static function signature(type:NType):String {
     var checker = new TypeChecker();
     checker.importSignature('_moduleInterface', type);
@@ -189,8 +221,7 @@ class ModuleLinker {
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
 
-    if (numeric.LanguageVersion.isModern(spec.source))
-      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
+    var modern = numeric.LanguageVersion.isModern(spec.source);
     var checker = new TypeChecker();
     var aliases = new StringMap<Bool>();
     var imports:Array<LinkedModuleImport> = [];
@@ -203,6 +234,7 @@ class ModuleLinker {
         throw 'Module compiler: duplicate import alias ' + item.alias;
       aliases.set(item.alias, true);
       TypeChecker.validatePublicScheme(item.scheme, true);
+      if (modern) requireModernType(item.scheme.term);
       requireRecordOwner(item.scheme.term, item.module);
       checker.importPublicScheme(item.alias, item.scheme, true);
       imports.push({
@@ -246,7 +278,8 @@ class ModuleLinker {
       seen.set(name, true);
       if (!defined.exists(name))
         throw 'Module compiler: export must be a local definition ' + name;
-      checker.publicScheme(name, true);  // qualified records; sums still gated
+      var publicScheme = checker.publicScheme(name, true); // sums still gated
+      if (modern) requireModernType(publicScheme.term);
       exports.push({name:name, signature:checker.signature(name)});
     }
 
@@ -255,12 +288,7 @@ class ModuleLinker {
     var sourceFree = boot.compile(spec.source);
     if (BootstrapImage.encode(reference) != BootstrapImage.encode(sourceFree))
       throw 'Module compiler: reference and source-free Nail bytecode disagree';
-    var module:CompiledModule = {
-      name:spec.name,
-      dialect:numeric.NumericDialect.isExact(spec.source) ? '0.29' : '0.27',
-      imports:imports, exports:exports, code:sourceFree
-    };
-    return ModuleImage.decode(ModuleImage.encode(module));
+    return moduleArtifact(spec.name,spec.source,imports,exports,sourceFree);
   }
 
   /** Derive monomorphic public signatures from source with the existing
@@ -274,12 +302,11 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
-    if (numeric.LanguageVersion.isModern(spec.source))
-      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
-
+    var modern = numeric.LanguageVersion.isModern(spec.source);
     var checker = new TypeChecker();
     for (item in spec.imports) {
       if (item == null) throw 'Module compiler: invalid imported signature';
+      if (modern) requireModernType(item.type);
       checker.importSignature(item.alias, item.type);
     }
     checker.check(spec.source);
@@ -289,7 +316,9 @@ class ModuleLinker {
       requireName(name, 'export');
       if (seen.exists(name)) throw 'Module compiler: duplicate export ' + name;
       seen.set(name, true);
-      generated.push({name:name, type:checker.closedPublicType(name)});
+      var declaredType = checker.closedPublicType(name);
+      if (modern) requireModernType(declaredType);
+      generated.push({name:name, type:declaredType});
     }
     // compile() still requires the export to be a genuine local definition,
     // rechecks it against the derived contract, and compares both compilers.
@@ -308,9 +337,7 @@ class ModuleLinker {
     requireName(spec.name, 'module name');
     if (spec.imports.length > 512 || spec.exports.length > 512)
       throw 'Module compiler: interface size limit exceeded';
-    if (numeric.LanguageVersion.isModern(spec.source))
-      throw 'Module compiler: v0.45 numeric module ABI not implemented yet';
-
+    var modern = numeric.LanguageVersion.isModern(spec.source);
     var checker = new TypeChecker();
     var importedNames = new StringMap<Bool>();
     var importedContracts:Array<LinkedModuleImport> = [];
@@ -321,6 +348,7 @@ class ModuleLinker {
       if (importedNames.exists(item.alias))
         throw 'Module compiler: duplicate import alias ' + item.alias;
       importedNames.set(item.alias, true);
+      if (modern) requireModernType(item.type);
       checker.importSignature(item.alias, item.type);
       importedContracts.push({
         module:item.module, symbol:item.symbol, alias:item.alias,
@@ -354,6 +382,7 @@ class ModuleLinker {
       seen.set(item.name, true);
       if (!defined.exists(item.name))
         throw 'Module compiler: export must be a local definition ' + item.name;
+      if (modern) requireModernType(item.type);
       var declared = signature(item.type);
       var inferred = checker.signature(item.name);
       if (inferred != declared)
@@ -367,16 +396,9 @@ class ModuleLinker {
     var sourceFree = boot.compile(spec.source);
     if (BootstrapImage.encode(reference) != BootstrapImage.encode(sourceFree))
       throw 'Module compiler: reference and source-free Nail bytecode disagree';
-    var module:CompiledModule = {
-      name:spec.name,
-      dialect:numeric.NumericDialect.isExact(spec.source) ? '0.29' : '0.27',
-      imports:importedContracts,
-      exports:exports,
-      code:sourceFree
-    };
-    // Round-trip the actual independently compiled artifact. The linker sees
-    // only the decoded portable interface and the bytecode, never source text.
-    return ModuleImage.decode(ModuleImage.encode(module));
+    // Round-trip independently compiled source-free bytecode and v2 ABI.
+    // The linker sees only portable interfaces, never source text.
+    return moduleArtifact(spec.name,spec.source,importedContracts,exports,sourceFree);
   }
 
   static function elements(list:Value):Array<Value> {
