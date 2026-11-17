@@ -218,9 +218,11 @@ class ContextBlockProbeTestMain {
       'invalid or duplicate field h2','reject malformed context interface');
     var missing=contexts();
     missing.set('Html',['h2','missing']);
-    fails(() -> types(simple,missing),
+    equal(types(setup+'Html { h2 " Used " } ;',missing),['Text'],
+      'unused context interface fields are not projected');
+    fails(() -> types(setup+'Html { missing " X " } ;',missing),
       'structural record has no field missing',
-      'interface must agree with actual record fields');
+      'referenced context field must be present in the actual record');
     fails(() -> new Parser(setup+'Html { [ h2 " X " ] ;',ctx).parse(),
       'Expected }','missing context terminator is reported');
 
