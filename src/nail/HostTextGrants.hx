@@ -138,7 +138,7 @@ class HostTextGrants {
 
   static function returnType(type:NType):Bool return switch (type) {
     case TSum('CoreResult', types) if (types.length == 2):
-      payloadType(types[0]) && payloadType(types[1]);
+      payloadType(types[0], 1) && payloadType(types[1], 1);
     case _: payloadType(type);
   };
 
