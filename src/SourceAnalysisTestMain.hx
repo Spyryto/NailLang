@@ -102,13 +102,13 @@ class SourceAnalysisTestMain {
       unsupported.diagnostics[0].span.start == 5,
       'unsupported language version points to its header');
 
-    var macro = SourceAnalysis.analyze(
+    var macroResult = SourceAnalysis.analyze(
       'nail 0.49 ; macro next x = quote ( unquote x + 1 ) ;\nexpand next 41 ;');
-    ok(macro.ok && macro.evaluations.length == 1 &&
-      macro.evaluations[0].type == 'Int',
+    ok(macroResult.ok && macroResult.evaluations.length == 1 &&
+      macroResult.evaluations[0].type == 'Int',
       'macro-generated source receives inferred type');
-    ok(macro.evaluations[0].span != null &&
-      macro.evaluations[0].span.line == 2,
+    ok(macroResult.evaluations[0].span != null &&
+      macroResult.evaluations[0].span.line == 2,
       'macro call site provenance is preserved');
 
     var reads = 0;
