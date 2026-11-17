@@ -53,6 +53,11 @@ jobs:
           node build/tests/host-text-writes.js
           haxe host-text-writes-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-host-text-writes/index.php
+          haxe host-functions-test-interp.hxml
+          haxe host-functions-test-js.hxml
+          node build/tests/host-functions.js
+          haxe host-functions-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-host-functions/index.php
           haxe trusted-module-images-test-interp.hxml
           haxe trusted-module-images-test-js.hxml
           node build/tests/trusted-module-images.js
