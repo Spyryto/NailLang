@@ -98,6 +98,41 @@ class SinglePassMacroTestMain {
       'nail 0.49 ; import twice from outer ; expand twice 40 ;',
       ['I:42/1'], nested);
 
+    // Count invocations rather than merely comparing outputs: an unnecessary
+    // second pass returns equal bytecode but still traverses the complete AST.
+    var probe = new Vm(40000000);
+    probe.loadStdlib();
+    var calls = 0;
+    probe.bytecodeRoot().bind('macroExpandSyntax',
+      HostFunction('single-pass-spy', tree -> {
+        calls++;
+        return nail.MacroExpander.syntax(tree);
+      }));
+    for (source in [
+      'macro inc x = quote ( unquote x + 1 ) ; expand inc 41 ;',
+      'nail 0.49 ; macro inc x = quote ( unquote x + 1 ) ; expand inc 41 ;',
+      '# nail: 0.29\\nmacro half x = quote ( unquote x / 2 ) ; expand half 1 ;'
+    ]) {
+      calls = 0;
+      probe.compileWithNail(source);
+      ok(calls == 1, 'one macro expansion per direct source compilation: '
+        + source + ', observed ' + calls);
+    }
+
+    // The module resolver already expanded before invoking compiler code,
+    // so the self-hosted code generator must not rescan imported macro Syntax.
+    calls = 0;
+    probe.compileWithNail('nail 0.49 ; import next from numbers ; expand next 41 ;',
+      resolver);
+    ok(calls == 0, 'module-resolved program must skip redundant expansion');
+
+    // The public Syntax API remains responsible for expanding raw input.
+    calls = 0;
+    var raw = probe.invoke('parseSource',
+      Text('nail 0.49 ; macro inc x = quote ( unquote x + 1 ) ; expand inc 41 ;'));
+    probe.compileSyntaxWithNail(raw);
+    ok(calls == 1, 'public compileSyntax expands raw Syntax exactly once');
+
     fails(() -> new BootRuntime().run(
       'nail 0.49 ; macro broken x = quote ( unquote typo ) ;'),
       'unknown unquote parameter');
