@@ -272,3 +272,35 @@ mix 2.0 3.0 4.0 ;  # Float 10.0
 La forma `Scale : Int Int` indica **un argomento Int e un risultato Int**. Nella firma `Mix : Int Int Int Int` gli argomenti sono tre, l'ultimo `Int` è il risultato. È vietato associare alla stessa tupla degli argomenti due risultati diversi. Il corpo resta uno solo, convalido per tutte le righe. La chiamata a una funzione vincolata deve essere completa, non `mix 2`; non vengono aggiunte conversioni implicite né inferenza automatica dei sovraccarichi.
 
 Per condividere `scale` fra moduli, il provider la esporta tramite `ModuleLinker.compilePublic` e il client passa lo stesso `RelationContract` nel manifesto di import. Il formato JSON v3 conserva le righe e permette al linker di controllare il contratto senza rileggere il sorgente Nail.
+
+## Ricetta 15 — Importare una macro con tipi numerici coerenti (v0.49)
+
+La macro vive in [`examples/macros/numbers.nail`](./examples/macros/numbers.nail):
+
+```nail
+nail 0.49 ;
+macro next x = quote ( unquote x + 1 ) ;
+export next ;
+```
+
+Il programma [`examples/macro-next-049.nail`](./examples/macro-next-049.nail)
+può importarla:
+
+```nail
+nail 0.49 ;
+import next from numbers ;
+expand next 41 ;
+```
+
+Il risultato è `I:42/1` (tipo `Int`). Dopo aver compilato il
+runtime source-free PHP, esegui dalla radice del repository:
+
+```sh
+php build/boot/php/index.php --macro-dir examples/macros examples/macro-next-049.nail
+```
+
+Il modulo deve dichiarare **la stessa versione `nail 0.49 ;` del
+programma**: la dichiarazione mancante o una versione diversa producono
+un errore esplicito. Vale anche per gli import indiretti. Per i vecchi
+programmi senza header, le macro importate devono essere senza header;
+l'esperimento Exact con `# nail: 0.29` è separato da Float.
