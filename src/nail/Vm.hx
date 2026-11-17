@@ -231,7 +231,11 @@ class Vm {
 
   /** Compile source using the compiler function written in Nail. */
   public function compileWithNail(source:String, ?modules:String->Null<String>):Value {
-    if (modules != null) return compileSyntaxWithNail(parseWithNail(source, modules));
+    if (modules != null) {
+      var expanded = parseWithNail(source, modules);
+      steps = 0;
+      return call(root.lookup('compileExpandedSyntax'), expanded);
+    }
     steps = 0;
 
     var compiler = numeric.LanguageVersion.isModern(source) ? 'compileModernSource'

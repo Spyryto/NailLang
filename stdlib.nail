@@ -1167,13 +1167,17 @@ def compileForm form =
     bcInstruction1 " EVAL " ( bcCode ( compileTail ( head parts ) ) )
   else bcInstruction0 " INVALID_FORM " ;
 
-def compileSyntax program =
-  let expanded = macroExpandSyntax program in
+# Internal entry point for Syntax that has already passed macro expansion.
+# Keep macro expansion before modern/exact numeric rewrites: expanding twice
+# would rescan the whole transformed Syntax tree without changing its meaning.
+def compileExpandedSyntax expanded =
   if syntaxTag expanded == " Program " then
     syntaxNode " Bytecode "
       ( map compileForm
         ( syntaxChildren ( expandTypeDeclarations expanded ) ) )
   else expanded ;
+
+def compileSyntax program = compileExpandedSyntax ( macroExpandSyntax program ) ;
 
 def compileSource source = compileSyntax ( parseSource source ) ;
 
@@ -1222,7 +1226,7 @@ def exactRewrite tree =
   else syntaxNode tag ( map exactRewrite ( syntaxChildren tree ) ) ;
 
 def compileExactSource source =
-  compileSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+  compileExpandedSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 
 
 # v0.45: source-language semantics are selected by explicit "nail 0.45 ;"
@@ -1275,4 +1279,4 @@ def modernRewrite tree =
   else syntaxNode tag ( map modernRewrite ( syntaxChildren tree ) ) ;
 
 def compileModernSource source =
-  compileSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+  compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
