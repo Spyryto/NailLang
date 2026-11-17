@@ -8,6 +8,9 @@ import nail.Value;
     Serialization uses explicit stacks and does not recurse over Syntax. */
 class BootstrapImage {
   public static inline var FORMAT = 'nailseed.postfix-image.v1';
+  /** Separate, incompatible compiler bootstrap-image ABI; not a Nail
+      source version and not the separately compiled module-image ABI. */
+  public static inline var MODERN_FORMAT = 'nailseed.postfix-image.v2';
 
   static function children(list:Value):Array<Value> {
     var items:Array<Value> = [];
@@ -49,12 +52,32 @@ class BootstrapImage {
     return Json.stringify({format:FORMAT, records:instructions});
   }
 
+  /** Produces a self-contained, explicitly versioned modern compiler image.
+      Older source-free VMs reject its changed format instead of trying
+      to interpret modern Int/Ratio bytecode as legacy Number bytecode. */
+  public static function encodeModern(tree:Value):String {
+    var document:Dynamic = Json.parse(encode(tree));
+    Reflect.setField(document,'format',MODERN_FORMAT);
+    Reflect.setField(document,'languageVersion',numeric.LanguageVersion.CURRENT);
+    return Json.stringify(document);
+  }
+
+  public static function isModernImage(source:String):Bool {
+    var document:Dynamic = Json.parse(source);
+    return document != null && Reflect.field(document,'format') == MODERN_FORMAT;
+  }
+
   /** Decode a trusted build artifact without calling the source parser.
       Shape and stack balance are checked even though the image is embedded. */
   public static function decode(source:String):Value {
     var document:Dynamic = Json.parse(source);
-    if (document == null || Reflect.field(document, 'format') != FORMAT)
+    var format = document == null ? null : Reflect.field(document,'format');
+    var modern = format == MODERN_FORMAT;
+    if (format != FORMAT && !modern)
       throw 'Invalid bootstrap image: format';
+    if (modern && Reflect.field(document,'languageVersion') !=
+        numeric.LanguageVersion.CURRENT)
+      throw 'Invalid bootstrap image: language version';
     var records:Dynamic = Reflect.field(document, 'records');
     if (!Std.isOfType(records, Array)) throw 'Invalid bootstrap image: records';
     var rows:Array<Dynamic> = cast records;
@@ -69,6 +92,17 @@ class BootstrapImage {
       switch (record[0]) {
         case 'L':
           if (!Std.isOfType(record[2], String)) throw 'Invalid bootstrap image: leaf';
+          if (modern) switch (tag) {
+            case 'Int':
+              var number=numeric.FastNumber.decodeExact(cast record[2]);
+              if (!numeric.FastNumber.isInteger(number))
+                throw 'Invalid modern bootstrap image: noninteger Int';
+            case 'Ratio':
+              numeric.FastNumber.decodeExact(cast record[2]);
+            case 'ExactNumber':
+              throw 'Invalid modern bootstrap image: legacy ExactNumber';
+            case _:
+          }
           values.push(SyntaxLeaf(tag, cast record[2]));
         case 'N':
           var countValue:Dynamic = record[2];
