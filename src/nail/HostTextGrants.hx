@@ -136,8 +136,19 @@ class HostTextGrants {
     return switch(type) {
       case TText: switch(value) {case Text(_): true; case _: false;}
       case TBoolean: switch(value) {case Boolean(_): true; case _: false;}
-      case TInt: switch(value) {case IntNumber(_): true; case _: false;}
-      case TRatio: switch(value) {case RatioNumber(_): true; case _: false;}
+      case TInt: switch(value) {
+        case IntNumber(number):
+          try numeric.FastNumber.isInteger(number) catch (_:Dynamic) false;
+        case _: false;
+      }
+      case TRatio: switch(value) {
+        case RatioNumber(number):
+          try {
+            numeric.FastNumber.encodeExact(number);
+            true;
+          } catch (_:Dynamic) false;
+        case _: false;
+      }
       case TFloat: switch(value) {case Number(n): Math.isFinite(n); case _: false;}
       case TSum('CoreResult', types) if (types.length == 2):
         try {
