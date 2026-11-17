@@ -391,16 +391,22 @@ class Parser {
     if (token == 'true' || token == 'false') return Literal(Boolean(token == 'true'));
     if (isName(token)) {
       if (peek() == '{') {
-        // Syntactic lookahead only; the type checker is not consulted.
-        // A field assignment after '{' always means a record constructor.
-        if (recordTypePattern.match(token) &&
-            at+2<tokens.length && isName(tokens[at+1]) &&
-            tokens[at+2]=='=')
-          return parseNamedRecord(token);
-        if (contextFields!=null && contextFields.exists(token))
-          return parseContext(token);
-        if (recordTypePattern.match(token))
-          return parseNamedRecord(token);
+        // Syntactic lookahead only; never consult the type checker.
+        // Uppercase Person { field = value } is a nominal constructor.
+        // Lowercase render { field = value } remains *ordinary function
+        // application* to an anonymous structural record, even when the
+        // receiver has a contextual interface.
+        var namedField=at+2<tokens.length && isName(tokens[at+1])
+          && tokens[at+2]=='=';
+        if (namedField) {
+          if (recordTypePattern.match(token))
+            return parseNamedRecord(token);
+        } else {
+          if (contextFields!=null && contextFields.exists(token))
+            return parseContext(token);
+          if (recordTypePattern.match(token))
+            return parseNamedRecord(token);
+        }
       }
       return Var(modernMode ? modernBuiltinName(token) : exactMode ? exactBuiltinName(token) : token);
     }
