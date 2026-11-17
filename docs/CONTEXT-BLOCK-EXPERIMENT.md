@@ -29,8 +29,10 @@ var forms = new nail.Parser(source, contexts).parse();
 
 The parser distinguishes `Person { name = value }` from
 `Html { expression }` by the immediate tokens `name =`, not by type
-inference. Other legacy record constructions remain unchanged. The explicit
-context map supplies the list of imported field names and is intentionally
+inference. Existing lowercase function application to an anonymous record
+(`render { name = value }`) is likewise preserved. Other legacy record
+constructions remain unchanged. The explicit context map supplies the
+list of imported field names and is intentionally
 **not** inferred from an arbitrary record value in this experiment.
 
 The block is lowered immediately to the existing five-expression AST core:
@@ -62,9 +64,10 @@ existing type checker verifies closed structural records of functions.
    currently requires a unique nominal accessor). Full static typing of
    generic context parameters requires **open rows / row polymorphism**
    or explicit type evidence/annotations.
-2. A source expression beginning `Name { field = value }` always means
-   record construction, not a context expression; future assignment syntax
-   or abbreviated record fields would need a separate decision.
+2. `Person { field = value }` is a nominal record constructor and
+   `render { field = value }` is ordinary application to an anonymous
+   record, **not** a context expression. Future assignment syntax or
+   abbreviated fields would need a separate decision.
 3. The prototype accepts one named receiver, not arbitrary expressions like
    `( chooseRenderer target ) { ... }`. This keeps the parser's experiment
    bounded while demonstrating that the *lowered core* only needs a single
