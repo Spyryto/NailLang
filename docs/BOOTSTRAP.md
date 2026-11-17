@@ -150,3 +150,25 @@ implementation contract, **not** a new source-language feature. Future
 dogfooding can replace the remaining native macro expansion only once a
 full Nail implementation preserves hygiene, lexical scope, imports, work
 limits, diagnostics and bootstrap fixed-point parity.
+
+## Imported macro numeric dialect contract (2026-11-17, issue #17)
+
+A template macro is interpreted in the **same numeric language version as
+the importing compilation unit**. Every loaded macro module, including nested
+imports, must use the caller's exact `nail X.Y ;` declaration. An unversioned
+module is only compatible with an unversioned caller. Existing experimental
+`# nail: 0.29` Exact programs may import only other Exact modules, while
+unversioned legacy Float programs may import only unversioned legacy modules.
+
+This is a deliberate strict rule before NailLang 1.0, not an assurance of
+compatibility between older versioned programs. It removes ambiguity between
+the Haxe parser (which types a macro module's quoted numeric literals) and
+the Nail compiler (which rewrites expanded literal Syntax into the caller's
+modern or exact numeric representation). No implicit dialect inheritance,
+coercion or silent interpretation of versionless modules as modern occurs.
+
+The shared `MacroModuleDialect.requireCompatible` check is used by the Haxe
+reference parser, the Haxe-hosted Nail compiler and the source-free bytecode
+compiler. Tests require bytecode agreement, correct runtime numeric values,
+and diagnostics for missing, mismatched and nested module headers on Haxe,
+Node and PHP.

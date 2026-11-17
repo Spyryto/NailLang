@@ -254,8 +254,8 @@ class ByteVm {
     var expanded = MacroExpander.syntax(call(parse, Text(source)), name -> {
       var moduleSource = modules(name);
       if (moduleSource == null) return null;
-      if (numeric.NumericDialect.isExact(moduleSource) != numeric.NumericDialect.isExact(source))
-        throw 'Imported macro module uses incompatible numeric dialect: ' + name;
+      MacroModuleDialect.requireCompatible(numeric.LanguageVersion.declared(source),
+        numeric.NumericDialect.isExact(source), moduleSource, name);
       return call(parse, Text(moduleSource));
     });
 

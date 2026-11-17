@@ -454,8 +454,7 @@ class Parser {
       : SyntaxBridge.forms(MacroExpander.syntax(SyntaxEncoder.program(forms), name -> {
         var source = modules(name);
         if (source == null) return null;
-        if (numeric.NumericDialect.isExact(source) != exactMode)
-          throw 'Imported macro module uses incompatible numeric dialect: ' + name;
+        MacroModuleDialect.requireCompatible(languageVersion, exactMode, source, name);
         return SyntaxEncoder.program(new Parser(source).parseRaw());
       }));
     // Macro declarations/imports/exports disappear. Every remaining form has
