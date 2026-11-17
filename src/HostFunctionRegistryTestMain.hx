@@ -125,6 +125,44 @@ class HostFunctionRegistryTestMain {
     ok(message.indexOf('host callback failed')>=0
       && message.indexOf('private')<0,'host exceptions are sanitized');
 
+
+    // Curried callbacks receive arguments as one typed array, but Nail
+    // observes an ordinary first-class partially applicable function.
+    var joinType=NType.TFunction(NType.TText,
+      NType.TFunction(NType.TText,NType.TText));
+    var partial:PublicSourceModuleSpec={
+      name:'Curried',
+      source:'nail 0.51 ; def captured = hostJoin " pre " ; '
+        +'def append suffix = captured suffix ;',
+      imports:[{module:HostTextGrants.PROVIDER,symbol:'combine',
+        alias:'hostJoin',scheme:{
+          term:joinType,quantified:[],comparable:[]
+        }}],
+      exports:['append']
+    };
+    var joint=new HostTextGrants();
+    joint.grantFunction('Curried','combine',joinType,values -> {
+      return switch([values[0],values[1]]) {
+        case [Text(a),Text(b)]: Text(a+b);
+        case _: throw 'host argument type violation';
+      };
+    });
+    var partialImage=ModuleImage.encode(ModuleLinker.compilePublic(partial));
+    var partialLinked=ModuleLinker.linkImages([partialImage],40000000,joint);
+    eq(Vm.toPlain(partialLinked.invoke('Curried','append',Text('fix'))),
+      'prefix','curried host functions can be partially applied');
+    joint.revokeFunction('Curried','combine');
+    fails(() -> partialLinked.invoke('Curried','append',Text('later')),
+      'revoked function grant');
+
+    var reserved=new HostTextGrants();
+    fails(() -> reserved.grantFunction('Greeter','readText',greetType(),
+      _ -> ResultValue.ok(Text('wrong'))),'invalid function grant');
+    fails(() -> reserved.grantFunction('Greeter','broken',TText,
+      _ -> Text('wrong')),'unsupported function result type');
+    fails(() -> reserved.grantFunction('Greeter','greet',greetType(),
+      _ -> Text('wrong'),0),'invalid function grant');
+
     trace('NailLang v0.51 host registry: '+checks+' checks passed');
   }
 }
