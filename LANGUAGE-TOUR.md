@@ -452,6 +452,16 @@ def greeting name =
 `Ok` e `Error` sono alias dei costruttori storici `CoreOk` e
 `CoreErr`. Il tipo resta `CoreResult[A, B]`; anche i predicati e
 gli accessor brevi (`Ok?`, `Error?`, `Ok.0`, `Error.0`) sono
-disponibili. L'host deve fornire la funzione e l'autorizzazione
+disponibili.
+
+I nomi brevi sono oggi predefiniti nello scope globale: definire un
+costruttore utente chiamato `Ok` o `Error` nello stesso scope produce
+una collisione. Un binding locale come `let Ok = CoreOk in Ok " pronto "`
+è valido; tuttavia i pattern `match` risolvono costruttori nominali e
+non seguono alias arbitrari di valore. Un futuro import contestuale
+potrà rendere opzionale la visibilità di questi nomi senza modificare
+l'identità interna `CoreResult`.
+
+L'host deve fornire la funzione e l'autorizzazione
 esplicitamente; senza grant il collegamento del modulo non riesce.
 Consultare `HOST-CAPABILITIES.md`.
