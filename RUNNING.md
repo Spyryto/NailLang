@@ -265,3 +265,33 @@ Dentro Nail è ora possibile scrivere `Ok` ed `Error` invece
 di `CoreOk` e `CoreErr`, anche nei pattern `match`.
 Vedi [HOST-CAPABILITIES.md](./HOST-CAPABILITIES.md) e
 `host-functions-test-{interp,js,php}.hxml`.
+
+
+### v0.52 — FFI sicura con liste immutabili
+
+I moduli compilati possono richiedere una funzione host con tipo
+`List[T] -> U` o `T -> CoreResult[List[U], Text]`, quando `T` e `U`
+sono tipi atomici supportati o ulteriori liste. La dichiarazione del tipo
+avviene nel manifesto `PublicSourceModuleImport.scheme`, **non** mediante
+nuove parole chiave del linguaggio.
+
+Il callback riceve e restituisce `nail.Value` (per le liste: `Nil` e
+`Cons(head, tail)`). L'host non passa direttamente gli array JS o PHP.
+Prima dell'invocazione e dopo il risultato, la VM rifiuta elementi
+incompatibili, code improprie e valori troppo grandi o annidati
+(4096 nodi, profondità 8). Come nella 0.51 valgono permessi espliciti,
+revoca, limite di chiamate e sincronismo.
+
+Per eseguire i test in Haxe, JavaScript e PHP:
+
+```sh
+haxe seed-image.hxml
+haxe host-functions-test-interp.hxml
+haxe host-functions-test-js.hxml && node build/tests/host-functions.js
+haxe host-functions-test-php.hxml && php build/tests/php-host-functions/index.php
+```
+
+L'estensione non introduce `extern` e non modifica il backend: le
+funzioni rimangono registrate dal programma host. Il passo successivo
+sarà decidere come dichiarare e importare queste dipendenze dal sorgente
+Nail senza duplicare quanto presente nel manifesto.

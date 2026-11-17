@@ -644,3 +644,39 @@ protocol or automatic filesystem/network access in 0.51.
 
 Run `haxe host-functions-test-interp.hxml`, or compile the
 `host-functions-test-js.hxml` / `host-functions-test-php.hxml` targets.
+
+
+## v0.52 — Immutable, recursively typed List values
+
+Generic `grantFunction` now permits `TList(item)` as a parameter or
+result type, including nested lists, and as an atomic-or-list payload of
+`CoreResult`. The compiled module still requires an explicitly typed
+`NailHost` import. No callback is available without that host grant.
+
+```haxe
+var listType = nail.NType.TFunction(nail.NType.TText,
+  nail.NType.TSum('CoreResult', [
+    nail.NType.TList(nail.NType.TText), nail.NType.TText
+  ]));
+var grants = new nail.HostTextGrants();
+grants.grantFunction('Songs', 'fetchMany', listType, args ->
+  nail.ResultValue.ok(nail.Value.Cons(nail.Value.Text('Jazz'),
+    nail.Value.Cons(nail.Value.Text('Blues'), nail.Value.Nil))));
+```
+
+A module may import `NailHost.fetchMany` under a local alias such as
+`readMany`, then match `Ok items` and inspect `head items` in Nail.
+List payloads are immutable linked `Cons`/`Nil` values, never live
+host arrays. Every element and tail is checked at the boundary. An
+improper tail, wrong element, excessive size, or deeply nested list is
+rejected. The validator visits at most **4096 nodes** per argument or
+result and limits **nesting depth to 8**. Flat tails are validated
+iteratively; each list cell and value counts toward the node budget.
+
+Mutable `Vector`, nominal/structural records, and arbitrary host objects
+remain prohibited until Nail has a clear copy/ownership policy. Typed
+`CoreResult` must still use the canonical `ResultValue.ok/error`
+representation. The v0.51 revocation and call-budget semantics are
+unchanged; no new VM instruction or source syntax is introduced.
+
+Regressions: `host-functions-test-{interp,js,php}.hxml`.

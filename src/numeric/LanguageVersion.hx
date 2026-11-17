@@ -3,10 +3,10 @@ package numeric;
 /** Only the current and semantically compatible language declarations are
     accepted; source versions do not select numeric modes or bytecode ABIs. */
 class LanguageVersion {
-  public static inline var CURRENT = '0.51';
+  public static inline var CURRENT = '0.52';
 
   public static function supported(version:String):Bool return switch (version) {
-    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | CURRENT: true;
+    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51' | CURRENT: true;
     case _: false;
   };
 
@@ -21,10 +21,10 @@ class LanguageVersion {
     return tokens[1].text;
   }
 
-  /** v0.49 relation declarations remain valid in 0.50 and 0.51; no source or ABI
+  /** v0.49 relation declarations remain valid in 0.50, 0.51 and 0.52; no source or ABI
       compatibility guarantee is implied for future pre-1.0 releases. */
   public static function hasGeneralRelations(version:Null<String>):Bool
-    return version == '0.49' || version == '0.50' || version == CURRENT;
+    return version == '0.49' || version == '0.50' || version == '0.51' || version == CURRENT;
 
   public static function isModern(source:String):Bool
     return declared(source) != null;

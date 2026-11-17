@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.51** — explicit, typed, synchronous host-function grants extend the existing per-module `NailHost` capability model, with input/output checks, revocation and invocation budgets. The standard `CoreResult` also offers concise `Ok` and `Error` constructor aliases (the historical names remain compatible). The editor-neutral `analyze(source)`, n-ary relations and source-free JS/PHP runtime are retained. No new VM opcode or language syntax is required.
+**Current development: v0.52** — typed synchronous `NailHost` functions now accept and return immutable, recursively typed Nail lists (including `CoreResult` payloads). Boundary checks reject malformed list tails, incorrect element types and excessive nesting/size; revocation and invocation budgets remain enforced. Mutable vectors and arbitrary foreign objects are deliberately excluded. The short `Ok` / `Error` constructors, source analysis, n-ary relations, and source-free JS/PHP runtime remain available. No new VM opcode or source syntax is required.
 
 ## Compatibility policy before 1.0
 
