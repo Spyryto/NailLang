@@ -134,7 +134,16 @@ class ModuleSourceImportsTestMain {
     Reflect.setField(declared[0],'name','otherLeaf');
     var changed=ModuleImage.decode(Json.stringify(changedProvider));
     fails(() -> ModuleLinker.linkImages([user,
-      ModuleImage.encode(changed)]),'does not export leaf');
+      ModuleImage.encode(changed)]),'missing exported definition otherLeaf');
+    // A well-formed but incompatible provider is rejected separately.
+    var changedType=ModuleImage.encode(ModuleLinker.compilePublic({
+      name:'Syntax',source:'nail 0.54 ; '
+        +'def leaf x = x ; def identity x = x ; '
+        +'def same x y = x == y ;',
+      exports:['leaf','identity','same']
+    }));
+    fails(() -> ModuleLinker.linkImages([user,changedType]),
+      'import type mismatch');
 
     var noAlias='nail 0.54 ; def use x = identity x ; '
       +'import identity from Syntax ;';
