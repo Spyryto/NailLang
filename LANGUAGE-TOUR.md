@@ -4,6 +4,16 @@
 
 La v0.40 non cambia la grammatica Nail. Aggiunge un confine di **integrità dei moduli compilati**, lato host. La v0.39 aveva introdotto la scrittura controllata; la v0.40 impedisce che un'immagine sostitutiva non autorizzata si presenti con lo stesso nome di un modulo autorizzato.
 
+## Consolidamento ABI nel ramo corrente
+
+I moduli numerici moderni vengono emessi esclusivamente in
+`nailseed.runtime-module.v3`, anche quando non esportano vincoli.
+`relationAbi` dichiara la capacità di trasportare relazioni finite;
+le righe restano facoltative. Le immagini legacy v1 rimangono separate.
+I vecchi artefatti moderni v2 vanno utilizzati con la rispettiva
+release storica, non decodificati dal nuovo runtime. Questo non cambia
+l'ABI numerico `int-ratio-float.v1` né il formato delle immagini bootstrap.
+
 ## Novità v0.50 — Analisi strutturata del sorgente
 
 NailLang espone un'API **per strumenti di sviluppo**, indipendente da VS Code o
