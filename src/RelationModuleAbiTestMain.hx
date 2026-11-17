@@ -93,6 +93,9 @@ class RelationModuleAbiTestMain {
       return Json.stringify(data);
     }
     fails(() -> ModuleImage.decode(corrupted(d ->
+      Reflect.setField(d,'sourceVersion','0.48'))),
+      'requires Nail 0.49');
+    fails(() -> ModuleImage.decode(corrupted(d ->
       Reflect.setField(d,'relationAbi','finite-relations.v2'))),
       'incompatible relation ABI');
     fails(() -> ModuleImage.decode(corrupted(d ->
