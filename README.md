@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.53** — separately compiled modules can declare typed `NailHost` function imports directly in Nail source, even after the definitions using them. The compiler derives the checked import manifest and preserves ordinary source positions; `ModuleLinker.compilePublic` no longer requires redundant Haxe-side import declarations for these capabilities. Explicit host grants, type validation, revocation, call budgets and the source-free JS/PHP runtime are retained. The mechanism is module-scoped, not ambient FFI, and does not add VM opcodes.
+**Current development: v0.54** — separately compiled Nail modules can now import individual functions from explicitly provided compiled module interfaces, with public types (including polymorphism and Eq constraints) derived automatically: `import leaf from Syntax ;`. The compiled image keeps checked, canonical public type metadata; link-time ABI verification remains mandatory. The v0.53 `NailHost` import syntax remains available. No `use Module { ... }`, ambient module discovery, qualified access syntax or VM instruction was introduced.
 
 ## Compatibility policy before 1.0
 
