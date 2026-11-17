@@ -53,7 +53,7 @@ class ContextBlockProbeTestMain {
   public static function main():Void {
     var ctx=contexts();
     var simple=setup
-      +'def view title text = Html { [ h2 title , div text ] } ;'
+      +'def view title text = Html { [ h2 title , div text ] } ; '
       +'view " One " " Two " ;';
     equal(types(simple,ctx),['[Text]'],
       'record of closures opens as a lexical typed context');
