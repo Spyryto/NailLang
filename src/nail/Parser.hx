@@ -478,7 +478,7 @@ class Parser {
       var first = at;
       // v0.49 relations have an arbitrary positive arity (last type is
       // the return type). Declarations are compile-time metadata only.
-      if (languageVersion == '0.49' && at + 1 < tokens.length
+      if (numeric.LanguageVersion.hasGeneralRelations(languageVersion) && at + 1 < tokens.length
           && tokens[at + 1] == ':' &&
           ~/^[A-Z][A-Za-z0-9_]*$/.match(peek())) {
         var relation=take();
@@ -560,7 +560,7 @@ class Parser {
           if (!modernMode && (macroDeclaration || params.length != 2 ||
               relation != 'Div'))
             throw 'Type relation: only binary Div declarations are supported';
-          if (languageVersion == '0.49') {
+          if (numeric.LanguageVersion.hasGeneralRelations(languageVersion)) {
             if (macroDeclaration || params.length < 1 ||
                 params.length > nail.TypeRelation.MAX_ARITY ||
                 !~/^[A-Z][A-Za-z0-9_]*$/.match(relation))
@@ -572,7 +572,7 @@ class Parser {
             throw 'Type relation: ' + relation + ' requires Nail 0.46';
           if (exactMode)
             throw 'Type relation: exact source dialect is not supported yet';
-          declaredRelations.set(name, languageVersion == '0.49'
+          declaredRelations.set(name, numeric.LanguageVersion.hasGeneralRelations(languageVersion)
             ? relation : modernMode
             ? numeric.NumericRelation.modernName(relation) : relation);
         }

@@ -239,7 +239,7 @@ class ModuleLinker {
       if (item.relation != null) {
         if (item.scheme != null)
           throw 'Module compiler: choose either relation or HM scheme';
-        if (numeric.LanguageVersion.declared(spec.source) != '0.49')
+        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(spec.source)))
           throw 'Module compiler: relation imports require Nail 0.49';
         var contract=TypeRelation.validate(item.relation);
         for (row in contract.rows)
@@ -297,7 +297,7 @@ class ModuleLinker {
       if (!defined.exists(name))
         throw 'Module compiler: export must be a local definition ' + name;
       if (checker.hasPublicRelation(name)) {
-        if (numeric.LanguageVersion.declared(spec.source) != '0.49')
+        if (!numeric.LanguageVersion.hasGeneralRelations(numeric.LanguageVersion.declared(spec.source)))
           throw 'Module compiler: relation exports require Nail 0.49';
         var contract=checker.publicRelation(name);
         for (row in contract.rows)
