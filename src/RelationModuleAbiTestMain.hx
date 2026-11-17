@@ -99,8 +99,6 @@ class RelationModuleAbiTestMain {
       Reflect.setField(d,'format',ModuleImage.MODERN_FORMAT))),
       'relation metadata requires v3 ABI');
     fails(() -> ModuleImage.decode(corrupted(d -> {
-      var rows:Array<Dynamic>=cast Reflect.field(
-        (cast Reflect.field(d,'exports'))[0],'relation');
       var exports:Array<Dynamic>=cast Reflect.field(d,'exports');
       var relation:Dynamic=Reflect.field(exports[0],'relation');
       Reflect.setField(relation,'rows',[['Int','Float']]);
