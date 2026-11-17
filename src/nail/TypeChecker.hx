@@ -73,7 +73,7 @@ class TypeChecker {
       constructorOwners, relationByName, parser.modernMode, rows, extraRows,
       newTables, functionContracts);
     solver.declarations = parser.declaredRelations;
-    if (parser.languageVersion == '0.49')
+    if (numeric.LanguageVersion.hasGeneralRelations(parser.languageVersion))
       for (name in parser.declaredRelations.keys())
         solver.generalDeclarations.set(name,parser.declaredRelations.get(name));
     var inferred:Array<String>;
