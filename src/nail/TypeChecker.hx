@@ -714,6 +714,76 @@ private class Inference {
     substitutions.set(id, normalized);
   }
 
+  /** Flatten required fields; tail is null only for a closed row. */
+  function rowParts(type:NType):{fields:Array<nail.NType.StructuralField>,rest:Null<NType>} {
+    var fields:Array<nail.NType.StructuralField>=[];
+    var seen=new StringMap<Bool>();
+    var current=type;
+    while(true) switch(prune(current)) {
+      case TStructural(items):
+        for (item in items) {
+          if (seen.exists(item.name)) throw 'Type error: duplicate row field '+item.name;
+          seen.set(item.name,true); fields.push(item);
+        }
+        fields.sort((x,y)->Reflect.compare(x.name,y.name));
+        return {fields:fields,rest:null};
+      case TOpenStructural(items,tail):
+        for (item in items) {
+          if (seen.exists(item.name)) throw 'Type error: duplicate row field '+item.name;
+          seen.set(item.name,true); fields.push(item);
+        }
+        current=tail;
+      case TVariable(_):
+        fields.sort((x,y)->Reflect.compare(x.name,y.name));
+        return {fields:fields,rest:current};
+      case _: throw 'Type error: expected structural record row';
+    }
+    return {fields:fields,rest:null};
+  }
+
+  function addRow(fields:Array<nail.NType.StructuralField>,rest:NType):NType
+    return fields.length==0 ? rest : TOpenStructural(fields,rest);
+
+  /** Unify shared fields and distribute disjoint fields into open tails. */
+  function unifyRows(a:NType,b:NType,work:Array<{a:NType,b:NType}>):Void {
+    var x=rowParts(a),y=rowParts(b);
+    var xm=new StringMap<NType>(),ym=new StringMap<NType>();
+    for (field in x.fields) xm.set(field.name,field.type);
+    for (field in y.fields) ym.set(field.name,field.type);
+    var onlyX:Array<nail.NType.StructuralField>=[];
+    var onlyY:Array<nail.NType.StructuralField>=[];
+    for (field in x.fields)
+      if (ym.exists(field.name)) work.push({a:field.type,b:ym.get(field.name)});
+      else onlyX.push(field);
+    for (field in y.fields) if (!xm.exists(field.name)) onlyY.push(field);
+    if (x.rest==null && y.rest==null) {
+      if (onlyX.length!=0 || onlyY.length!=0)
+        throw 'Type error: cannot unify '+describe(a)+' with '+describe(b);
+      return;
+    }
+    if (x.rest==null) {
+      if (onlyY.length!=0) throw 'Type error: missing structural record fields';
+      work.push({a:y.rest,b:TStructural(onlyX)});
+      return;
+    }
+    if (y.rest==null) {
+      if (onlyX.length!=0) throw 'Type error: missing structural record fields';
+      work.push({a:x.rest,b:TStructural(onlyY)});
+      return;
+    }
+    var p=prune(x.rest),q=prune(y.rest);
+    switch([p,q]) {
+      case [TVariable(i),TVariable(j)] if (i==j):
+        if (onlyX.length!=0 || onlyY.length!=0)
+          throw 'Type error: incompatible shared row tail';
+        return;
+      case _:
+    }
+    var shared=fresh();
+    work.push({a:x.rest,b:addRow(onlyY,shared)});
+    work.push({a:y.rest,b:addRow(onlyX,shared)});
+  }
+
   function unify(left:NType, right:NType):Void {
     var stack:Array<{a:NType, b:NType}> = [{a:left, b:right}];
     while (stack.length > 0) {
@@ -729,14 +799,11 @@ private class Inference {
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
-        case [TStructural(xs), TStructural(ys)]:
-          if (xs.length != ys.length)
-            throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
-          for (i in 0...xs.length) {
-            if (xs[i].name != ys[i].name)
-              throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
-            stack.push({a:xs[i].type, b:ys[i].type});
-          }
+        case [TStructural(_), TStructural(_)]
+          | [TOpenStructural(_, _), TStructural(_)]
+          | [TStructural(_), TOpenStructural(_, _)]
+          | [TOpenStructural(_, _), TOpenStructural(_, _)]:
+          unifyRows(a,b,stack);
         case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
