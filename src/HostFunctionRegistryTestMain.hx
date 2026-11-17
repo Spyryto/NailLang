@@ -51,6 +51,12 @@ class HostFunctionRegistryTestMain {
     eq(checker.check('nail 0.51 ; def identity x = match Ok x with '
       +'| Ok y -> y | Error e -> x ; identity " jazz " ;'),
       ['Text'],'short Result constructors are exhaustively checked');
+    // A local alias is an ordinary Nail binding, not a new core variant.
+    // The matcher still resolves the stable CoreResult constructor tag.
+    eq(new BootRuntime(40000000).runPlain(
+      'nail 0.51 ; let Ok = CoreOk in '
+      +'match Ok " scoped " with | CoreOk x -> x | CoreErr e -> e ;'),
+      ['scoped'],'a context-limited Ok binding constructs CoreResult');
     fails(() -> new TypeChecker().check('nail 0.51 ; '
       +'def f x = match Ok x with '
       +'| Ok a -> a | CoreOk b -> b | Error e -> x ;'),
