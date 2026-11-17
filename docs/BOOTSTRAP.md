@@ -101,3 +101,27 @@ checks, the source-free CLI smoke tests, and bundled JS/PHP runtime checks.
   Track source-free bundle size before claiming a performance or packaging gain.
 - A future experiment may split primitive families (numeric, Syntax, vectors)
   only if it measurably improves cohesion; avoid unnecessary indirection.
+
+## Code size and runtime boundary measurement (2026-11-17)
+
+The AST evaluator was successfully separated from the source-free runtime
+**without duplicating primitive semantics**. Both evaluators use the same
+`RuntimePrimitives` entry points. `RuntimeValues` holds presentation only;
+the bytecode runtime and boot wrapper do not reference `Vm`.
+
+Production-file character counts relative to the pre-refactor branch:
+
+| Component | Before | After |
+| --- | ---: | ---: |
+| `Vm.hx` | 29,375 | 11,462 |
+| `ByteVm.hx` | 12,008 | 12,047 |
+| `BootRuntime.hx` | 2,535 | 2,546 |
+| New `RuntimePrimitives.hx` | 0 | 16,857 |
+| New `RuntimeValues.hx` | 0 | 1,622 |
+| **Total** | **43,918** | **44,534** |
+
+The production sources **increase by 616 characters** (excluding docs and
+tests). This is a separation of responsibilities and dead-code-elimination
+opportunity, **not** a claim of fewer total source lines, a smaller compiled
+artifact or faster execution. The CI packaging guard now rejects the AST VM
+class in addition to host compiler classes in both source-free bundles.
