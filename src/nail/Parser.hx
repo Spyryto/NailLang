@@ -695,16 +695,16 @@ class Parser {
               throw 'Parameter annotation: invalid or duplicate name';
             expect(':');
             var typeName=take();
-            if (!isName(typeName) || !typeAliases.exists(typeName))
-              throw 'Parameter annotation: unknown structural contract '+typeName;
+            if (!isName(typeName))
+              throw 'Parameter annotation: expected type name';
+            var t=typeAtom(typeName);
             expect(')');
-            var t=typeAliases.get(typeName);
             constraints.push({name:p,type:t});
             if (contextFields!=null) switch(t) {
               case nail.NType.TStructural(fields):
                 bindings.push({name:p,previous:contextFields.get(p)});
                 contextFields.set(p,[for (field in fields) field.name]);
-              case _: throw 'Parameter annotation: expected structural contract';
+              case _:
             }
           } else {
             p=take();
