@@ -50,6 +50,9 @@ elimination. They expose `BootRuntime` over `ByteVm`; parsing, macro
 expansion and compilation of user Nail source are implemented by the
 **precompiled Nail standard library**. The common VM, bytecode decoding,
 numeric primitives and necessary Syntax adapters remain implemented in Haxe.
+`ByteVm` now initializes its environment directly from the shared
+`Vm.primitiveEnvironment()` factory: source-free execution no longer constructs
+an AST `Vm` merely to access the primitives.
 
 `node tools/check-boot-boundary.mjs` inspects **both generated artifacts**:
 neither may include Haxe `Parser`, `BytecodeCompiler`,

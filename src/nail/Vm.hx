@@ -21,7 +21,13 @@ class Vm {
   public function new(maxSteps:Int = 100000) {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
-    root = new Env();
+    root = primitiveEnvironment();
+  }
+
+  /** Shared runtime primitives: ByteVm requires an environment, not an
+      instance of the AST evaluator or its parser/compiler entry points. */
+  public static function primitiveEnvironment():Env {
+    var root = new Env();
     for (name in ['+', '-', '*', '/', '<', '<=', '>', '>=', '==', '!=', 'cons', '#cons', '#recordGet', 'textAt', 'textConcat', 'syntaxLeaf', 'syntaxNode'])
       root.bind(name, Native(name, 2, []));
     for (name in ['head', 'tail', 'isEmpty', '#head', '#tail', '#isEmpty', 'textLength', 'syntaxTag', 'syntaxText', 'syntaxChildren']) root.bind(name, Native(name, 1, []));
@@ -60,6 +66,7 @@ class Vm {
       root.bind('#modern' + name, Native('#modern' + name, 2, []));
     for (name in ['toFloat','toRatio','ratioFromText','intFromText'])
       root.bind(name, Native(name, 1, []));
+    return root;
   }
 
   inline function tick():Void {
