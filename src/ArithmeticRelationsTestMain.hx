@@ -110,7 +110,7 @@ class ArithmeticRelationsTestMain {
       'nail 0.45 ; def add x y : Add = x + y ;').parseRaw(),
       'requires Nail 0.46');
     fails(() -> new Parser(
-      'nail 0.48 ; 1 ;').parseRaw(),
+      'nail 0.49 ; 1 ;').parseRaw(),
       'Unsupported Nail language version');
     fails(() -> new TypeChecker().check(
       'nail 0.46 ; 1 + 2.0 ;'),'explicit conversion');

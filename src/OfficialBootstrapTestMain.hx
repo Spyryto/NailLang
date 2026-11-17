@@ -63,7 +63,7 @@ class OfficialBootstrapTestMain {
       records:Reflect.field(raw,'records')
     })), 'format');
     fails(() -> new BootRuntime(35000000).runPlain(
-      'nail 0.48 ; 1 ;'), 'Unsupported Nail language version');
+      'nail 0.49 ; 1 ;'), 'Unsupported Nail language version');
     var legacy=BootstrapImage.encode(image);
     ok(!BootstrapImage.isModernImage(legacy),
       'new image marker is not silently added to legacy envelope');
