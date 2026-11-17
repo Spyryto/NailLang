@@ -69,13 +69,29 @@ class TypeChecker {
     for (name in generalContracts.keys()) newTables.set(name,generalContracts.get(name));
     for (name in parser.generalRows.keys())
       newTables.set(name,TypeRelation.decode(name,parser.generalRows.get(name)));
+    // Older versioned sources had fixed binary arithmetic tables. Translate
+    // them once into the same finite named RelationContract representation
+    // used by 0.49+ instead of preserving a second inference algorithm.
+    if (parser.modernMode && !numeric.LanguageVersion.hasGeneralRelations(parser.languageVersion)) {
+      if (parser.declaredDivRows.length > 0)
+        newTables.set('Div',TypeRelation.decode('Div',
+          [for (row in parser.declaredDivRows) [row.left,row.right,row.result]]));
+      for (name in parser.declaredOperatorRows.keys())
+        newTables.set(name,TypeRelation.decode(name,
+          [for (row in parser.declaredOperatorRows.get(name))
+            [row.left,row.right,row.result]]));
+    }
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode, rows, extraRows,
       newTables, functionContracts);
     solver.declarations = parser.declaredRelations;
-    if (numeric.LanguageVersion.hasGeneralRelations(parser.languageVersion))
-      for (name in parser.declaredRelations.keys())
-        solver.generalDeclarations.set(name,parser.declaredRelations.get(name));
+    if (parser.modernMode)
+      for (name in parser.declaredRelations.keys()) {
+        var relation=parser.declaredRelations.get(name);
+        solver.generalDeclarations.set(name,
+          numeric.LanguageVersion.hasGeneralRelations(parser.languageVersion)
+            ? relation : numeric.NumericRelation.surfaceName(relation));
+      }
     var inferred:Array<String>;
     try inferred = solver.run(forms)
     catch (failure:Dynamic) {
