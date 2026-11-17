@@ -111,7 +111,7 @@ class SinglePassMacroTestMain {
     for (source in [
       'macro inc x = quote ( unquote x + 1 ) ; expand inc 41 ;',
       'nail 0.49 ; macro inc x = quote ( unquote x + 1 ) ; expand inc 41 ;',
-      '# nail: 0.29\\nmacro half x = quote ( unquote x / 2 ) ; expand half 1 ;'
+      '# nail: 0.29\nmacro half x = quote ( unquote x / 2 ) ; expand half 1 ;'
     ]) {
       calls = 0;
       probe.compileWithNail(source);
