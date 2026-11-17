@@ -19,11 +19,11 @@ class ContextBlockProbeTestMain {
   static function equal(a:Dynamic,b:Dynamic,label:String):Void
     ok(Json.stringify(a)==Json.stringify(b),
       label+' expected '+Json.stringify(b)+' got '+Json.stringify(a));
-  static function fails(f:Void->Void,needle:String):Void {
+  static function fails(f:Void->Void,needle:String,?label:String):Void {
     var error='';
     try f() catch(e:Dynamic) error=Std.string(e);
     ok(error.indexOf(needle)>=0,
-      'expected "'+needle+'" got "'+error+'"');
+      (label==null?'':label+': ')+'expected "'+needle+'" got "'+error+'"');
   }
   static function contexts():StringMap<Array<String>> {
     var result=new StringMap<Array<String>>();
@@ -59,7 +59,7 @@ class ContextBlockProbeTestMain {
       'record of closures opens as a lexical typed context');
     equal(run(simple,ctx),[['H:One','D:Two']],
       'same lowered five-constructor AST executes in original VM');
-    fails(() -> new Parser(simple).parse(),'Expected =',
+    fails(() -> new Parser(simple).parse(),'Expected named record field',
       'feature must remain opt-in for the source parser');
 
     var nested=setup+svg
