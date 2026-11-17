@@ -41,7 +41,6 @@ class TypeDeclarationLoweringTestMain {
   public static function main():Void {
     var host = new Vm(60000000);
     host.loadStdlib();
-    var boot = new BootRuntime(60000000);
     var cases = [
       {source:'', result:'[]'},
       {source:'def id x = x ; id 42 ;', result:'[42]'},
@@ -60,6 +59,8 @@ class TypeDeclarationLoweringTestMain {
         result:'["I:42"]'}
     ];
     for (entry in cases) {
+      // Each executable program has its own top-level namespace.
+      var boot = new BootRuntime(60000000);
       var source = entry.source;
       var referenceSource = SyntaxEncoder.program(new Parser(source).parse());
       var generated = oracle(source);
