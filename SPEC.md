@@ -1,3 +1,54 @@
+# v0.48 — Numeric runtime module ABI, separate from source version
+
+## Distinct, explicit version boundaries
+
+- Nail source version: `nail 0.48 ;`. The v0.48 VM still accepts compatible
+  `0.45`, `0.46` and `0.47` sources.
+- Numeric ABI: `int-ratio-float.v1`. No implicit Float conversions; the
+  underlying types remain exactly `Int`, `Ratio`, `Float`.
+- Separately compiled module image: `nailseed.runtime-module.v2` with
+  `numericAbi`, `sourceVersion`, canonical imports and exports, and
+  nested `nailseed.postfix-image.v2` bytecode.
+- Self-hosted compiler image: `nailseed.postfix-image.v2` and its own
+  `languageVersion: "0.48"`. The module and compiler version numbers
+  are not conflated.
+
+Legacy module images `runtime-module.v1` remain decodable with legacy
+numeric dialect `0.27` or `0.29`. A modern v2 image must not carry
+legacy metadata; a v1 image cannot pretend to be modern by relabeling
+its bytecode. The decoder rejects a legacy `ExactNumber` leaf inside
+modern bytecode and modern `Int`/`Ratio` leaves inside legacy images.
+
+The linker requires equal numeric ABIs across each runtime import edge;
+compatible 0.45-0.48 source revisions share the same modern ABI. Link-time
+signature equality is strict. Compile-time manifests also reject all
+recursive occurrences of legacy `TNumber`/`TExact` in modern public
+interfaces, including nested functions, vectors, records and polymorphic
+scheme bodies.
+
+All three compiler entry points (`compile`, `compileInferred`,
+`compilePublic`) independently check source with `TypeChecker`,
+compare the Nail-written compiler's bytecode against Haxe's reference
+compiler and produce image v2 only after that proof. Source-free linking
+does not need the parser.
+
+## Deliberate boundaries
+
+- `Div`, `Add`, `Sub`, `Mul` relations remain closed, checked and
+  explicitly declared in individual source files (choice B). A generic
+  constrained function cannot yet cross a module boundary: its
+  relation-aware signature is not representable in the current HM
+  `TypeScheme` or module manifests. Exports reject, rather than
+  silently erase, such a constraint.
+- `ModuleImage` is not an authenticity mechanism. Trusted signatures,
+  hashes, and capability grants remain the host responsibility.
+- The v0.48 runtime retains compatibility code paths for historical
+  `Number` and `Exact` sources, images and tests. They are **not** used
+  by the modern ABI. Removing them from general-purpose distributions
+  requires migrating those users first, not breaking working artifacts.
+
+---
+
 # v0.47 — Versioned official compiler bootstrap
 
 The **production** bootstrap is now compiled from:

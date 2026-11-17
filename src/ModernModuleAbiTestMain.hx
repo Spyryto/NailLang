@@ -184,7 +184,6 @@ class ModernModuleAbiTestMain {
     var pol=ModuleLinker.compilePublic(poly);
     equal(pol.exports[0].signature,'a -> a',
       'public HM signature in modern v2 image');
-    var identity=nail.TypeChecker;
     var ck=new TypeChecker();
     ck.check(poly.source);
     var sch=ck.publicScheme('identity');

@@ -2,7 +2,7 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Current development: v0.47** — the published source-free bootstrap compiler is compiled under `nail 0.47 ;` with `Int`, `Ratio`, and `Float`. Its v2 image is reproducibly self-hosted; separate minimal boot distributions for JS and PHP are available. The remaining legacy numeric/module compatibility is transitional.
+**Current development: v0.48** — independently compiled modules support the Int/Ratio/Float numeric ABI in `nailseed.runtime-module.v2`, with distinct source-version and numeric-ABI metadata, strict linker compatibility, and Haxe/JS/PHP tests. Legacy runtime-module.v1 remains available for existing sources.
 
 This repository reconstructs the original NailSeed prototype as a clean, version-by-version public Git history. Each historic version has its own commit and tag. The current branch contains a single src/ directory, rather than numbered version folders.
 
