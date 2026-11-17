@@ -95,6 +95,56 @@ class ContextBlockProbeTestMain {
     equal(run(mixedCase,derived),
       ['H:Case','lower:Case','D:Case','lower-div:Case'],
       'Html and html are distinct values, not case-folded identifiers');
+    // Typed structural aliases and per-parameter constraints are compile-time
+    // only. A parameter without an annotation still gets its type inferred.
+    var typedHeader='type Html = { h2 : Text Text , div : Text Text } ; ';
+    var typedFunctions=typedHeader
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render htmlValue " Typed " ;';
+    equal(typeRows(typedFunctions,new StringMap()).types,['Text'],
+      'optional parameter annotations resolve context names statically');
+    equal(run(typedFunctions,new StringMap()),['H:Typed'],
+      'structural type aliases and binder annotations erase at runtime');
+    var typedSignature=typeRows(typedFunctions,new StringMap()).checker.signature('render');
+    ok(typedSignature.indexOf('h2:')>=0 && typedSignature.indexOf('div:')>=0,
+      'annotated structural contract requires both declared capabilities');
+    var partial=typedHeader
+      +'def render ( html : Html ) ( title : Text ) = html { h2 title } ; '
+      +'def htmlValue = { div = fun x -> x , h2 = fun x -> x } ; '
+      +'render htmlValue " Both " ;';
+    equal(typeRows(partial,new StringMap()).types,['Text'],
+      'two individually annotated parameters are type-checked');
+    equal(run(partial,new StringMap()),['Both'],
+      'curried annotations do not alter function evaluation');
+    var valueAlias=typedHeader
+      +'def htmlValue : Html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'htmlValue { h2 " Value " } ;';
+    equal(typeRows(valueAlias,new StringMap()).types,['Text'],
+      'value annotation gives the checker a named structural contract');
+    // The parser only opens contextual names that were explicitly annotated
+    // in the function; bare values are not automatically opened here.
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Missing ) title = html { h2 title } ;',
+      new StringMap()), 'unknown structural contract',
+      'unknown parameter contract rejected');
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x } " No div " ;',
+      new StringMap()), 'missing structural record fields',
+      'annotated API rejects implementations lacking required fields');
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x + 1 , div = fun x -> x } " Wrong " ;',
+      new StringMap()), 'cannot unify',
+      'annotated API checks function types, not only member names');
+    fails(() -> typeRows(
+      'type Html = { h2 : MissingType Text } ; '
+      +'def x ( html : Html ) = html { h2 " X " } ;',
+      new StringMap()), 'unknown type',
+      'structural alias fields use known types');
+
     var nonRecordChecker=new TypeChecker();
     nonRecordChecker.check('def Html = 4 ;');
     fails(() -> ContextInterfaces.fromChecked(nonRecordChecker,['Html']),
