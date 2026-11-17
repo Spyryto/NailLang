@@ -56,7 +56,7 @@ class TypeDeclarationLoweringTestMain {
       {source:'macro wrap n = quote ( Box ( unquote n ) ) ; type Box { value Number } ; ( expand wrap 42 ) . value ;',
         result:'[42]'},
       {source:'nail 0.49 ; type Box { value Int } ; type Choice = No | Yes Int ; match Yes ( ( Box 42 ) . value ) with | No -> 0 | Yes n -> n ;',
-        result:'["I:42"]'}
+        result:'["I:42/1"]'}
     ];
     for (entry in cases) {
       // Each executable program has its own top-level namespace.
