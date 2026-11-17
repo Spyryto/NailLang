@@ -295,3 +295,47 @@ L'estensione non introduce `extern` e non modifica il backend: le
 funzioni rimangono registrate dal programma host. Il passo successivo
 sarà decidere come dichiarare e importare queste dipendenze dal sorgente
 Nail senza duplicare quanto presente nel manifesto.
+
+
+### v0.53 — Import runtime direttamente nel sorgente
+
+Per un modulo Nail compilato separatamente, dichiarare il tipo e
+l'import da `NailHost` nel file `.nail`, anche dopo le definizioni:
+
+```nail
+nail 0.53 ;
+def hello name = greetingHost name ;
+import greet as greetingHost from NailHost : Text -> Text ;
+```
+
+Ora il programma Haxe può omettere il campo `imports`:
+
+```haxe
+var spec:nail.ModuleLinker.PublicSourceModuleSpec = {
+  name:'Greeter',
+  source:source,
+  exports:['hello']
+};
+var image=nail.ModuleImage.encode(nail.ModuleLinker.compilePublic(spec));
+var grants=new nail.HostTextGrants();
+grants.grantFunction('Greeter','greet',
+  nail.NType.TFunction(nail.NType.TText,nail.NType.TText),
+  _ -> nail.Value.Text('ciao'));
+var linked=nail.ModuleLinker.linkImages([image],40000000,grants);
+```
+
+Il compilatore produce e controlla il manifesto dalla dichiarazione.
+Il grant Haxe è ancora necessario: una firma nel sorgente **non**
+concede permessi. Gli import sono a livello di modulo, non lessicali;
+`import ... from Syntax ;` per macro è indipendente.
+
+```sh
+haxe seed-image.hxml
+haxe host-source-imports-test-interp.hxml
+haxe host-source-imports-test-js.hxml && node build/tests/host-source-imports.js
+haxe host-source-imports-test-php.hxml && php build/tests/php-host-source-imports/index.php
+```
+
+Per ora solo il compilatore di moduli pubblici interpreta questa nuova
+sintassi; gli import runtime di moduli Nail e i namespace qualificati
+non sono compresi nell'incremento.
