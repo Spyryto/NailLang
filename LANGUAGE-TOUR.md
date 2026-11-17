@@ -431,3 +431,37 @@ statici prima dell'esecuzione di bytecode già compilato.
 Le immagini `runtime-module.v1` storiche sono ancora decodificabili
 per compatibilità, ma i loro tipi numerici non possono entrare in un
 modulo moderno attraverso un import.
+
+
+## v0.51 — Funzioni dell'host e costruttori Result brevi
+
+L'host può ora concedere a un modulo funzioni sincrone tipizzate con
+`HostTextGrants.grantFunction`. I manifest `NailHost` già esistenti
+forniscono il nome e la firma. La VM controlla gli argomenti e i
+risultati e gestisce revoca e quota di chiamate. Non ci sono import
+ambientali, accesso diretto alle API JavaScript/PHP o nuove istruzioni VM.
+
+```nail
+nail 0.51 ;
+def greeting name =
+  match hostGreet name with
+  | Ok message -> message
+  | Error reason -> reason ;
+```
+
+`Ok` e `Error` sono alias dei costruttori storici `CoreOk` e
+`CoreErr`. Il tipo resta `CoreResult[A, B]`; anche i predicati e
+gli accessor brevi (`Ok?`, `Error?`, `Ok.0`, `Error.0`) sono
+disponibili.
+
+I nomi brevi sono oggi predefiniti nello scope globale: definire un
+costruttore utente chiamato `Ok` o `Error` nello stesso scope produce
+una collisione. Un binding locale come `let Ok = CoreOk in Ok " pronto "`
+è valido; tuttavia i pattern `match` risolvono costruttori nominali e
+non seguono alias arbitrari di valore. Un futuro import contestuale
+potrà rendere opzionale la visibilità di questi nomi senza modificare
+l'identità interna `CoreResult`.
+
+L'host deve fornire la funzione e l'autorizzazione
+esplicitamente; senza grant il collegamento del modulo non riesce.
+Consultare `HOST-CAPABILITIES.md`.

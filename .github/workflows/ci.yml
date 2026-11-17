@@ -27,6 +27,13 @@ jobs:
           XDEBUG_MODE=off php build/tests/php-source-analysis/index.php
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
+      - name: Verify typed host functions and short Result variants (Haxe, Node, PHP)
+        run: |
+          haxe host-functions-test-interp.hxml
+          haxe host-functions-test-js.hxml
+          node build/tests/host-functions.js
+          haxe host-functions-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-host-functions/index.php
       - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
         run: |
           haxe official-bootstrap-test-interp.hxml

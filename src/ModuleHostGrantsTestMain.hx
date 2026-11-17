@@ -117,7 +117,7 @@ class ModuleHostGrantsTestMain {
       40000000, host), 'capability type mismatch');
     var unknown = encode('WrongSymbol', 'unknown');
     fails(() -> ModuleLinker.linkImages([unknown], 40000000, host),
-      'unsupported capability unknown');
+      'missing function grant for WrongSymbol.unknown');
 
     fails(() -> host.grantReadText('Left', new TextReadCapability(['left'], key -> 'x')),
       'duplicate text reader');

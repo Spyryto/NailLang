@@ -322,3 +322,24 @@ Per un programma errato, `ok` diventa `false` e `diagnostics` contiene
 `phase`, `message` e `span` (o `null` se non deducibile correttamente).
 Il compilatore non aggiunge un LSP in questa versione. Per dettagli:
 [API di analisi](./docs/ANALYSIS.md).
+
+
+## Usare una funzione esterna tipizzata (0.51)
+
+Un'applicazione Haxe/JavaScript/PHP può concedere una funzione sotto
+`NailHost`, dichiarandone nel manifesto il tipo, il modulo e il nome.
+La sorgente Nail non deve conoscere il linguaggio dell'host:
+
+```nail
+nail 0.51 ;
+def greet name =
+  match hostGreet name with
+  | Ok text -> text
+  | Error why -> why ;
+```
+
+Questo esempio richiede che l'host registri `greet` con firma
+`Text -> CoreResult[Text, Text]` e lo importi come `hostGreet`.
+Il valore non viene inventato dal linguaggio e non esiste accesso
+automatico alle API del sistema. Per il manifesto completo e la
+registrazione vedere `HOST-CAPABILITIES.md`.

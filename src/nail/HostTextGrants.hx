@@ -2,6 +2,7 @@ package nail;
 
 import haxe.ds.StringMap;
 import nail.Value;
+import nail.NType;
 
 /** A deliberately narrow, per-module host grant table.
     Only the embedding host can construct this table and provide callbacks.
@@ -23,12 +24,18 @@ class HostTextGrants {
   final writers:StringMap<TextWriteCapability>;
   final revokedReaders:StringMap<Bool>;
   final revokedWriters:StringMap<Bool>;
+  /** All generic functions share the existing per-module grant boundary.
+      There is no ambient FFI lookup or source-level host constructor. */
+  final functions:StringMap<StringMap<HostFunctionGrant>>;
+  final revokedFunctions:StringMap<Bool>;
 
   public function new() {
     readers = new StringMap<TextReadCapability>();
     writers = new StringMap<TextWriteCapability>();
     revokedReaders = new StringMap<Bool>();
     revokedWriters = new StringMap<Bool>();
+    functions = new StringMap<StringMap<HostFunctionGrant>>();
+    revokedFunctions = new StringMap<Bool>();
   }
 
   public function grantReadText(module:String, reader:TextReadCapability):Void {
@@ -65,6 +72,125 @@ class HostTextGrants {
     revokedWriters.set(module,true);
   }
 
+  /** Register a synchronous, curried function under a statically checked
+      Nail type. Inputs and returned values are validated at the boundary.
+      No arbitrary Haxe/JS/PHP object passes into the portable VM.
+      The budget counts attempted final invocations, including failures. */
+  public function grantFunction(module:String, symbol:String, type:NType,
+      callback:Array<Value>->Value, maxCalls:Int = 1024):Void {
+    if (!ModuleImage.validName(module) || module == PROVIDER ||
+        !ModuleImage.validName(symbol) || symbol == READ_TEXT ||
+        symbol == READ_TEXT_RESULT || symbol == WRITE_TEXT_RESULT ||
+        callback == null || maxCalls < 1 || maxCalls > 1000000)
+      throw 'Host grants: invalid function grant';
+    var checker = new TypeChecker();
+    checker.importSignature('_hostGrant', type);
+    var args:Array<NType> = [];
+    var cursor = type;
+    while (true) switch (cursor) {
+      case TFunction(input,output):
+        if (args.length >= 8 || !atomicType(input))
+          throw 'Host grants: unsupported function input type';
+        args.push(input);
+        cursor = output;
+      case _:
+        if (args.length == 0 || !returnType(cursor))
+          throw 'Host grants: unsupported function result type';
+        break;
+    }
+    var bySymbol = functions.get(module);
+    if (bySymbol == null) {
+      bySymbol = new StringMap<HostFunctionGrant>();
+      functions.set(module,bySymbol);
+    }
+    if (bySymbol.exists(symbol))
+      throw 'Host grants: duplicate function for ' + module + '.' + symbol;
+    bySymbol.set(symbol,{
+      signature:checker.signature('_hostGrant'), args:args,
+      result:cursor, invoke:callback, calls:0, maxCalls:maxCalls
+    });
+  }
+
+  /** A function can be revoked after linking, even after partial application.
+      Legacy specialized reader/writer grants retain their own revoke API. */
+  public function revokeFunction(module:String, symbol:String):Void {
+    var found=functions.get(module);
+    if (found == null || !found.exists(symbol))
+      throw 'Host grants: missing function grant for ' + module + '.' + symbol;
+    revokedFunctions.set(module + '.' + symbol,true);
+  }
+
+  static function atomicType(type:NType):Bool return switch(type) {
+    case TText | TBoolean | TInt | TRatio | TFloat: true;
+    case _: false;
+  };
+
+  static function returnType(type:NType):Bool return switch(type) {
+    case TSum('CoreResult', types) if (types.length == 2):
+      atomicType(types[0]) && atomicType(types[1]);
+    case _: atomicType(type);
+  };
+
+  static function validValue(type:NType, value:Value):Bool {
+    if (value == null) return false;
+    return switch(type) {
+      case TText: switch(value) {case Text(_): true; case _: false;}
+      case TBoolean: switch(value) {case Boolean(_): true; case _: false;}
+      case TInt: switch(value) {
+        case IntNumber(number):
+          try numeric.FastNumber.isInteger(number) catch (_:Dynamic) false;
+        case _: false;
+      }
+      case TRatio: switch(value) {
+        case RatioNumber(number):
+          try {
+            numeric.FastNumber.encodeExact(number);
+            true;
+          } catch (_:Dynamic) false;
+        case _: false;
+      }
+      case TFloat: switch(value) {case Number(n): Math.isFinite(n); case _: false;}
+      case TSum('CoreResult', types) if (types.length == 2):
+        try {
+          var tag=ResultValue.tag(value);
+          validValue(tag == ResultValue.OK ? types[0] : types[1],
+            ResultValue.get(value,tag));
+        } catch (_:Dynamic) false;
+      case _: false;
+    };
+  }
+
+  function resolveFunction(consumer:String, symbol:String, requested:String):Value {
+    var bySymbol=functions.get(consumer);
+    var found=bySymbol == null ? null : bySymbol.get(symbol);
+    if (found == null)
+      throw 'Host grants: missing function grant for ' + consumer + '.' + symbol;
+    if (requested != found.signature)
+      throw 'Host grants: capability type mismatch for ' + consumer;
+    var key=consumer + '.' + symbol;
+    function stage(captured:Array<Value>):Value {
+      var index=captured.length;
+      return HostFunction('host-function-' + symbol, arg -> {
+        if (revokedFunctions.exists(key))
+          throw 'Host grants: revoked function grant for ' + key;
+        if (!validValue(found.args[index],arg))
+          throw 'Host grants: invalid function argument for ' + key;
+        var values=captured.concat([arg]);
+        if (values.length != found.args.length) return stage(values);
+        if (found.calls >= found.maxCalls)
+          throw 'Host grants: invocation quota exhausted for ' + key;
+        found.calls++;
+        var output:Value;
+        try output=found.invoke(values)
+        catch (_:Dynamic) throw 'Host grants: host callback failed';
+        if (!validValue(found.result,output))
+          throw 'Host grants: invalid function result for ' + key;
+        return output;
+      });
+    }
+    return stage([]);
+  }
+
   /** Resolve only an explicitly requested and statically compatible import.
       The grant is scoped to the *consumer module*, including when the host
       links several consumers with different allowlists. */
@@ -73,7 +199,7 @@ class HostTextGrants {
       case READ_TEXT: READ_SIGNATURE;
       case READ_TEXT_RESULT: RESULT_SIGNATURE;
       case WRITE_TEXT_RESULT: WRITE_SIGNATURE;
-      case _: throw 'Host grants: unsupported capability ' + symbol;
+      case _: return resolveFunction(consumer,symbol,requested);
     };
     if (requested != actual)
       throw 'Host grants: capability type mismatch for ' + consumer;
@@ -110,4 +236,14 @@ class HostTextGrants {
       return symbol == READ_TEXT ? reader.read(key) : reader.readResult(key);
     });
   }
+}
+
+/** Private typed grant, shared by host function wrappers and quota logic. */
+private typedef HostFunctionGrant = {
+  var signature:String;
+  var args:Array<NType>;
+  var result:NType;
+  var invoke:Array<Value>->Value;
+  var calls:Int;
+  var maxCalls:Int;
 }

@@ -625,6 +625,16 @@ private class Inference {
     ]);
     constructorOwners.set('CoreOk', 'CoreResult');
     constructorOwners.set('CoreErr', 'CoreResult');
+    // Public short names are aliases of the same two CoreResult variants.
+    // Core* names remain valid for historical sources and image contracts.
+    constructorOwners.set('Ok', 'CoreResult');
+    constructorOwners.set('Error', 'CoreResult');
+    globals.set('Ok', poly(fun(success, result), [okId, errorId]));
+    globals.set('Error', poly(fun(failure, result), [okId, errorId]));
+    globals.set('Ok?', poly(fun(result, b), [okId, errorId]));
+    globals.set('Error?', poly(fun(result, b), [okId, errorId]));
+    globals.set('Ok.0', poly(fun(result, success), [okId, errorId]));
+    globals.set('Error.0', poly(fun(result, failure), [okId, errorId]));
     globals.set('CoreOk', poly(fun(success, result), [okId, errorId]));
     globals.set('CoreErr', poly(fun(failure, result), [okId, errorId]));
     globals.set('CoreOk?', poly(fun(result, b), [okId, errorId]));
@@ -1249,11 +1259,16 @@ private class Inference {
                 if (foundOwner == null) throw 'Type error: unknown algebraic constructor ' + ctor;
                 if (owner == null) owner = foundOwner;
                 else if (owner != foundOwner) throw 'Type error: mixed constructors from ' + owner + ' and ' + foundOwner;
-                if (covered.exists(ctor)) throw 'Type error: duplicate constructor branch ' + ctor;
-                covered.set(ctor, true);
+                // Short aliases and historical Core* names count as the
+                // SAME variant for exhaustive coverage and duplicates.
+                var canonical = foundOwner == 'CoreResult'
+                  ? (ctor == 'Ok' ? 'CoreOk'
+                    : ctor == 'Error' ? 'CoreErr' : ctor) : ctor;
+                if (covered.exists(canonical)) throw 'Type error: duplicate constructor branch ' + ctor;
+                covered.set(canonical, true);
                 var specs = sumCases.get(foundOwner);
                 var expected = -1;
-                for (spec in specs) if (spec.name == ctor) expected = spec.arity;
+                for (spec in specs) if (spec.name == canonical) expected = spec.arity;
                 if (expected < 0) throw 'Type error: unknown algebraic constructor ' + ctor;
                 var observed = 0;
                 var inner:Expr = yes;

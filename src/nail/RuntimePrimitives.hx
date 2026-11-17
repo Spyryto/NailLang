@@ -14,7 +14,8 @@ class RuntimePrimitives {
     // Result is a single shared generic algebraic type, not a source-provided
     // module type. Match lowering needs constructors, predicates and getters.
     for (name in ['CoreOk', 'CoreErr', 'CoreOk?', 'CoreErr?',
-        'CoreOk.0', 'CoreErr.0'])
+        'CoreOk.0', 'CoreErr.0', 'Ok', 'Error', 'Ok?', 'Error?',
+        'Ok.0', 'Error.0'])
       root.bind(name, Native(name, 1, []));
     root.bind('vector', Native('vector', 1, []));
     root.bind('vectorLength', Native('vectorLength', 1, []));
@@ -322,12 +323,12 @@ class RuntimePrimitives {
         var copy = items.copy();
         copy[index] = args[2];
         Vector(copy);
-      case 'CoreOk': ResultValue.ok(a);
-      case 'CoreErr': ResultValue.error(a);
-      case 'CoreOk?': Boolean(ResultValue.is(a, ResultValue.OK));
-      case 'CoreErr?': Boolean(ResultValue.is(a, ResultValue.ERR));
-      case 'CoreOk.0': ResultValue.get(a, ResultValue.OK);
-      case 'CoreErr.0': ResultValue.get(a, ResultValue.ERR);
+      case 'CoreOk' | 'Ok': ResultValue.ok(a);
+      case 'CoreErr' | 'Error': ResultValue.error(a);
+      case 'CoreOk?' | 'Ok?': Boolean(ResultValue.is(a, ResultValue.OK));
+      case 'CoreErr?' | 'Error?': Boolean(ResultValue.is(a, ResultValue.ERR));
+      case 'CoreOk.0' | 'Ok.0': ResultValue.get(a, ResultValue.OK);
+      case 'CoreErr.0' | 'Error.0': ResultValue.get(a, ResultValue.ERR);
       case 'macroExpandSyntax': MacroExpander.syntax(a);
       case '#sumFail': throw 'Non-exhaustive or mismatched variant pattern';
       case '#recordMake':
