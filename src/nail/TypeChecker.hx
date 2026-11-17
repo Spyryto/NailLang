@@ -26,9 +26,6 @@ class TypeChecker {
   var sumCases:StringMap<Array<{name:String, arity:Int}>>;
   var constructorOwners:StringMap<String>;
   var nextId:Int;
-  var modernRows:Array<numeric.NumericRelation.BinaryRelationRow> = [];
-  var modernOperatorRows:haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>
-    = new haxe.ds.StringMap();
   var lastModern:Bool = false;
   var relationByName:haxe.ds.StringMap<String>;
   var generalContracts:StringMap<RelationContract> = new StringMap();
@@ -59,12 +56,6 @@ class TypeChecker {
       than reparsing the source (or fetching modules a second time). */
   public function checkParsed(parser:Parser, forms:Array<Form>):Array<String> {
     lastFailureSpan = null;
-    var rows = numeric.NumericRelation.decodeRows(parser.declaredDivRows);
-    var extraRows = new haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>();
-    for (relation in parser.declaredOperatorRows.keys())
-      extraRows.set(numeric.NumericRelation.modernName(relation),
-        numeric.NumericRelation.decodeRows(
-          parser.declaredOperatorRows.get(relation),relation));
     var newTables = new StringMap<RelationContract>();
     for (name in generalContracts.keys()) newTables.set(name,generalContracts.get(name));
     for (name in parser.generalRows.keys())
@@ -82,7 +73,7 @@ class TypeChecker {
             [row.left,row.right,row.result]]));
     }
     var solver = new Inference(nextId, global, records, sums, sumCases,
-      constructorOwners, relationByName, parser.modernMode, rows, extraRows,
+      constructorOwners, relationByName, parser.modernMode,
       newTables, functionContracts);
     solver.declarations = parser.declaredRelations;
     if (parser.modernMode)
@@ -107,8 +98,6 @@ class TypeChecker {
     constructorOwners = solver.constructorOwners;
     nextId = solver.nextId;
     relationByName = solver.relations;
-    modernRows = solver.modernRows;
-    modernOperatorRows = solver.modernOperatorRows;
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
@@ -118,7 +107,7 @@ class TypeChecker {
   /** Infer/check an AST supplied as first-class Nail Syntax, without reparsing text. */
   public function checkSyntax(tree:Value):Array<String> {
     var solver = new Inference(nextId, global, records, sums, sumCases,
-      constructorOwners, relationByName, lastModern, modernRows, modernOperatorRows,
+      constructorOwners, relationByName, lastModern,
       generalContracts, functionContracts);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
@@ -421,10 +410,6 @@ class TypeChecker {
     instance.constructorOwners = new StringMap<String>();
     for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
-    instance.modernRows = modernRows.copy();
-    instance.modernOperatorRows = new haxe.ds.StringMap();
-    for (rel in modernOperatorRows.keys())
-      instance.modernOperatorRows.set(rel,modernOperatorRows.get(rel).copy());
     instance.lastModern = lastModern;
     instance.generalContracts = new StringMap();
     for (name in generalContracts.keys())
@@ -441,7 +426,7 @@ class TypeChecker {
   /** Print a polymorphic definition's inferred signature (e.g. a -> a). */
   public function signature(name:String):String {
     return new Inference(nextId, global, records, sums, sumCases, constructorOwners,
-      relationByName, lastModern, modernRows, modernOperatorRows,
+      relationByName, lastModern,
       generalContracts, functionContracts).signature(name);
   }
 
@@ -484,9 +469,6 @@ private class Inference {
   public final generalContracts:StringMap<RelationContract>;
   public final functionContracts:StringMap<RelationContract>;
   public final modernMode:Bool;
-  public var validatingConstraint:Bool = false;
-  public final modernRows:Array<numeric.NumericRelation.BinaryRelationRow>;
-  public final modernOperatorRows:haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
 
@@ -494,8 +476,6 @@ private class Inference {
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
       knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>,
       modernMode:Bool = false,
-      ?modernRows:Array<numeric.NumericRelation.BinaryRelationRow>,
-      ?operatorRows:haxe.ds.StringMap<Array<numeric.NumericRelation.BinaryRelationRow>>,
       ?knownTables:StringMap<RelationContract>,
       ?knownContracts:StringMap<RelationContract>) {
     nextId = start;
@@ -506,11 +486,6 @@ private class Inference {
     if (knownContracts != null)
       for (name in knownContracts.keys()) functionContracts.set(name,knownContracts.get(name));
     this.modernMode = modernMode;
-    this.modernRows = modernRows == null ? [] : modernRows.copy();
-    modernOperatorRows = new haxe.ds.StringMap();
-    if (operatorRows != null)
-      for (rel in operatorRows.keys())
-        modernOperatorRows.set(rel,operatorRows.get(rel).copy());
     relations = new haxe.ds.StringMap<String>();
     if (knownRelations != null)
       for (name in knownRelations.keys()) relations.set(name, knownRelations.get(name));
@@ -572,12 +547,6 @@ private class Inference {
         return contract == null ? null : {name:base,args:args,contract:contract};
       case _: return null;
     }
-  }
-
-  function selectedRows(name:String):Array<numeric.NumericRelation.BinaryRelationRow> {
-    if (name == 'Div45') return modernRows;
-    var found = modernOperatorRows.get(name);
-    return found == null ? [] : found;
   }
 
   static function fun(a:NType, b:NType):NType return TFunction(a, b);
@@ -1043,13 +1012,12 @@ private class Inference {
             var other = results.pop();
             var ret = numeric.NumericRelation.result(
               relations.get(MacroExpander.globalName(name)),
-              normalize(frame.saved), normalize(other),
-              selectedRows(relations.get(MacroExpander.globalName(name))));
+              normalize(frame.saved), normalize(other));
             results.push(ret);
             work.pop();
           }
         case Apply(Apply(Var(name), lhs), rhs)
-          if (modernMode && !validatingConstraint && StringTools.startsWith(
+          if (modernMode && StringTools.startsWith(
             MacroExpander.globalName(name), '#modern')):
           if (frame.phase == 0) {
             frame.phase = 1;
@@ -1489,8 +1457,8 @@ private class Inference {
               case _:
             }
             var validator = new Inference(nextId,globals,records,sums,sumCases,
-              constructorOwners,relations,modernMode,modernRows,
-              modernOperatorRows,generalContracts,functionContracts);
+              constructorOwners,relations,modernMode,
+              generalContracts,functionContracts);
             var expected:NType=row[n];
             for (i in 0...n) expected=fun(row[n-1-i],expected);
             var scope=scopeCopy(validator.globals);
@@ -1525,26 +1493,13 @@ private class Inference {
         if (constrained != null) {
           // Each admitted signature is checked against the SAME body.
           // This is a finite overload contract, not inferred Num polymorphism.
-          for (row in numeric.NumericRelation.rows(constrained, selectedRows(constrained))) {
+          // Only the unversioned legacy Div/Number contract reaches here.
+          // Every versioned constraint now uses TypeRelation above.
+          for (row in numeric.NumericRelation.rows(constrained)) {
             var validator = new Inference(nextId, globals, records, sums,
-              sumCases, constructorOwners, relations, modernMode, modernRows,
-              modernOperatorRows);
+              sumCases, constructorOwners, relations, modernMode);
             var expected = fun(row.left, fun(row.right, row.result));
-            if (numeric.NumericRelation.isModern(constrained)) {
-              // Infer the annotated body with concrete operator signatures.
-              // Its lambda parameters are unified by application before the
-              // result is checked, so a floating type variable cannot be
-              // mistaken for a type with a general Num instance.
-              validator.validatingConstraint = true;
-              for (op in ['+', '-', '*', '/', '<', '<=', '>', '>=']) {
-                var opResult:NType = null;
-                try opResult = numeric.NumericRelation.operate(
-                  op, row.left, row.right) catch (e:Dynamic) {}
-                validator.globals.remove('#modern' + op);
-                if (opResult != null) validator.globals.set('#modern' + op,
-                  mono(fun(row.left, fun(row.right, opResult))));
-              }
-            } else validator.globals.set('/', mono(expected));
+            validator.globals.set('/', mono(expected));
             validator.globals.set(name, mono(expected));
             validator.validateMatches(expr);
             var inferredType = validator.infer(expr, validator.globals,
