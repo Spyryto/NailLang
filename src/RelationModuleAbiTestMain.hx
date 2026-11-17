@@ -99,8 +99,8 @@ class RelationModuleAbiTestMain {
       Reflect.setField(d,'relationAbi','finite-relations.v2'))),
       'incompatible relation ABI');
     fails(() -> ModuleImage.decode(corrupted(d ->
-      Reflect.setField(d,'format',ModuleImage.MODERN_FORMAT))),
-      'relation metadata requires v3 ABI');
+      Reflect.setField(d,'format','nailseed.runtime-module.v2'))),
+      'incompatible format');
     fails(() -> ModuleImage.decode(corrupted(d -> {
       var exports:Array<Dynamic>=cast Reflect.field(d,'exports');
       var relation:Dynamic=Reflect.field(exports[0],'relation');
@@ -135,13 +135,12 @@ class RelationModuleAbiTestMain {
         relation:compiled.exports[0].relation}],
       exports:['answer']
     }), 'require Nail 0.49');
-    // A v2 numeric module with monomorphic types can coexist in a graph;
-    // relation-bearing exports are only in v3.
+    // Plain and relation-bearing numeric modules share one v3 ABI.
     var plain=ModuleLinker.compilePublic({
       name:'Plain49',source:source('def x = 3 ;'),imports:[],exports:['x']
     });
-    ok(ModuleImage.encode(plain).indexOf('runtime-module.v2')>=0,
-      'unconstrained module retains the smaller v2 image');
+    ok(ModuleImage.encode(plain).indexOf('runtime-module.v3')>=0,
+      'unconstrained modern modules use the same v3 image');
     trace('NailLang 0.49 relation module ABI: '+checks+' checks passed');
   }
 }

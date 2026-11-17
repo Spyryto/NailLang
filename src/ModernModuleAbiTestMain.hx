@@ -49,12 +49,12 @@ class ModernModuleAbiTestMain {
       ['Int','Ratio','Float'],'inferred public numeric types');
     var image=ModuleImage.encode(first);
     var envelope:Dynamic=Json.parse(image);
-    ok(Reflect.field(envelope,'format')==ModuleImage.MODERN_FORMAT,
-      'modern module uses runtime-module.v2');
+    ok(Reflect.field(envelope,'format')==ModuleImage.RELATION_FORMAT,
+      'all modern modules use runtime-module.v3');
     ok(Reflect.field(envelope,'numericAbi')==ModuleImage.MODERN_ABI,
-      'v2 image records numerical ABI independently');
+      'v3 image records numerical ABI independently');
     ok(Reflect.field(envelope,'sourceVersion')=='0.48',
-      'v2 module remembers actual source language');
+      'v3 module remembers actual source language');
     ok(image.indexOf('nailseed.postfix-image.v2')>=0,
       'module embeds validated, modern postfix bytecode');
     var imported=[
@@ -149,6 +149,12 @@ class ModernModuleAbiTestMain {
       Reflect.setField(x,'numericAbi','int-ratio-float.v2'))),
       'incompatible numeric ABI');
     fails(() -> ModuleImage.decode(edited(x ->
+      Reflect.deleteField(x,'relationAbi'))),
+      'incompatible relation ABI');
+    fails(() -> ModuleImage.decode(edited(x ->
+      Reflect.setField(x,'format','nailseed.runtime-module.v2'))),
+      'incompatible format');
+    fails(() -> ModuleImage.decode(edited(x ->
       Reflect.setField(x,'sourceVersion','0.51'))),
       'unsupported modern source version');
     fails(() -> ModuleImage.decode(edited(x ->
@@ -183,7 +189,7 @@ class ModernModuleAbiTestMain {
     };
     var pol=ModuleLinker.compilePublic(poly);
     equal(pol.exports[0].signature,'a -> a',
-      'public HM signature in modern v2 image');
+      'public HM signature in modern v3 image');
     var ck=new TypeChecker();
     ck.check(poly.source);
     var sch=ck.publicScheme('identity');

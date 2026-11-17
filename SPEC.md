@@ -4,7 +4,7 @@
 - Declaration: `Constraint : T1 ... Tn Result ;` with 1 ≤ n ≤ 16, 1–128 rows per name; every row has the same arity and the parameter tuple functionally determines the result type. Duplicate parameter tuples are rejected even if their results happen to agree.
 - Function: `def fn p1 ... pn : Constraint = body ;`. The body is checked separately for each concrete signature; direct, fully applied calls resolve from all argument types alone. All types in a row must be concrete; no implicit number conversion, automatic operator-polymorphism inference, first-class overloaded values, or higher-order constraints.
 - Relations are static metadata: both Haxe and Nail-written source compilers erase the declarations/annotations and generate identical ordinary bytecode, leaving the runtime dispatch unchanged.
-- Module ABI: `nailseed.runtime-module.v3` with `numericAbi: "int-ratio-float.v1"` and `relationAbi: "finite-relations.v1"` for constrained imports/exports. The v3 interface carries canonicalized typed rows; the reader validates them against the signature and rejects incompatible or downgraded interfaces. `ModuleLinker.compilePublic` accepts explicit `relation` on an import and inferred verified relation metadata on an export. Runtime-module.v2 remains supported for unconstrained modern interfaces.
+- Module ABI: `nailseed.runtime-module.v3` with `numericAbi: "int-ratio-float.v1"` and `relationAbi: "finite-relations.v1"` for constrained imports/exports. The v3 interface carries canonicalized typed rows; the reader validates them against the signature and rejects incompatible or downgraded interfaces. `ModuleLinker.compilePublic` accepts explicit `relation` on an import and inferred verified relation metadata on an export. The current runtime uses runtime-module.v3 for all modern interfaces, including unconstrained ones. Modern v2 images remain available only through historical tagged toolchains.
 - The module source language, numeric ABI, portable module image format and bootstrap compiler image version are independently tracked. The module boundary is static and first-order; linking cannot perform new type inference.
 
 ---
@@ -25,9 +25,10 @@
   are not conflated.
 
 Legacy module images `runtime-module.v1` remain decodable with legacy
-numeric dialect `0.27` or `0.29`. A modern v2 image must not carry
-legacy metadata; a v1 image cannot pretend to be modern by relabeling
-its bytecode. The decoder rejects a legacy `ExactNumber` leaf inside
+numeric dialect `0.27` or `0.29`. Historically v0.48 introduced modern
+v2 images; the current toolchain instead emits and decodes modern v3
+images. A modern v3 image must not carry legacy metadata; a v1 image
+cannot pretend to be modern by relabeling its bytecode. The decoder rejects a legacy `ExactNumber` leaf inside
 modern bytecode and modern `Int`/`Ratio` leaves inside legacy images.
 
 The linker requires equal numeric ABIs across each runtime import edge;
