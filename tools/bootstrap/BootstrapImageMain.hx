@@ -1,9 +1,7 @@
-import haxe.Json;
 import sys.FileSystem;
 import sys.io.File;
 import nail.BootstrapImage;
 import nail.BytecodeCompiler;
-import nail.Vm;
 
 /** Build-time image generator. THIS is the stage that uses the Haxe parser.
     Its output is data embedded into the separately compiled boot runtime. */
@@ -13,9 +11,11 @@ class BootstrapImageMain {
       + ' ;\n' + File.getContent('stdlib.nail');
     var bytecode = BytecodeCompiler.compileSource(source);
     var encoded = BootstrapImage.encodeModern(bytecode);
+    // Stage zero must not depend on the AST execution VM: verify the entire
+    // portable bytecode image at the serialization boundary instead.
     var roundTrip = BootstrapImage.decode(encoded);
-    if (Json.stringify(Vm.toPlain(bytecode)) != Json.stringify(Vm.toPlain(roundTrip)))
-      throw 'Bootstrap image failed round-trip validation';
+    if (BootstrapImage.encodeModern(roundTrip) != encoded)
+      throw 'Stage-zero image failed deterministic round-trip validation';
     FileSystem.createDirectory('build');
     FileSystem.createDirectory('build/bootstrap');
     File.saveContent('build/bootstrap/stdlib-image.json', encoded + '\n');

@@ -1,4 +1,5 @@
 -cp src
+-cp tools/bootstrap
 -main RebootstrapImageMain
 -resource build/bootstrap/stdlib-image.json@bootstrap_image
 -D nail_seed_only

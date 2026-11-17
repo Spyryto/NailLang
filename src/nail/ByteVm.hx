@@ -24,7 +24,7 @@ class ByteVm {
   public function new(maxSteps:Int = 100000) {
     if (maxSteps <= 0) throw 'maxSteps must be positive';
     this.maxSteps = maxSteps;
-    globals = new Vm(maxSteps).bytecodeRoot();
+    globals = Vm.primitiveEnvironment();
   }
 
   function tick():Void {
