@@ -303,6 +303,14 @@ class TypeChecker {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case _: throw 'Public interface: malformed type scheme';
         }
       } else switch (frame.type) {
@@ -322,6 +330,11 @@ class TypeChecker {
           work.push({type:frame.type, end:true});
           var i = fields.length;
           while (i > 0) work.push({type:fields[--i].type, end:false});
+        case TOpenStructural(fields,rest):
+          work.push({type:frame.type,end:true});
+          work.push({type:rest,end:false});
+          var i=fields.length;
+          while (i>0) work.push({type:fields[--i].type,end:false});
         case TRecord(name): results.push(TRecord(name));
         case TSum(_, _):
           throw 'Public interface: algebraic public type identity is not implemented';
@@ -840,6 +853,14 @@ private class Inference {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -857,6 +878,11 @@ private class Inference {
           stack.push({type:frame.type, finish:true});
           var i = fields.length;
           while (i > 0) stack.push({type:fields[--i].type, finish:false});
+        case TOpenStructural(fields,rest):
+          stack.push({type:frame.type,finish:true});
+          stack.push({type:rest,finish:false});
+          var i=fields.length;
+          while (i>0) stack.push({type:fields[--i].type,finish:false});
         case TList(a) | TVector(a):
           stack.push({type:frame.type, finish:true});
           stack.push({type:a, finish:false});
@@ -924,6 +950,14 @@ private class Inference {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -940,6 +974,11 @@ private class Inference {
             stack.push({type:normalized, finish:true});
             var i = fields.length;
             while (i > 0) stack.push({type:fields[--i].type, finish:false});
+          case TOpenStructural(fields,rest):
+            stack.push({type:normalized,finish:true});
+            stack.push({type:rest,finish:false});
+            var i=fields.length;
+            while (i>0) stack.push({type:fields[--i].type,finish:false});
           case TList(a) | TVector(a):
             stack.push({type:normalized, finish:true});
             stack.push({type:a, finish:false});
@@ -1011,7 +1050,15 @@ private class Inference {
       case TStructural(fields):
         for (item in fields) if (item.name == field) return item.type;
         throw 'Type error: structural record has no field ' + field;
+      case TOpenStructural(fields,rest):
+        for (item in fields) if (item.name == field) return item.type;
+        return projectField(rest,field);
       case TVariable(_):
+        if (openRows) {
+          var output=fresh();
+          unify(receiver,TOpenStructural([{name:field,type:output}],fresh()));
+          return output;
+        }
         var matches:Array<String> = [];
         for (name in records.keys()) if (globals.exists(name + '.' + field)) matches.push(name);
         if (matches.length == 0) throw 'Type error: unknown record field ' + field;
@@ -1668,6 +1715,18 @@ private class Inference {
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);
+        case TOpenStructural(fields,rest):
+          stack.push({type:null,text:'}',parens:false});
+          stack.push({type:rest,text:null,parens:false});
+          stack.push({type:null,text:' | ',parens:false});
+          var i=fields.length;
+          while(i>0) {
+            i--;
+            stack.push({type:fields[i].type,text:null,parens:false});
+            stack.push({type:null,text:fields[i].name+': ',parens:false});
+            if (i>0) stack.push({type:null,text:', ',parens:false});
+          }
+          stack.push({type:null,text:'{',parens:false});
         case TStructural(fields):
           stack.push({type:null, text:'}', parens:false});
           var i = fields.length;
