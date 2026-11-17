@@ -92,10 +92,10 @@ class ContextBlockProbeTestMain {
     equal(run(anonymous,ctx),['D:A'],
       'anonymous record field can use contextual names');
 
-    var macro=setup
+    var macroCase=setup
       +'macro identity x = quote ( unquote x ) ; '
       +'Html { expand identity ( h2 " M " ) } ;';
-    equal(run(macro,ctx),['H:M'],
+    equal(run(macroCase,ctx),['H:M'],
       'macro expansion works after contextual lowering to core AST');
 
     // The same context value can travel through a function parameter at
