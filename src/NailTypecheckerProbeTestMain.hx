@@ -1256,6 +1256,24 @@ class NailTypecheckerProbeTestMain {
       badIf.indexOf('if true'),
       'generated conditional type mismatch points to if token');
 
+    var generatedPattern='nail 0.54 ; type Option a = None | Some a ; '
+      +'macro partial x = quote ( match unquote x with '
+      +'| Some value -> value ) ; '
+      +'expand partial ( Some 1 ) ;';
+    var generatedPatternReport=NailSourceAnalysis.analyzeNailMacros(
+      generatedPattern,boot,null,'src/generated-pattern.nail');
+    eq(generatedPatternReport.ok,false,
+      'Nail rejects missing constructor case from a generated pattern');
+    eq(generatedPatternReport.diagnostics[0].templateOrigin.sourceId,
+      'src/generated-pattern.nail',
+      'pattern provenance identifies generated macro owner');
+    eq(generatedPatternReport.diagnostics[0].templateOrigin.span.start,
+      generatedPattern.indexOf('match'),
+      'generated pattern failure identifies the original match token');
+    eq(generatedPatternReport.diagnostics[0].span.start,
+      generatedPattern.indexOf('expand'),
+      'generated pattern failure identifies its caller site');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);
