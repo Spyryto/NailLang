@@ -263,6 +263,85 @@ class NailSourceAnalysis {
     return uniqueInForm(tokens,name,area);
   }
 
+  /** Replay only the already-defined hygienic macro AST rewrite with a
+      read-only provenance sidecar. Nail's error contains the actual failed
+      form/child path. This pass never infers a type and emits no bytecode.
+      For locally declared macros, both origins are taken from the parser's
+      original token identities; multiple expansions are distinguished. */
+  static function macroOrigin(source:String,
+      fault:Value, message:String):Null<{span:SourceSpan,template:Null<SourceSpan>}> {
+    var sourceTrail = trail(fault);
+    if (sourceTrail == null) return null;
+    try {
+      var parser = new Parser(source);
+      var expanded = MacroExpander.forms(parser.parseRaw(), parser.provenance);
+      if (sourceTrail.index < 0 || sourceTrail.index >= expanded.length)
+        return null;
+
+      var expr:Expr = switch (expanded[sourceTrail.index]) {
+        case Define(_,body) | Evaluate(body): body;
+        case _: return null;
+      };
+      var ancestry:Array<Expr> = [expr];
+      for (step in sourceTrail.path) {
+        expr = switch (expr) {
+          case Lambda(_,body) if (step == 1): body;
+          case Apply(fn,arg) if (step == 0): fn;
+          case Apply(fn,arg) if (step == 1): arg;
+          case If(test,yes,no) if (step == 0): test;
+          case If(test,yes,no) if (step == 1): yes;
+          case If(test,yes,no) if (step == 2): no;
+          case _: return null;
+        };
+        ancestry.push(expr);
+      }
+
+      var missing = after(message,'Unknown name:');
+      if (missing != null) {
+        // Assert the structurally selected node is the actual failed symbol.
+        // Hygiene-qualified names resolve against their source spelling.
+        var matching = switch (expr) {
+          case Var(label):
+            label == missing
+              || MacroExpander.globalName(label) == MacroExpander.globalName(missing);
+          case _: false;
+        };
+        if (!matching) return null;
+        // A captured caller argument inserted through unquote retains its
+        // *own* source span, not its containing expansion's call site.
+        var call = parser.provenance.expansionSiteOfExpression(expr);
+        var direct = parser.provenance.spanOfExpression(expr);
+        if (call == null) {
+          if (direct == null) return null;
+          return {span:direct,template:null};
+        }
+        return {span:call,
+          template:parser.provenance.templateOfExpression(expr)};
+      }
+
+      // Pattern failures are detected before traversing the lowered match
+      // body. Walk back toward the current expression's containing macro
+      // node, not an unrelated expansion elsewhere in the file.
+      var pattern = StringTools.startsWith(message,'Non-exhaustive match:')
+        || StringTools.startsWith(message,'Mixed constructors in algebraic match')
+        || StringTools.startsWith(message,
+          'Constructor match binding arity mismatch:');
+      if (!pattern) return null;
+      var i = ancestry.length;
+      while (i > 0) {
+        var origin = ancestry[--i];
+        var call = parser.provenance.expansionSiteOfExpression(origin);
+        if (call != null)
+          return {span:call,
+            template:parser.provenance.templateOfExpression(origin)};
+      }
+    } catch (_:Dynamic) {
+      // The Haxe parser is optional, and external macro resolvers are not
+      // provided to this source-free, typechecker-only adapter.
+    }
+    return null;
+  }
+
   static function pretty(boot:BootRuntime, checked:Value):Array<String> {
     var output:Array<String> = [];
     var entries:Value = switch (checked) {
@@ -326,6 +405,18 @@ class NailSourceAnalysis {
       if (!macroError) {
         var span = tracedLocation(source,lookupMessage,tokens,fault);
         if (span != null) located.span=span;
+        // Explicitly replay only when there is at least one local macro.
+        // This separates generated template nodes from caller arguments and
+        // avoids choosing among macro calls by textual occurrence counts.
+        var hasMacro = false;
+        for (token in tokens) if (token.text == 'macro') hasMacro = true;
+        if (hasMacro) {
+          var origin = macroOrigin(source,fault,lookupMessage);
+          if (origin != null) {
+            located.span=origin.span;
+            located.template=origin.template;
+          }
+        }
       }
     } catch (_:Dynamic) {
       // Attribution is best-effort, but the Nail checker error is authoritative.
