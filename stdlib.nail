@@ -3375,6 +3375,17 @@ def tcCheckSumDeclaration form rest environment substitutions seed reversed alia
 # substitution is needed in the module-aware experimental entry point.
 # --------------------------------------------------------------------------
 
+# Fuel is an immutable Number threaded through *all* executable macro
+# expression visits and top-level forms. No mutable VM state or opcode.
+type NMExpansionStep { result Syntax remaining Number } ;
+def nmPack result remaining = NMExpansionStep result remaining ;
+def nmValue step = step . result ;
+def nmRemaining step = step . remaining ;
+def nmBad step = nmIsError ( nmValue step ) ;
+def nmOutOfFuel fuel =
+  nmPack ( syntaxLeaf " MacroError " " macro expansion work limit exceeded " ) fuel ;
+def nmDefaultFuel = 1000000 ;
+
 def nmError message = syntaxLeaf " MacroError " message ;
 def nmOk = syntaxLeaf " NMValid " " " ;
 def nmIsError value = syntaxTag value == " MacroError " ;
@@ -3602,55 +3613,66 @@ def nmDropArguments params args =
 
 # Evaluate each substituted argument in its *caller's* lexical environment.
 # Caller trees are never renamed while substituting unquote holes.
-def nmBindArguments params args scope holes locals seed depth entries =
+# Each recursive syntax visit consumes one fuel unit. The remaining fuel
+# is passed to the next sibling, including caller arguments and extra args.
+# This bounds total expansion visits rather than just nesting depth.
+def nmBindArguments params args scope holes locals seed depth entries fuel =
   match params with
-  | [] -> nmBindings entries
+  | [] -> nmPack ( nmBindings entries ) fuel
   | param :: remaining ->
     match args with
-    | [] -> nmError " missing macro argument "
+    | [] -> nmPack ( nmError " missing macro argument " ) fuel
     | arg :: rest ->
       let substituted = nmWalk arg scope holes locals
-        ( nmChild seed " _a " ) ( depth + 1 ) in
-      if nmIsError substituted then substituted
+        ( nmChild seed " _a " ) ( depth + 1 ) fuel in
+      if nmBad substituted then substituted
       else nmBindArguments remaining rest scope holes locals
         ( nmChild seed " _next " ) ( depth + 1 )
-        ( cons ( tcBinding ( syntaxText param ) substituted ) entries ) ;
+        ( cons ( tcBinding ( syntaxText param ) ( nmValue substituted ) )
+          entries ) ( nmRemaining substituted ) ;
 
-def nmApplyExtra result extras scope holes locals seed depth =
+def nmApplyExtra result extras scope holes locals seed depth fuel =
   match extras with
-  | [] -> result
+  | [] -> nmPack result fuel
   | arg :: rest ->
     let expanded = nmWalk arg scope holes locals
-      ( nmChild seed " _extra " ) ( depth + 1 ) in
-    if nmIsError expanded then expanded
-    else nmApplyExtra ( syntaxApply result expanded ) rest
-      scope holes locals ( nmChild seed " _next " ) ( depth + 1 ) ;
+      ( nmChild seed " _extra " ) ( depth + 1 ) fuel in
+    if nmBad expanded then expanded
+    else nmApplyExtra ( syntaxApply result ( nmValue expanded ) ) rest
+      scope holes locals ( nmChild seed " _next " )
+      ( depth + 1 ) ( nmRemaining expanded ) ;
 
-def nmExpandCall call scope holes locals seed depth =
+def nmExpandCall call scope holes locals seed depth fuel =
   let name = syntaxText ( tcFirst call ) in
   let definition = tcFind name scope in
   if syntaxTag definition == " TCMissing " then
-    nmError ( textConcat " unknown macro " name )
+    nmPack ( nmError ( textConcat " unknown macro " name ) ) fuel
   else let params = syntaxChildren ( tcSecond definition ) in
     let args = syntaxChildren ( tcSecond call ) in
     if length args < length params then
-      nmError ( textConcat " macro requires more arguments: " name )
+      nmPack ( nmError
+        ( textConcat " macro requires more arguments: " name ) ) fuel
     else let bound = nmBindArguments params args scope holes locals
-      ( nmChild seed " _args " ) ( depth + 1 ) [] in
-      if nmIsError bound then bound
-      else let captured = syntaxChildren
-        ( tcFourth definition ) in
+      ( nmChild seed " _args " ) ( depth + 1 ) [] fuel in
+      if nmBad bound then bound
+      else let captured = syntaxChildren ( tcFourth definition ) in
         let ownScope = cons ( tcBinding name definition ) captured in
-        let generated = nmWalk ( tcThird definition ) ownScope bound
-          ( nmBindings [] ) ( nmChild seed " _template " )
-          ( depth + 1 ) in
-        if nmIsError generated then generated
-        else nmApplyExtra generated ( nmDropArguments params args )
-          scope holes locals ( nmChild seed " _remaining " ) ( depth + 1 ) ;
+        let generated = nmWalk ( tcThird definition ) ownScope
+          ( nmValue bound ) ( nmBindings [] )
+          ( nmChild seed " _template " ) ( depth + 1 )
+          ( nmRemaining bound ) in
+        if nmBad generated then generated
+        else nmApplyExtra ( nmValue generated )
+          ( nmDropArguments params args )
+          scope holes locals ( nmChild seed " _remaining " )
+          ( depth + 1 ) ( nmRemaining generated ) ;
 
-def nmWalk tree scope holes locals seed depth =
-  if depth > 128 then nmError " expansion nesting limit exceeded "
-  else let tag = syntaxTag tree in
+def nmWalk tree scope holes locals seed depth fuel =
+  if depth > 128 then
+    nmPack ( nmError " expansion nesting limit exceeded " ) fuel
+  else if fuel <= 0 then nmOutOfFuel fuel
+  else let available = fuel - 1 in
+    let tag = syntaxTag tree in
     if tag == " Apply " then
       let fn = tcFirst tree in
       let arg = tcSecond tree in
@@ -3658,15 +3680,17 @@ def nmWalk tree scope holes locals seed depth =
         if syntaxTag fn == " Var " then
           if syntaxText fn == " #macro_unquote " then
             if syntaxTag arg != " Var " then
-              nmError " unquote expects a parameter name "
+              nmPack ( nmError " unquote expects a parameter name " ) available
             else let replacement = tcFind ( syntaxText arg )
               ( syntaxChildren holes ) in
               if syntaxTag replacement == " TCMissing " then
-                nmError ( textConcat " unknown unquote parameter " ( syntaxText arg ) )
-              else replacement
-          else nmWalkApplication tree fn arg scope holes locals seed depth
-        else nmWalkApplication tree fn arg scope holes locals seed depth
-      else nmWalkApplication tree fn arg scope holes locals seed depth
+                nmPack ( nmError ( textConcat
+                  " unknown unquote parameter " ( syntaxText arg ) ) )
+                  available
+              else nmPack replacement available
+          else nmWalkApplication tree fn arg scope holes locals seed depth available
+        else nmWalkApplication tree fn arg scope holes locals seed depth available
+      else nmWalkApplication tree fn arg scope holes locals seed depth available
     else if tag == " Lambda " then
       let name = syntaxText ( tcFirst tree ) in
       if syntaxTag locals == " NMBindings " then
@@ -3676,53 +3700,67 @@ def nmWalk tree scope holes locals seed depth =
         let renamed = nmWalk ( tcSecond tree ) scope holes
           ( nmBindings ( cons ( tcBinding name ( syntaxName fresh ) )
             ( syntaxChildren locals ) ) )
-          ( nmChild seed " _body " ) ( depth + 1 ) in
-        if nmIsError renamed then renamed
-        else syntaxLambda fresh renamed
+          ( nmChild seed " _body " ) ( depth + 1 ) available in
+        if nmBad renamed then renamed
+        else nmPack ( syntaxLambda fresh ( nmValue renamed ) )
+          ( nmRemaining renamed )
       else let body = nmWalk ( tcSecond tree ) scope holes locals
-        ( nmChild seed " _body " ) ( depth + 1 ) in
-        if nmIsError body then body
-        else syntaxLambda name body
+        ( nmChild seed " _body " ) ( depth + 1 ) available in
+        if nmBad body then body
+        else nmPack ( syntaxLambda name ( nmValue body ) )
+          ( nmRemaining body )
     else if tag == " If " then
       let condition = nmWalk ( tcFirst tree ) scope holes locals
-        ( nmChild seed " _if0 " ) ( depth + 1 ) in
-      if nmIsError condition then condition
+        ( nmChild seed " _if0 " ) ( depth + 1 ) available in
+      if nmBad condition then condition
       else let yes = nmWalk ( tcSecond tree ) scope holes locals
-        ( nmChild seed " _if1 " ) ( depth + 1 ) in
-        if nmIsError yes then yes
+        ( nmChild seed " _if1 " ) ( depth + 1 )
+        ( nmRemaining condition ) in
+        if nmBad yes then yes
         else let no = nmWalk ( tcThird tree ) scope holes locals
-          ( nmChild seed " _if2 " ) ( depth + 1 ) in
-          if nmIsError no then no
-          else syntaxIf condition yes no
+          ( nmChild seed " _if2 " ) ( depth + 1 )
+          ( nmRemaining yes ) in
+          if nmBad no then no
+          else nmPack ( syntaxIf
+            ( nmValue condition ) ( nmValue yes ) ( nmValue no ) )
+            ( nmRemaining no )
     else if tag == " Var " then
       let name = syntaxText tree in
-      if name == " #macro_expand " then nmError " expand expects a macro name "
-      else if name == " #macro_unquote " then nmError " unquote belongs inside a macro template "
-      else if name == " #macro_quote " then nmError " quote belongs at the start of a macro body "
-      else if syntaxTag locals != " NMBindings " then tree
+      if name == " #macro_expand " then
+        nmPack ( nmError " expand expects a macro name " ) available
+      else if name == " #macro_unquote " then
+        nmPack ( nmError " unquote belongs inside a macro template " ) available
+      else if name == " #macro_quote " then
+        nmPack ( nmError " quote belongs at the start of a macro body " ) available
+      else if syntaxTag locals != " NMBindings " then
+        nmPack tree available
       else let binding = tcFind name ( syntaxChildren locals ) in
         if syntaxTag binding == " TCMissing " then
-          syntaxVar ( textConcat " #macro_global_ " name )
-        else syntaxVar ( syntaxText binding )
-    else tree ;
+          nmPack ( syntaxVar ( textConcat " #macro_global_ " name ) ) available
+        else nmPack ( syntaxVar ( syntaxText binding ) ) available
+    else nmPack tree available ;
 
-def nmWalkApplication tree fn arg scope holes locals seed depth =
+def nmWalkApplication tree fn arg scope holes locals seed depth fuel =
   let invocation = nmInvocation tree [] in
-  if nmIsError invocation then invocation
+  if nmIsError invocation then nmPack invocation fuel
   else if syntaxTag invocation == " NMCall " then
-    nmExpandCall invocation scope holes locals seed ( depth + 1 )
+    nmExpandCall invocation scope holes locals seed ( depth + 1 ) fuel
   else let left = nmWalk fn scope holes locals
-    ( nmChild seed " _left " ) ( depth + 1 ) in
-    if nmIsError left then left
+    ( nmChild seed " _left " ) ( depth + 1 ) fuel in
+    if nmBad left then left
     else let right = nmWalk arg scope holes locals
-      ( nmChild seed " _right " ) ( depth + 1 ) in
-      if nmIsError right then right
-      else syntaxApply left right ;
+      ( nmChild seed " _right " ) ( depth + 1 )
+      ( nmRemaining left ) in
+      if nmBad right then right
+      else nmPack ( syntaxApply ( nmValue left ) ( nmValue right ) )
+        ( nmRemaining right ) ;
 
-def nmExpandFormsIn forms scope reversed seed modules =
-  match forms with
-  | [] -> syntaxNode " Program " ( reverse reversed )
+def nmExpandFormsIn forms scope reversed seed modules fuel =
+  if fuel <= 0 then nmOutOfFuel fuel
+  else match forms with
+  | [] -> nmPack ( syntaxNode " Program " ( reverse reversed ) ) fuel
   | form :: rest ->
+    let available = fuel - 1 in
     let tag = syntaxTag form in
     if tag == " Define " then
       let name = syntaxText ( tcFirst form ) in
@@ -3730,42 +3768,53 @@ def nmExpandFormsIn forms scope reversed seed modules =
         let label = tcDropPrefix name
           ( textLength " #macro_decl_ " ) " " in
         if syntaxTag ( tcFind label scope ) != " TCMissing " then
-          nmError ( textConcat " duplicate macro " label )
+          nmPack ( nmError ( textConcat " duplicate macro " label ) ) available
         else let definition = nmDeclare label ( tcSecond form ) scope in
-          if nmIsError definition then definition
+          if nmIsError definition then nmPack definition available
           else nmExpandFormsIn rest
             ( cons ( tcBinding label definition ) scope )
-            reversed ( nmChild seed " _form " ) modules
+            reversed ( nmChild seed " _form " ) modules available
       else if tcStartsWith name " #macro_import_ " then
         if syntaxTag modules != " NMCachedModules " then
-          nmError " macro import requires a module environment "
+          nmPack ( nmError " macro import requires a module environment " )
+            available
         else let imported = nmImportCached form scope modules in
-          if nmIsError imported then imported
+          if nmIsError imported then nmPack imported available
           else nmExpandFormsIn rest
             ( cons ( tcBinding ( syntaxText ( tcFirst imported ) )
               ( tcSecond imported ) ) scope )
-            reversed ( nmChild seed " _form " ) modules
+            reversed ( nmChild seed " _form " ) modules available
       else if tcStartsWith name " #macro_export_ " then
-        nmError " export is only allowed in a macro module "
+        nmPack ( nmError " export is only allowed in a macro module " ) available
       else let body = nmWalk ( tcSecond form ) scope
-        nmNoBindings nmNoBindings seed 0 in
-        if nmIsError body then body
+        nmNoBindings nmNoBindings seed 0 available in
+        if nmBad body then body
         else nmExpandFormsIn rest scope
-          ( cons ( syntaxDefine name body ) reversed )
+          ( cons ( syntaxDefine name ( nmValue body ) ) reversed )
           ( nmChild seed " _form " ) modules
+          ( nmRemaining body )
     else if tag == " Evaluate " then
       let body = nmWalk ( tcFirst form ) scope
-        nmNoBindings nmNoBindings seed 0 in
-      if nmIsError body then body
+        nmNoBindings nmNoBindings seed 0 available in
+      if nmBad body then body
       else nmExpandFormsIn rest scope
-        ( cons ( syntaxNode " Evaluate " [ body ] ) reversed )
+        ( cons ( syntaxNode " Evaluate " [ nmValue body ] ) reversed )
         ( nmChild seed " _form " ) modules
+        ( nmRemaining body )
     else nmExpandFormsIn rest scope ( cons form reversed )
-      ( nmChild seed " _form " ) modules ;
+      ( nmChild seed " _form " ) modules available ;
+
+def nailMacroExpandSyntaxBudgeted program fuel =
+  if syntaxTag program != " Program " then program
+  else nmValue ( nmExpandFormsIn
+    ( syntaxChildren program ) [] [] " m " nmNoBindings fuel ) ;
 
 def nailMacroExpandSyntax program =
-  if syntaxTag program != " Program " then program
-  else nmExpandFormsIn ( syntaxChildren program ) [] [] " m " nmNoBindings ;
+  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
+
+# Low-budget entry point exercises the failure path on every runtime target.
+def nailMacroExpandSyntaxTinyBudget program =
+  nailMacroExpandSyntaxBudgeted program 12 ;
 
 # Modules are pre-parsed Syntax; no host macro expansion takes place.
 # The resolver populates NMModules with TCBinding(moduleName, Program).
@@ -3778,7 +3827,8 @@ def nailMacroExpandWithModules request =
       nmError " expected parsed Nail program "
     else let resolved = nmPrepareModules modules in
       if nmIsError resolved then resolved
-      else nmExpandFormsIn ( syntaxChildren program ) [] [] " m " resolved ;
+      else nmValue ( nmExpandFormsIn
+      ( syntaxChildren program ) [] [] " m " resolved nmDefaultFuel ) ;
 
 def tcCheckSourceNailModulesTraced request =
   let source = syntaxText ( tcFirst request ) in
