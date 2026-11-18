@@ -496,10 +496,34 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].span.start,commented.indexOf('missing ;'),
       'unknown identifier excludes comment/quoted occurrences');
 
-    report=NailSourceAnalysis.analyze(
-      'nail 0.54 ; def bad = missing ; def later = missing ;',boot);
-    eq(report.diagnostics[0].span,null,
-      'ambiguous source tokens never receive a guessed span');
+    var repeated='nail 0.54 ; def bad = missing ; def later = missing ;';
+    report=NailSourceAnalysis.analyze(repeated,boot);
+    eq(report.diagnostics[0].span != null,true,
+      'Nail fault trail disambiguates repeated identifiers across forms');
+    eq(report.diagnostics[0].span.start,repeated.indexOf('missing'),
+      'error resolves to first failing declaration, not the later occurrence');
+
+    var repeatedInOne='nail 0.54 ; def bad = if true then missing else missing ;';
+    report=NailSourceAnalysis.analyze(repeatedInOne,boot);
+    eq(report.diagnostics[0].span != null,true,
+      'Nail expression path disambiguates repeated identifiers in one form');
+    eq(report.diagnostics[0].span.start,repeatedInOne.indexOf('missing'),
+      'then-branch is visited before else-branch');
+
+    var failingElse='nail 0.54 ; def bad = if true then 1 else missing ;';
+    report=NailSourceAnalysis.analyze(failingElse,boot);
+    eq(report.diagnostics[0].span.start,failingElse.indexOf('missing'),
+      'Nail expression path resolves If else child');
+
+    var nested='nail 0.54 ; def bad x = if x then x else missing ;';
+    report=NailSourceAnalysis.analyze(nested,boot);
+    eq(report.diagnostics[0].span.start,nested.indexOf('missing'),
+      'Nail expression path traverses lambda and conditional');
+
+    var applied='nail 0.54 ; def id x = x ; def bad = id missing ;';
+    report=NailSourceAnalysis.analyze(applied,boot);
+    eq(report.diagnostics[0].span.start,applied.indexOf('missing'),
+      'Nail expression path traverses application argument');
 
     var duplicated='nail 0.54 ; def twice x = x ; def twice y = y ;';
     report=NailSourceAnalysis.analyze(duplicated,boot);
