@@ -1207,8 +1207,10 @@ class NailTypecheckerProbeTestMain {
       case SyntaxNode('NMSource',Cons(
           SyntaxLeaf('Name',owner),Cons(
           SyntaxLeaf('Name',macroName),Cons(
-          SyntaxLeaf('Name',path),Nil)))):
-        owner == '#caller' && macroName == 'add' && path == '';
+          SyntaxLeaf('Name',path),Cons(
+          SyntaxLeaf('Name',callPath),Nil))))):
+        owner == '#caller' && macroName == 'add' && path == ''
+          && callPath == '';
       case _: false;
     },true,'traced numeric operation points to its exact macro template AST root');
 
@@ -1225,9 +1227,8 @@ class NailTypecheckerProbeTestMain {
       numericMacro.indexOf('expand'),
       'generated numeric mismatch identifies original call site');
 
-    // More than one macro invocation may occur in a single source form.
-    // Nail's failing trace identifies the producer; the source scanner may
-    // assign a site only if that macro name occurs once in that form.
+    // Multiple macro invocations in one form are distinguished by the
+    // original structural call path, even for the same macro name.
     var distinctCalls='nail 0.54 ; '
       +'macro good x = quote ( unquote x ) ; '
       +'macro bad x = quote ( unquote x + 1 ) ; '
@@ -1253,8 +1254,34 @@ class NailTypecheckerProbeTestMain {
       duplicateCall,boot,null,'src/duplicate-calls.nail');
     eq(duplicateReport.ok,false,
       'duplicate macro calls in one form produce a type error');
-    eq(duplicateReport.diagnostics[0].span,null,
-      'ambiguous duplicate macro callsites receive no invented source offset');
+    eq(duplicateReport.diagnostics[0].span.start,
+      duplicateCall.lastIndexOf('expand bad'),
+      'structural path identifies the second call to the same macro');
+
+    var firstBadCall='nail 0.54 ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; '
+      +'( expand bad " text " ) + ( expand bad 2 ) ;';
+    var firstBadReport=NailSourceAnalysis.analyzeNailMacros(
+      firstBadCall,boot,null,'src/first-duplicate.nail');
+    eq(firstBadReport.ok,false,'first of identical macro calls fails');
+    eq(firstBadReport.diagnostics[0].span.start,
+      firstBadCall.indexOf('expand bad'),
+      'caller path also identifies the first duplicate call');
+
+    var nestedDuplicates='nail 0.54 ; '
+      +'macro inner x = quote ( unquote x + 1 ) ; '
+      +'macro outer x = quote ( expand inner ( unquote x ) ) ; '
+      +'( expand outer 2 ) + ( expand outer " text " ) ;';
+    var nestedDuplicateReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedDuplicates,boot,null,'src/nested-duplicates.nail');
+    eq(nestedDuplicateReport.ok,false,
+      'nested generated numeric failure among repeated outer calls');
+    eq(nestedDuplicateReport.diagnostics[0].span.start,
+      nestedDuplicates.lastIndexOf('expand outer'),
+      'nested macro retains original outer callsite');
+    eq(nestedDuplicateReport.diagnostics[0].templateOrigin.span.start,
+      nestedDuplicates.indexOf(' + 1')+1,
+      'nested call resolves innermost template operator');
 
     var nestedNumeric='nail 0.54 ; '
       +'macro bad x = quote ( if true then ( unquote x + 1 ) else 0 ) ; '
@@ -1324,6 +1351,20 @@ class NailTypecheckerProbeTestMain {
     eq(importedNumericReport.diagnostics[0].span.start,
       importedNumericCaller.indexOf('expand'),
       'imported numeric error retains caller site');
+
+    var importedRepeated='nail 0.54 ; '
+      +'import bad from numericBad ; '
+      +'( expand bad 2 ) + ( expand bad " text " ) ;';
+    var importedRepeatedReport=NailSourceAnalysis.analyzeNailMacros(
+      importedRepeated,boot,name -> macroModules.get(name),
+      'src/imported-repeated.nail');
+    eq(importedRepeatedReport.ok,false,
+      'Nail rejects second imported macro call in one form');
+    eq(importedRepeatedReport.diagnostics[0].span.start,
+      importedRepeated.lastIndexOf('expand bad'),
+      'imported same-name macro calls select correct original site');
+    eq(importedRepeatedReport.diagnostics[0].templateOrigin.sourceId,
+      'numericBad','imported duplicate retains source module identity');
 
     // Symbolic provenance comes from Nail's own module and lexical scope
     // resolution. The diagnostic sidecar only translates the returned

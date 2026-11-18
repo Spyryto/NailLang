@@ -455,7 +455,10 @@ An argument inserted through `unquote` retains its caller location.
 The `NMExpansionStep` record additionally carries a parallel `trace`
 tree. Every generated `Apply`, `Lambda`, `If`, variable and literal
 has an `NMTrace` pointing to its origin:
-`NMSource(definingModule, macroName, structuralChildPath)`.
+`NMSource(definingModule, macroName, structuralChildPath, callSitePath)`.
+The fourth field is the structural path to the **outermost original source
+invocation**, propagated through nested, imported and recursively expanded
+macro templates. Caller-owned `unquote` arguments keep their own origin.
 Arguments that pass through `unquote` retain **their caller-owned trace**
 rather than inheriting the macro template's trace. The shape of the
 ordinary `Program` and its five core expression constructors remains
@@ -479,17 +482,20 @@ on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
 
-**Conservative limits:** when one source form invokes **different**
-macro names, the Nail trace identifies which macro produced the error.
-The read-only token projector then selects its source `expand name`
-pair only if that pair occurs exactly once in the form. Two calls to the
-**same** macro within one form still have ambiguous call sites: the
-projector leaves the call position unset rather than choosing one.
-Transitive macro calls whose generating macro does not appear directly
-in the caller remain subject to the unique-`expand` rule. Other
-unsupported lowerings, duplicated symbolic tokens, and missing exact
-source positions leave the relevant span unset. We never fabricate
-locations.
+**Caller-site disambiguation:** the Nail trace now carries an original
+invocation's **structural call path**. The read-only projector walks the
+already Nail-parsed caller Syntax in source order and matches its order
+against literal `expand name` token pairs. It accepts a location only
+when the complete ordered names and occurrences agree; otherwise it
+falls back to the previous unambiguous unique-call rules. This
+distinguishes repeated calls to the **same** macro within one form and
+retains the correct outermost call when an imported or nested macro
+generates the failure. The runtime Program, VM opcodes and core AST
+remain unchanged.
+
+**Conservative limits:** unsupported lowerings, source/AST call-count
+mismatches, duplicated symbolic template tokens, and absent exact source
+positions leave the relevant span unset. We never fabricate locations.
 
 The default `analyze` path still uses its existing optional Haxe
 macro-provenance replay, and neither `analyze` nor the production compiler

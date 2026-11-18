@@ -3383,14 +3383,22 @@ type NMExpansionStep { result Syntax remaining Number trace Syntax } ;
 # Paths are structural child indices (0/1/2), rooted at a macro template.
 # Caller-owned syntax is distinct from template-generated syntax.
 def nmNoTrace = syntaxLeaf " NMNoTrace " " " ;
-def nmSource owner macroName path =
+# The fourth field is the original caller's structural invocation path.
+# It survives nested macro expansion without changing executable Syntax.
+def nmSource owner macroName path callSite =
   syntaxNode " NMSource " [ syntaxName owner , syntaxName macroName ,
-    syntaxName path ] ;
+    syntaxName path , syntaxName callSite ] ;
 def nmAt source child =
   if syntaxTag source != " NMSource " then nmNoTrace
   else nmSource ( syntaxText ( tcFirst source ) )
     ( syntaxText ( tcSecond source ) )
-    ( textConcat ( syntaxText ( tcThird source ) ) child ) ;
+    ( textConcat ( syntaxText ( tcThird source ) ) child )
+    ( syntaxText ( tcFourth source ) ) ;
+def nmCallSite source =
+  if syntaxTag source != " NMSource " then " "
+  else if syntaxText ( tcSecond source ) == " #caller " then
+    syntaxText ( tcThird source )
+  else syntaxText ( tcFourth source ) ;
 def nmTrace origin children =
   syntaxNode " NMTrace " [ origin , syntaxNode " NMTraceNodes " children ] ;
 def nmPackTrace result remaining trace =
@@ -3679,7 +3687,7 @@ def nmApplyExtra result extraTrace extras scope holes locals seed depth fuel =
       rest scope holes locals ( nmChild seed " _next " )
       ( depth + 1 ) ( nmRemaining expanded ) ;
 
-def nmExpandCall call scope holes locals seed depth fuel =
+def nmExpandCall call scope holes locals seed depth fuel callerSource =
   let name = syntaxText ( tcFirst call ) in
   let definition = tcFind name scope in
   if syntaxTag definition == " TCMissing " then
@@ -3695,7 +3703,7 @@ def nmExpandCall call scope holes locals seed depth fuel =
       else let captured = syntaxChildren ( tcFourth definition ) in
         let ownScope = cons ( tcBinding name definition ) captured in
         let source = nmSource ( syntaxText ( tcFifth definition ) )
-          name " " in
+          name " " ( nmCallSite callerSource ) in
         let generated = nmWalk ( tcThird definition ) ownScope
           ( nmValue bound ) ( nmBindings [] )
           ( nmChild seed " _template " ) ( depth + 1 )
@@ -3799,6 +3807,7 @@ def nmWalkApplication tree fn arg scope holes locals seed depth fuel source =
   if nmIsError invocation then nmPack invocation fuel
   else if syntaxTag invocation == " NMCall " then
     nmExpandCall invocation scope holes locals seed ( depth + 1 ) fuel
+      source
   else let left = nmWalk fn scope holes locals
     ( nmChild seed " _left " ) ( depth + 1 ) fuel
     ( nmAt source " 0 " ) in
@@ -3848,7 +3857,7 @@ def nmExpandFormsIn forms scope reversed traced seed modules fuel =
         nmPack ( nmError " export is only allowed in a macro module " ) available
       else let body = nmWalk ( tcSecond form ) scope
         nmNoBindings nmNoBindings seed 0 available
-        ( nmSource " #caller " " #caller " " " ) in
+        ( nmSource " #caller " " #caller " " " " " ) in
         if nmBad body then body
         else nmExpandFormsIn rest scope
           ( cons ( syntaxDefine name ( nmValue body ) ) reversed )
@@ -3858,7 +3867,7 @@ def nmExpandFormsIn forms scope reversed traced seed modules fuel =
     else if tag == " Evaluate " then
       let body = nmWalk ( tcFirst form ) scope
         nmNoBindings nmNoBindings seed 0 available
-        ( nmSource " #caller " " #caller " " " ) in
+        ( nmSource " #caller " " #caller " " " " " ) in
       if nmBad body then body
       else nmExpandFormsIn rest scope
         ( cons ( syntaxNode " Evaluate " [ nmValue body ] ) reversed )
