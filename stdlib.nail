@@ -2384,6 +2384,9 @@ def tcCheckForms forms environment substitutions seed reversed aliases relations
     if tag == " RecordType " then
       tcCheckRecordDeclaration form rest environment substitutions seed
         reversed aliases relations
+    else if tag == " SumType " then
+      tcCheckSumDeclaration form rest environment substitutions seed
+        reversed aliases relations
     else if tag == " RelationDecl " then
       tcCollectRelation form rest environment substitutions seed reversed aliases relations
     else if tag == " TypeAliasDecl " then
@@ -2925,3 +2928,79 @@ def tcNominalNamedCall constructor fields names values =
       tcFault ( textConcat " Missing named record field: " ( syntaxText field ) )
     else tcNominalNamedCall
       ( syntaxApply constructor expression ) rest names values ;
+
+# Algebraic sum constructors are nominal values. A constructor with k fields
+# has type T1 -> ... -> Tk -> Sum[a,b,...]. This is checked against the same
+# declaration source from which the regular compiler generates runtime code.
+def tcSumFieldTypes source params aliases reversed =
+  match source with
+  | [] -> syntaxNode " TCSumArgs " ( reverse reversed )
+  | field :: rest ->
+    let ty = tcNominalFieldType ( syntaxText field ) params aliases in
+    if syntaxTag ty == " TCFault " then ty
+    else tcSumFieldTypes rest params aliases ( cons ty reversed ) ;
+
+def tcSumCtorAccessors name owner types quantifiers environment index =
+  match types with
+  | [] -> syntaxNode " TCEnvironment " environment
+  | field :: rest ->
+    let getter = textConcat ( textConcat name " . " ) ( sumIndex index ) in
+    if syntaxTag ( tcFind getter environment ) != " TCMissing " then
+      tcFault ( textConcat " Duplicate sum accessor: " getter )
+    else tcSumCtorAccessors name owner rest quantifiers
+      ( cons
+        ( tcBinding getter ( tcScheme ( tcFun owner field ) quantifiers ) )
+        environment ) ( index + 1 ) ;
+
+def tcSumConstructors ctors owner params aliases quantifiers environment =
+  match ctors with
+  | [] -> syntaxNode " TCEnvironment " environment
+  | ctor :: rest ->
+    let name = sumCtorName ctor in
+    if syntaxTag ( tcFind name environment ) != " TCMissing " then
+      tcFault ( textConcat " Duplicate sum constructor: " name )
+    else let predicate = textConcat name " ? " in
+      if syntaxTag ( tcFind predicate environment ) != " TCMissing " then
+        tcFault ( textConcat " Duplicate sum predicate: " predicate )
+      else let args = tcSumFieldTypes
+        ( sumCtorFields ctor ) params aliases [] in
+        if syntaxTag args == " TCFault " then args
+        else let types = syntaxChildren args in
+          let withCtor = cons
+            ( tcBinding name
+              ( tcScheme ( tcBuildFunction types owner ) quantifiers ) )
+            ( cons
+              ( tcBinding predicate
+                ( tcScheme ( tcFun owner ( tcBase " Bool " ) ) quantifiers ) )
+              environment ) in
+          let accessors = tcSumCtorAccessors name owner types
+            quantifiers withCtor 0 in
+          if syntaxTag accessors == " TCFault " then accessors
+          else tcSumConstructors rest owner params aliases quantifiers
+            ( syntaxChildren accessors ) ;
+
+def tcBuildFunction args result =
+  match args with
+  | [] -> result
+  | first :: rest -> tcFun first ( tcBuildFunction rest result ) ;
+
+def tcCheckSumDeclaration form rest environment substitutions seed reversed aliases relations =
+  let name = syntaxText ( tcFirst form ) in
+  if syntaxTag ( tcFind name aliases ) != " TCMissing " then
+    tcFault ( textConcat " Duplicate nominal owner: " name )
+  else if syntaxTag ( tcFind name environment ) != " TCMissing " then
+    tcFault ( textConcat " Duplicate nominal owner: " name )
+  else let params = tcNominalParamBindings
+    ( syntaxChildren ( tcSecond form ) ) name [] in
+    if syntaxTag params == " TCFault " then params
+    else let parameterBindings = syntaxChildren params in
+      let quantifiers = tcNominalParamVars parameterBindings in
+      let owner = tcNominal " Sum " name quantifiers in
+      let knownAliases = cons ( tcBinding name owner ) aliases in
+      let constructors = syntaxChildren ( tcThird form ) in
+      if isEmpty constructors then tcFault " Empty algebraic sum "
+      else let registered = tcSumConstructors constructors owner
+        parameterBindings knownAliases quantifiers environment in
+        if syntaxTag registered == " TCFault " then registered
+        else tcCheckForms rest ( syntaxChildren registered )
+          substitutions seed reversed knownAliases relations ;
