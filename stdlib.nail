@@ -2250,38 +2250,59 @@ def tcCheckRelationDefinition name relationName source annotations
           environment )
         ( tcResultSubs checked ) ( tcResultSeed checked ) reversed aliases relations ;
 
+# Flatten a curried application once, preserving argument order.
+# Incomplete and excessive applications are checked against row arity.
+def tcCallSpine tree args =
+  if syntaxTag tree == " Apply " then
+    tcCallSpine ( tcFirst tree ) ( cons ( tcSecond tree ) args )
+  else if syntaxTag tree == " Var " then
+    syntaxNode " TCOverloadCall "
+      [ syntaxLeaf " TCName " ( syntaxText tree ) ,
+        syntaxNode " TCArguments " args ]
+  else tcMissing ;
+
 def tcIsOverloadedApply tree environment =
-  let call = tcFirst tree in
-  if syntaxTag call != " Apply " then false
-  else let target = tcFirst call in
-    if syntaxTag target != " Var " then false
-    else let scheme = tcFind ( syntaxText target ) environment in
-      if syntaxTag scheme == " TCMissing " then false
-      else syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " ;
+  let call = tcCallSpine tree [] in
+  if syntaxTag call != " TCOverloadCall " then false
+  else let scheme = tcFind ( syntaxText ( tcFirst call ) ) environment in
+    if syntaxTag scheme == " TCMissing " then false
+    else syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " ;
+
+def tcInferRelationArgs args environment substitutions seed reversed =
+  match args with
+  | [] -> tcInferResult
+      ( syntaxNode " TCRelationArgs " ( reverse reversed ) )
+      substitutions seed
+  | expr :: rest ->
+    let inferred = tcInferExpression expr environment substitutions seed in
+    if syntaxTag inferred == " TCFault " then inferred
+    else let ty = tcFollow
+      ( tcResultType inferred ) ( tcResultSubs inferred ) in
+      if syntaxTag ty != " TCBase " then
+        tcFault " Overloaded arguments require concrete types "
+      else tcInferRelationArgs rest environment
+        ( tcResultSubs inferred ) ( tcResultSeed inferred )
+        ( cons ty reversed ) ;
 
 def tcInferOverloadedApply tree environment substitutions seed =
-  let call = tcFirst tree in
+  let call = tcCallSpine tree [] in
   let label = syntaxText ( tcFirst call ) in
   let scheme = tcFind label environment in
   let descriptor = tcSchemeType scheme in
-  let rows = tcSecond descriptor in
-  let first = tcInferExpression ( tcSecond call )
-    environment substitutions seed in
-  if syntaxTag first == " TCFault " then first
-  else let second = tcInferExpression ( tcSecond tree )
-    environment ( tcResultSubs first ) ( tcResultSeed first ) in
-    if syntaxTag second == " TCFault " then second
-    else let left = tcFollow ( tcResultType first ) ( tcResultSubs second ) in
-      let right = tcFollow ( tcResultType second ) ( tcResultSubs second ) in
-      if syntaxTag left != " TCBase " then
-        tcFault " Overloaded arguments require concrete types "
-      else if syntaxTag right != " TCBase " then
-        tcFault " Overloaded arguments require concrete types "
-      else let output = tcFindRelationResult
-        ( syntaxText left ) ( syntaxText right ) ( syntaxChildren rows ) in
-        if syntaxTag output == " TCMissing " then
-          tcFault ( textConcat " No relation instance: " label )
-        else tcInferResult output ( tcResultSubs second ) ( tcResultSeed second ) ;
+  let rows = syntaxChildren ( tcSecond descriptor ) in
+  let args = syntaxChildren ( tcSecond call ) in
+  let arity = length ( tcRelationInputs ( head rows ) ) in
+  if length args != arity then
+    tcFault " Relation call arity does not match "
+  else let inferred = tcInferRelationArgs args environment
+    substitutions seed [] in
+    if syntaxTag inferred == " TCFault " then inferred
+    else let output = tcFindRelationResult
+      ( syntaxChildren ( tcResultType inferred ) ) rows in
+      if syntaxTag output == " TCMissing " then
+        tcFault ( textConcat " No relation instance: " label )
+      else tcInferResult output
+        ( tcResultSubs inferred ) ( tcResultSeed inferred ) ;
 
 def tcCheckForms forms environment substitutions seed reversed aliases relations =
   match forms with
