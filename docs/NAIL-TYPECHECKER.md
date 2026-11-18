@@ -41,8 +41,18 @@ Unification performs an **occurs check** to reject infinite types.
   and type-variable lists
 - Closed anonymous record fields and **limited open-row projection** of
   unknown record parameters, including width matching against known records
-- A **conservative primitive prelude** for selected arithmetic/text/list
-  operations; deliberately not a claim of full 0.54 typing semantics
+- **Optional parameter and value annotations**, structural type aliases
+  `type Html = { h2 : Text Text , div : Text Text }`, required-field
+  validation with allowance for additional implementation fields
+- **Finite modern arithmetic**: direct binary `+`, `-`, `*`, `/`
+  with concrete `Int`, `Ratio`, `Float` operand pairs and exact
+  result domains; unresolved or mixed operands fail closed
+- **Binary named relation constraints**, including `Add`, `Div` and
+  user-declared tables such as `Merge : Text Text Text`. Each constrained
+  function body is checked independently against **every** declared row.
+  The resulting overload can be called with two known argument types
+- A **conservative primitive prelude** for selected text/list operations;
+  deliberately not a claim of full 0.54 typing semantics
 
 ### API
 
@@ -50,13 +60,39 @@ Unification performs an **occurs check** to reject infinite types.
 without parsing or invoking the Haxe checker.
 
 `tcCheckSource source` is an experimental convenience helper which invokes
-the **Nail-written** `parseSource`, then the existing `modernRewrite` and
-`tcCheckSyntax`. It returns `Ok(TCChecked)` with a list of inferred
-expression types, or `Error(Text)`. `tcPretty` formats an individual type.
+the **Nail-written** parser in a metadata-preserving mode,
+`parseTypedForms`, followed by `modernRewrite` and `tcCheckSyntax`.
+It retains `TypeAliasDecl`, `RelationDecl`, and `AnnotatedDefine`
+only while checking; ordinary `parseSource` still erases them for execution.
+The helper returns `Ok(TCChecked)` with a list of inferred expression
+types, or `Error(Text)`. `tcPretty` formats an individual type.
 
 The runtime does **not** automatically run `tcCheckSource` before
 `compileSource`. Checking remains opt-in, so the incomplete checker cannot
 silently reject or reinterpret supported programs.
+
+## Example: explicit contracts and numeric relations
+
+```nail
+nail 0.54 ;
+type Html = { h2 : Text Text , div : Text Text } ;
+def render ( html : Html ) title = html { h2 title } ;
+def page = { h2 = fun x -> x , div = fun x -> x , extra = true } ;
+render page " Title " ;
+
+Div : Int Int Ratio ;
+Div : Float Float Float ;
+def divide x y : Div = x / y ;
+divide 6 3 ;
+divide 6.0 3.0 ;
+```
+
+The checker accepts the extra `page.extra` field but rejects missing or
+mistyped `h2` or `div`. A numeric relation is a finite set of statically
+checked rows, **not** runtime overload dispatch. The receiver and the
+overloaded function must have sufficient static information to resolve
+their calls. The standard compiler still erases annotations before running
+the program on the same VM.
 
 ## Parity and coverage gaps
 
@@ -65,13 +101,13 @@ inferencer. See `src/NailTypecheckerProbeTestMain.hx`.
 
 The following are not yet complete:
 
-- Polymorphic numeric operator relations (`Div`, `Add`, ...), `Eq`
-  constraints, general operator overloads
+- **N-ary named relations** (the parser preserves their metadata but the
+  checker rejects all arities except two), higher-order and partially applied
+  overloads, nonconcrete numeric operand inference, equality/`Eq` constraints
 - Nominal record/sum declarations and complete structural row algebra:
   open-row **reordering**, row-lacks constraints and row-polymorphic ABI
-- `type Html = {...}` alias verification and parameter annotations in the
-  Nail-written checker; the Nail-written *parser* may erase annotations
-  for execution, but this is not static checking
+- Generic/recursive structural aliases, applied nominal or `Node` types
+  not yet available to the experimental checker
 - Full standard-library primitive signatures, macro-aware typed expansion,
   import and module signatures, precise source-span diagnostics
 - Performance and bounded-resource policies for adversarial/large terms
