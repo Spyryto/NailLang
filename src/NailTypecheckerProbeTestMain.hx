@@ -733,6 +733,82 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].span,null,
       'module resolver errors do not fabricate source coordinates');
 
+    // Import-aware analysis must NOT erase Nail-only structural aliases,
+    // parameter/value annotations or named-relation metadata. They pass
+    // through Nail's own typed parser, the macro syntax bridge, and Nail's
+    // typed metadata restoration before inference.
+    var typedIdentity='nail 0.54 ; macro identity x = quote ( unquote x ) ; '
+      +'export identity ;';
+    var typedResolver=(name:String) -> name == 'typedHelpers'
+      ? typedIdentity : null;
+
+    var typedHtml='nail 0.54 ; '
+      +'import identity from typedHelpers ; '
+      +'type Html = { h2 : Text Text , div : Text Text } ; '
+      +'def html = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'expand identity ( render html " Test " ) ;';
+    report=NailSourceAnalysis.analyze(typedHtml,boot,typedResolver);
+    eq(report.ok,true,'import preserves structural alias and context block');
+    eq(report.types,['Text'],'import + context DSL infers Text in Nail');
+
+    var typedParams='nail 0.54 ; import identity from typedHelpers ; '
+      +'type Html = { h2 : Text Text , div : Text Text } ; '
+      +'def render ( html : Html ) ( title : Text ) = html { h2 title } ; '
+      +'expand identity ( render '
+      +'{ h2 = fun x -> x , div = fun x -> x , extra = true } '
+      +'" Typed " ) ;';
+    report=NailSourceAnalysis.analyze(typedParams,boot,typedResolver);
+    eq(report.ok,true,'import preserves multiple typed parameters');
+    eq(report.types,['Text'],'multi-annotation source has Text evaluation');
+
+    var typedValue='nail 0.54 ; import identity from typedHelpers ; '
+      +'type Html = { h2 : Text Text , div : Text Text } ; '
+      +'def html : Html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'expand identity ( html . h2 " Value " ) ;';
+    report=NailSourceAnalysis.analyze(typedValue,boot,typedResolver);
+    eq(report.ok,true,'import preserves annotated top-level value declaration');
+    eq(report.types,['Text'],'annotated value retains projection type');
+
+    var constrained='nail 0.54 ; import identity from typedHelpers ; '
+      +'Add : Int Int Int ; Add : Float Float Float ; '
+      +'def add x y : Add = x + y ; '
+      +'expand identity ( add 6 7 ) ; '
+      +'expand identity ( add 1.25 0.5 ) ;';
+    report=NailSourceAnalysis.analyze(constrained,boot,typedResolver);
+    eq(report.ok,true,'import retains finite named relation signatures');
+    eq(report.types,['Int','Float'],'named relation preserves overload choices');
+
+    var rejectedRelation='nail 0.54 ; import identity from typedHelpers ; '
+      +'Add : Int Int Int ; def add x y : Add = x + y ; '
+      +'expand identity ( add 1.0 2.0 ) ;';
+    report=NailSourceAnalysis.analyze(rejectedRelation,boot,typedResolver);
+    eq(report.ok,false,'import must not erase relation restrictions');
+    eq(report.diagnostics[0].message.indexOf('No relation instance') >= 0,
+      true,'Nail rejects unsupported overload under imported macro');
+
+    var rejectedField='nail 0.54 ; import identity from typedHelpers ; '
+      +'type Html = { h2 : Text Text , div : Text Text } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'expand identity ( render { h2 = fun x -> x } " Missing " ) ;';
+    report=NailSourceAnalysis.analyze(rejectedField,boot,typedResolver);
+    eq(report.ok,false,'import must not erase structural alias contracts');
+    eq(report.diagnostics[0].message.indexOf('Missing structural field') >= 0,
+      true,'Nail checks the annotated DSL contract after import');
+
+    // Supplying a module capability, even if unused, must not change the
+    // behavior of ordinary annotated/DSL programs.
+    var localOnly='nail 0.54 ; type Html = { h2 : Text Text } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x } " Local " ;';
+    var localReport=NailSourceAnalysis.analyze(localOnly,boot);
+    var moduleReport=NailSourceAnalysis.analyze(localOnly,boot,typedResolver);
+    eq(moduleReport.ok,localReport.ok,
+      'optional unused resolver does not change typed program acceptance');
+    eq(moduleReport.types,localReport.types,
+      'optional unused resolver does not change inferred types');
+
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
