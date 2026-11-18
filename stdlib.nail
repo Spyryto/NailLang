@@ -1967,6 +1967,7 @@ def tcSurfaceType name aliases =
   else if name == " Float " then tcBase " Float "
   else if name == " Ratio " then tcBase " Ratio "
   else if name == " Exact " then tcBase " Exact "
+  else if name == " Syntax " then tcBase " Syntax "
   else let found = tcFind name aliases in
     if syntaxTag found == " TCMissing " then
       tcFault ( textConcat " Unknown type: " name )
@@ -2118,6 +2119,16 @@ def tcFindRelationResult left right rows =
       else tcFindRelationResult left right rest
     else tcFindRelationResult left right rest ;
 
+def tcRelationAtom ty =
+  if syntaxTag ty != " TCBase " then false
+  else let name = syntaxText ty in
+    if name == " Int " then true
+    else if name == " Ratio " then true
+    else if name == " Float " then true
+    else if name == " Text " then true
+    else if name == " Bool " then true
+    else name == " Syntax " ;
+
 def tcDeclareRelation name fieldTypes aliases relations =
   if length fieldTypes != 3 then
     tcFault " Named relations with arity other than two are not implemented "
@@ -2129,12 +2140,12 @@ def tcDeclareRelation name fieldTypes aliases relations =
     if syntaxTag first == " TCFault " then first
     else if syntaxTag second == " TCFault " then second
     else if syntaxTag result == " TCFault " then result
-    else if syntaxTag first != " TCBase " then
-      tcFault " A finite relation must use atomic types "
-    else if syntaxTag second != " TCBase " then
-      tcFault " A finite relation must use atomic types "
-    else if syntaxTag result != " TCBase " then
-      tcFault " A finite relation must use atomic types "
+    else if tcRelationAtom first == false then
+      tcFault " Invalid finite relation atomic type "
+    else if tcRelationAtom second == false then
+      tcFault " Invalid finite relation atomic type "
+    else if tcRelationAtom result == false then
+      tcFault " Invalid finite relation atomic type "
     else let existing = tcFind name relations in
       let previous =
         if syntaxTag existing == " TCMissing " then []
