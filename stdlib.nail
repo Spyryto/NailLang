@@ -2035,15 +2035,20 @@ def tcConstrainParameters source signature annotations aliases substitutions see
       else tcConstrainParameters ( tcSecond source ) codomain
         annotations aliases ( tcResultSubs checked ) ( tcResultSeed checked ) ;
 
-def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed aliases =
+def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed aliases relations =
   let name = syntaxText ( tcFirst form ) in
   if syntaxTag ( tcFind name environment ) != " TCMissing " then
     tcFault ( textConcat " Duplicate definition: " name )
   else let metadata = tcSecond form in
     let annotations = syntaxChildren metadata in
     let valueName = syntaxText ( tcThird form ) in
+    let relationName = syntaxText
+      ( head ( tail ( tail ( tail ( syntaxChildren form ) ) ) ) ) in
     let source = head ( tail ( tail ( tail ( tail ( syntaxChildren form ) ) ) ) ) in
-    let provisional = tcVar seed in
+    if relationName != " _ " then
+      tcCheckRelationDefinition name relationName source annotations
+        rest environment substitutions seed reversed aliases relations
+    else let provisional = tcVar seed in
     let recursive = cons
       ( tcBinding name ( tcScheme provisional [] ) ) environment in
     let inferred = tcInferExpression source recursive substitutions ( tcNext seed ) in
@@ -2068,14 +2073,16 @@ def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed
           let scheme = tcGeneralize provisional environment final in
           tcCheckForms rest
             ( cons ( tcBinding name scheme ) environment )
-            final ( tcResultSeed constrained ) reversed aliases ;
+            final ( tcResultSeed constrained ) reversed aliases relations ;
 
-def tcCheckForms forms environment substitutions seed reversed aliases =
+def tcCheckForms forms environment substitutions seed reversed aliases relations =
   match forms with
   | [] -> syntaxNode " TCChecked " ( reverse reversed )
   | form :: rest ->
     let tag = syntaxTag form in
-    if tag == " TypeAliasDecl " then
+    if tag == " RelationDecl " then
+      tcCollectRelation form rest environment substitutions seed reversed aliases relations
+    else if tag == " TypeAliasDecl " then
       let name = syntaxText ( tcFirst form ) in
       if syntaxTag ( tcFind name aliases ) != " TCMissing " then
         tcFault ( textConcat " Duplicate structural alias: " name )
@@ -2083,10 +2090,10 @@ def tcCheckForms forms environment substitutions seed reversed aliases =
         ( syntaxChildren ( tcSecond form ) ) aliases [] in
         if syntaxTag contract == " TCFault " then contract
         else tcCheckForms rest environment substitutions seed reversed
-          ( cons ( tcBinding name contract ) aliases )
+          ( cons ( tcBinding name contract ) aliases ) relations
     else if tag == " AnnotatedDefine " then
       tcCheckAnnotatedDefinition form rest environment substitutions
-        seed reversed aliases
+        seed reversed aliases relations
     else if tag == " Define " then
       let name = syntaxText ( tcFirst form ) in
       if syntaxTag ( tcFind name environment ) != " TCMissing " then
@@ -2104,7 +2111,7 @@ def tcCheckForms forms environment substitutions seed reversed aliases =
           let scheme = tcGeneralize provisional environment updated in
           tcCheckForms rest
             ( cons ( tcBinding name scheme ) environment )
-            updated ( tcResultSeed inferred ) reversed aliases
+            updated ( tcResultSeed inferred ) reversed aliases relations
     else if tag == " Evaluate " then
       let inferred = tcInferExpression ( tcFirst form ) environment
         substitutions seed in
@@ -2113,7 +2120,7 @@ def tcCheckForms forms environment substitutions seed reversed aliases =
         ( tcResultSeed inferred )
         ( cons
           ( tcNormalize ( tcResultType inferred ) ( tcResultSubs inferred ) )
-          reversed ) aliases
+          reversed ) aliases relations
     else tcFault ( textConcat " Unsupported top-level form: " tag ) ;
 
 # Public experimental entry points. Errors are ordinary Result[Syntax,Text],
@@ -2123,7 +2130,7 @@ def tcCheckSyntax program =
   if syntaxTag program != " Program " then
     if syntaxTag program == " Error " then Error ( syntaxText program )
     else Error " Expected parsed Nail program "
-  else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] in
+  else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] [] in
     if syntaxTag checked == " TCFault " then Error ( syntaxText checked )
     else Ok checked ;
 
