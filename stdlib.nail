@@ -1931,13 +1931,7 @@ def tcBuiltinType name =
     tcBinding " #isEmpty "
       ( tcScheme
         ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
-        [ tcVar " a " ] ) ,
-    # #sumFail is reachable only in the parser's lowered pattern fallback.
-    # A complete nominal match is checked before ordinary inference.
-    tcBinding " #sumFail "
-      ( tcScheme
-        ( tcFun ( tcVar " a " ) ( tcVar " b " ) )
-        [ tcVar " a " , tcVar " b " ] )
+        [ tcVar " a " ] )
   ] ;
 
 # Core inference covers all five expression constructors (a Nil literal is
@@ -2016,8 +2010,18 @@ def tcInferExpression tree environment substitutions seed =
         if syntaxTag inferred == " TCFault " then inferred
         else let scheme = tcGeneralize
           ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
+          # Bottom-like fallback is scoped exclusively to a validated match.
+          # It is not a generally callable polymorphic primitive.
+          let scoped = if subject == " #nail_sum_subject_0 " then
+            cons
+              ( tcBinding " #sumFail "
+                ( tcScheme
+                  ( tcFun ( tcVar " a " ) ( tcVar " b " ) )
+                  [ tcVar " a " , tcVar " b " ] ) )
+              environment
+          else environment in
           tcInferExpression ( tcSecond fn )
-            ( cons ( tcBinding subject scheme ) environment )
+            ( cons ( tcBinding subject scheme ) scoped )
             ( tcResultSubs inferred ) ( tcResultSeed inferred )
     else
       let inferredFn = tcInferExpression fn environment substitutions seed in
