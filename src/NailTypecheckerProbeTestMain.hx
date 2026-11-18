@@ -177,6 +177,14 @@ class NailTypecheckerProbeTestMain {
     rejectsStructural(boot,'type Html = { h2 : UnknownType Text } ; '
       +'def render ( html : Html ) = html { h2 " X " } ;',
       'Unknown type');
+    trace('TC DIAG relation 1');
+    inspect(boot,'nail 0.54 ; Add : Int Int Int ;');
+    trace('TC DIAG relation 2');
+    inspect(boot,'nail 0.54 ; Add : Int Int Int ; Add : Float Float Float ;');
+    trace('TC DIAG relation definition');
+    inspect(boot,'nail 0.54 ; Add : Int Int Int ; Add : Float Float Float ; '
+      +'def add x y : Add = x + y ;');
+    trace('TC DIAG relation calls');
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
       ['Int','Float']);
