@@ -3922,9 +3922,9 @@ def nmFaultMacroOrigin request =
     if syntaxTag program != " Program " then nmNoOrigin
     else if syntaxTag fault != " TCFault " then nmNoOrigin
     else let message = syntaxText ( tcFirst fault ) in
-      if tcStartsWith message " Unknown name:" == false then nmNoOrigin
+      if tcStartsWith message " Unknown name: " == false then nmNoOrigin
       else let missing = tcDropPrefix message
-        ( textLength " Unknown name:" ) " " in
+        ( textLength " Unknown name: " ) " " in
         let formIndex = length ( syntaxChildren ( tcThird fault ) ) - 1 in
         let form = nmOriginalFormAt ( syntaxChildren program ) formIndex in
         if syntaxTag form == " NMNoOrigin " then nmNoOrigin
