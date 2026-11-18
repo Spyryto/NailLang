@@ -112,7 +112,7 @@ class NailSourceAnalysis {
       var pattern = distinct(tokens, 'match', 'function');
       // A unique expansion site is meaningful for one macro-generated
       // pattern. Multiple expansions cannot be distinguished yet.
-      var macro = unique(tokens, 'macro');
+      var macroDeclaration = unique(tokens, 'macro');
       var hasMacro = false;
       for (token in tokens) if (token.text == 'macro') hasMacro = true;
       var expansion = hasMacro ? unique(tokens, 'expand') : null;
@@ -120,8 +120,8 @@ class NailSourceAnalysis {
       // Do not blame an unrelated macro expansion for a failing match
       // outside the quoted template. Only one macro declaration, one quote,
       // one match and one later call justify this provisional origin pair.
-      if (macro != null && quote != null && pattern != null
-          && expansion != null && macro.start < quote.start
+      if (macroDeclaration != null && quote != null && pattern != null
+          && expansion != null && macroDeclaration.start < quote.start
           && quote.start < pattern.start && pattern.start < expansion.start) {
         span = expansion;
         template = pattern;
