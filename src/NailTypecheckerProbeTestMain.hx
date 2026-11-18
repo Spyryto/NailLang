@@ -130,6 +130,30 @@ class NailTypecheckerProbeTestMain {
       'def getX r = textConcat ( r . x ) " S " ; '
       +'getX { x = true } ;',
       'Type mismatch');
+    var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
+    checkStructural(boot,htmlContract
+      +'def html = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render html " Test " ;',['Text']);
+    checkStructural(boot,htmlContract
+      +'def render ( html : Html ) ( title : Text ) = html { h2 title } ; '
+      +'render { h2 = fun x -> x , div = fun x -> x , extra = true } '
+      +'" Typed " ;',['Text']);
+    checkStructural(boot,htmlContract
+      +'def html : Html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'html . h2 " Value " ;',['Text']);
+    rejectsStructural(boot,htmlContract
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x } " Missing " ;',
+      'Missing structural field');
+    rejectsStructural(boot,htmlContract
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> true , div = fun x -> x } " Wrong " ;',
+      'Type mismatch');
+    rejectsStructural(boot,'type Html = { h2 : UnknownType Text } ; '
+      +'def render ( html : Html ) = html { h2 " X " } ;',
+      'Unknown type');
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
