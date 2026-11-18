@@ -247,6 +247,37 @@ source-level name. List patterns use existing private list operations with
 ordinary polymorphic list signatures. The validation and inference run in
 Nail bytecode on Haxe, Node and PHP.
 
+## Structured original-source diagnostics (experimental)
+
+An additional developer-side adapter, `nail.NailSourceAnalysis.analyze(source,
+?boot)`, can consume the **Nail-written** checker directly from the source-free
+bytecode image. It returns:
+
+- `ok: Bool`, inferred `types: Array<String>` on success
+- `diagnostics: Array<{phase, message, span, templateSpan}>` on failure
+- `span` and `templateSpan` use the pre-existing `SourcePositions.SourceSpan`
+  convention: original-source, half-open UTF-16 offsets, 1-based lines/columns
+
+The adapter does **not** invoke the Haxe `TypeChecker` or Haxe `Parser`.
+It uses the existing independent `SourcePositions.scan` to correlate a
+diagnostic with original tokens, never with fabricated transformed offsets.
+
+This first stage intentionally reports exact locations only where attribution
+is justified: a uniquely occurring unresolved identifier, the second of
+exactly two duplicate declarations, or a single source pattern. If exactly
+one macro expansion generates a failing match, `span` points to the
+`expand` token and `templateSpan` can point to the original
+`match`/`function` token in its template. When the source has several
+plausible origins (e.g. multiple macro expansions or repeated unresolved
+identifiers), locations are `null`. A general unification failure is not
+arbitrarily attributed to its nearest token.
+
+This is **not yet** a complete per-expression source map; the full
+macro-aware compiler still needs structured origin links through every
+transformation, span propagation into Nail inference failures, and editor
+protocol integration. The adapter remains opt-in and is exercised on Haxe,
+Node and PHP.
+
 ## Parity and coverage gaps
 
 The Haxe checker is used **only in differential tests**, not by the Nail
@@ -267,6 +298,8 @@ The following are not yet complete:
   not yet available to the experimental checker
 - Full standard-library primitive signatures, externally imported macro
   modules, typed module signatures and precise source-span diagnostics
+- Full per-expression source provenance beyond conservatively attributable
+  source tokens; no invented spans for ambiguity or arbitrary type mismatches
 - Performance and bounded-resource policies for adversarial/large terms
 
 Unsupported cases must return a diagnostic rather than being accepted with
