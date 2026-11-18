@@ -1008,6 +1008,34 @@ class NailTypecheckerProbeTestMain {
         'Nail and host agree on parser or macro rejection: '+bad);
     }
 
+    // Pure Nail expansion fuel is threaded across siblings and *forms*,
+    // not reset for each macro call. A tiny limit rejects cumulative work
+    // even though every individual macro body is below the limit.
+    var fuelSource='nail 0.54 ; '
+      +'macro id x = quote ( unquote x ) ; ';
+    for (i in 0...24) fuelSource+='expand id '+(i+1)+' ; ';
+    var fuelParsed=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text(fuelSource)));
+    var exhausted=boot.invoke('nailMacroExpandSyntaxTinyBudget',fuelParsed);
+    eq(switch(exhausted) {
+      case SyntaxLeaf('MacroError',text):
+        text.indexOf('work limit exceeded') >= 0;
+      case _: false;
+    },true,'cumulative Nail expansion fuel rejects many simple calls');
+    var regular=boot.invoke('nailMacroExpandSyntax',fuelParsed);
+    eq(switch(regular) {
+      case SyntaxNode('Program',_): true;
+      case _: false;
+    },true,'normal Nail macro expansion budget accepts moderate programs');
+    var tinySingle=boot.invoke('nailMacroExpandSyntaxTinyBudget',
+      boot.invoke('modernRewrite',boot.invoke('parseSource',
+        Text('nail 0.54 ; macro id x = quote ( unquote x ) ; '
+          +'expand id 1 ;'))));
+    eq(switch(tinySingle) {
+      case SyntaxNode('Program',_): true;
+      case _: false;
+    },true,'small positive macro expansion fits a tiny budget');
+
     // The host discovers text imports only, Nail parses their source and
     // resolves exports, lexical definitions, nested imports and expansion.
     var macroModules=new StringMap<String>();
