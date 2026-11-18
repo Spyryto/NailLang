@@ -2531,7 +2531,7 @@ def tcPrepareTypedMacros forms seed reversed metadata =
   match forms with
   | [] ->
     syntaxNode " TCPreparedMacros "
-      [ syntaxNode " Program " ( reverse reversed ),
+      [ syntaxNode " Program " ( reverse reversed ) ,
         syntaxNode " TCMetadata " metadata ]
   | form :: rest ->
     let tag = syntaxTag form in
