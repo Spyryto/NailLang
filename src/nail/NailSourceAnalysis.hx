@@ -65,6 +65,8 @@ class NailSourceAnalysis {
   }
 
   static function after(message:String, prefix:String):Null<String> {
+    // Nail quoted Text strips delimiter whitespace: concatenated diagnostics
+    // may be "Unknown name:missing" rather than "Unknown name: missing".
     if (!StringTools.startsWith(message, prefix)) return null;
     var label = StringTools.trim(message.substr(prefix.length));
     return label.length == 0 ? null : label;
@@ -84,15 +86,15 @@ class NailSourceAnalysis {
     var template:Null<SourceSpan> = null;
     var label:Null<String> = null;
 
-    label = after(message, 'Unknown name: ');
-    if (label == null) label = after(message, 'Unknown type: ');
-    if (label == null) label = after(message, 'Unknown algebraic constructor in match: ');
+    label = after(message, 'Unknown name:');
+    if (label == null) label = after(message, 'Unknown type:');
+    if (label == null) label = after(message, 'Unknown algebraic constructor in match:');
     if (label != null) span = unique(tokens, label);
 
-    var duplicate = after(message, 'Duplicate definition: ');
+    var duplicate = after(message, 'Duplicate definition:');
     if (duplicate != null)
       span = repeatedDefinition(tokens, 'def', duplicate);
-    duplicate = after(message, 'Duplicate structural alias: ');
+    duplicate = after(message, 'Duplicate structural alias:');
     if (duplicate != null)
       span = repeatedDefinition(tokens, 'type', duplicate);
 
@@ -104,9 +106,9 @@ class NailSourceAnalysis {
       return {span:span, template:null};
     }
 
-    if (StringTools.startsWith(message, 'Non-exhaustive match: ')
+    if (StringTools.startsWith(message, 'Non-exhaustive match:')
       || StringTools.startsWith(message, 'Mixed constructors in algebraic match')
-      || StringTools.startsWith(message, 'Constructor match binding arity mismatch: ')) {
+      || StringTools.startsWith(message, 'Constructor match binding arity mismatch:')) {
       var pattern = distinct(tokens, 'match', 'function');
       // A unique expansion site is meaningful for one macro-generated
       // pattern. Multiple expansions cannot be distinguished yet.
