@@ -1442,6 +1442,46 @@ class NailTypecheckerProbeTestMain {
       nestedScrutinee.lastIndexOf('match'),
       'Nail-authored token map identifies scrutinee match in source order');
 
+
+    // Numeric infix and authored conditional order now come from Nail.
+    var twoIfs='nail 0.54 ; '
+      +'macro bad x = quote ( '
+      +'( if true then 1 else 2 ) + '
+      +'( if true then 3 else unquote x ) ) ; '
+      +'expand bad " text " ;';
+    var twoIfsReport=NailSourceAnalysis.analyzeNailMacros(
+      twoIfs,boot,null,'src/repeated-if.nail');
+    eq(twoIfsReport.ok,false,'invalid second generated conditional rejected');
+    eq(twoIfsReport.diagnostics[0].templateOrigin.span.start,
+      twoIfs.lastIndexOf('if true'),
+      'Nail token map selects second source-authored if');
+
+    var twoMultiplies='nail 0.54 ; '
+      +'macro bad x = quote ( '
+      +'( 2 * 3 ) + ( unquote x * 4 ) ) ; '
+      +'expand bad " text " ;';
+    var twoMultipliesReport=NailSourceAnalysis.analyzeNailMacros(
+      twoMultiplies,boot,null,'src/repeated-multiplication.nail');
+    eq(twoMultipliesReport.ok,false,
+      'invalid second generated multiplication rejected');
+    eq(twoMultipliesReport.diagnostics[0].templateOrigin.span.start,
+      twoMultiplies.lastIndexOf(' * ')+1,
+      'Nail infix traversal identifies second multiplication');
+
+    // Sum-match lowering introduces implicit If nodes that must not be
+    // counted as explicit conditional source tokens.
+    var matchThenIf='nail 0.54 ; type Choice = A | B ; '
+      +'macro bad x = quote ( match unquote x with '
+      +'| A -> ( if true then 1 else " text " ) '
+      +'| B -> 2 ) ; expand bad A ;';
+    var matchThenIfReport=NailSourceAnalysis.analyzeNailMacros(
+      matchThenIf,boot,null,'src/match-authored-if.nail');
+    eq(matchThenIfReport.ok,false,
+      'invalid explicit conditional inside generated match rejected');
+    eq(matchThenIfReport.diagnostics[0].templateOrigin.span.start,
+      matchThenIf.indexOf('if true'),
+      'lowered match predicate does not hide explicit authored if');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

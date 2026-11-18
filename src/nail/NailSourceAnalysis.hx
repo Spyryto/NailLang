@@ -458,33 +458,6 @@ class NailSourceAnalysis {
     }
   }
 
-  /** AST-based *infix order*, used only to disambiguate repeated numeric
-      tokens in one macro declaration. A mismatch with actual source token
-      counts fails closed rather than assigning a speculative position. */
-  static function syntaxOperatorOrder(node:Value,path:String,
-      out:Array<{path:String,token:String}>):Void {
-    switch(node) {
-      case SyntaxNode('Apply',Cons(
-          SyntaxNode('Apply',Cons(
-            SyntaxLeaf('Var',name),Cons(left,Nil))),
-          Cons(right,Nil))) if (numericSymbol(name)!=null):
-        syntaxOperatorOrder(left,path+'01',out);
-        out.push({path:path,token:numericSymbol(name)});
-        syntaxOperatorOrder(right,path+'1',out);
-      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
-        syntaxOperatorOrder(fn,path+'0',out);
-        syntaxOperatorOrder(arg,path+'1',out);
-      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
-        syntaxOperatorOrder(body,path+'1',out);
-      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
-        out.push({path:path,token:'if'});
-        syntaxOperatorOrder(test,path+'0',out);
-        syntaxOperatorOrder(yes,path+'1',out);
-        syntaxOperatorOrder(no,path+'2',out);
-      case _:
-    }
-  }
-
   /** Pattern matching and constructor recognition are now computed by
       Nail itself. Haxe only projects their ordered lexical token identities
       onto original source coordinates; it does not inspect the lowering. */
@@ -542,16 +515,10 @@ class NailSourceAnalysis {
       }
     }
     if (declarations!=1 || matches.length==0) return null;
-    // Nail owns semantic pattern ordering. Require the full pattern-token
-    // cardinality to match the scanner before selecting any occurrence.
-    // Non-pattern hints keep their pre-existing numeric/operator mapping.
-    var order:Array<{path:String,token:String}>=[];
-    if (ordered!=null) order=ordered;
-    else {
-      if (matches.length==1) return matches[0];
-      syntaxOperatorOrder(template,'',order);
-    }
-    var same=[for (item in order) if (item.token==hint) item];
+    // Both pattern and operator order originate from Nail. When no ordered
+    // map is available, accept only unique literal tokens; never guess.
+    if (ordered==null) return matches.length==1 ? matches[0] : null;
+    var same=[for (item in ordered) if (item.token==hint) item];
     if (same.length!=matches.length) return null;
     for (i in 0...same.length)
       if (same[i].path==path) return matches[i];
@@ -725,11 +692,20 @@ class NailSourceAnalysis {
             else if (caseFault)
               ordered=nailOriginTokens(boot,'nmSourceConstructorTokens',template);
             var preferred=ordered==null ? null : tokenAtPath(ordered,path);
-            // The old unique-match fallback still handles unsupported
-            // private lowerings conservatively, without picking a repeat.
+            // Unique-match fallback remains conservative for unsupported
+            // private lowerings, never choosing one among repeated tokens.
             if (coverage && preferred==null) {
               preferred='match';
               ordered=null;
+            }
+            if (!coverage && !caseFault && selected!=null) {
+              var hint=nodeTokenHint(selected);
+              if (hint=='+' || hint=='-' || hint=='*' || hint=='/'
+                  || hint=='if') {
+                ordered=nailOriginTokens(boot,'nmSourceOperatorTokens',template);
+                preferred=tokenAtPath(ordered,path);
+                if (preferred==null) ordered=null;
+              }
             }
             var matching=selected==null || (caseFault && preferred==null)
               ? null

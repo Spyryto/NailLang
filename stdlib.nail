@@ -4294,6 +4294,74 @@ def nmConstructorTokensOrdinary fn arg path =
 def nmSourceConstructorTokens template =
   syntaxNode " NMTokenMap " ( nmConstructorTokensGo template " " ) ;
 
+# Infix source ordering is computed in Nail, not by a Haxe AST walker.
+# A numeric operation is Apply(Apply(Var(op),left),right).
+# Internal If nodes created by match lowering are NOT authored if tokens.
+def nmSourceNumericSymbol name =
+  let op = tcGlobalName name in
+  if op == " #modern+ " then syntaxName " + "
+  else if op == " + " then syntaxName " + "
+  else if op == " #modern- " then syntaxName " - "
+  else if op == " - " then syntaxName " - "
+  else if op == " #modern* " then syntaxName " * "
+  else if op == " * " then syntaxName " * "
+  else if op == " #modern/ " then syntaxName " / "
+  else if op == " / " then syntaxName " / "
+  else nmNoOrigin ;
+
+def nmIsLoweredListCondition condition =
+  if syntaxTag condition != " Apply " then false
+  else let fn = tcFirst condition in
+    let subject = tcSecond condition in
+    if syntaxTag fn != " Var " then false
+    else if syntaxTag subject != " Var " then false
+    else if tcGlobalName ( syntaxText fn ) != " #isEmpty " then false
+    else nmLoweredBinder ( syntaxText subject ) " #nail_list_0 " ;
+
+def nmOperatorTokensGo tree path =
+  let tag = syntaxTag tree in
+  if tag == " Apply " then
+    let fn = tcFirst tree in
+    let arg = tcSecond tree in
+    if syntaxTag fn == " Apply " then
+      let callee = tcFirst fn in
+      if syntaxTag callee == " Var " then
+        let operator = nmSourceNumericSymbol ( syntaxText callee ) in
+        if syntaxTag operator == " Name " then
+          append
+            ( nmOperatorTokensGo ( tcSecond fn )
+              ( nmTokenPath path " 01 " ) )
+            ( cons ( nmTokenOrigin path ( syntaxText operator ) )
+              ( nmOperatorTokensGo arg ( nmTokenPath path " 1 " ) ) )
+        else nmOperatorTokensOrdinary fn arg path
+      else nmOperatorTokensOrdinary fn arg path
+    else nmOperatorTokensOrdinary fn arg path
+  else if tag == " Lambda " then
+    nmOperatorTokensGo ( tcSecond tree ) ( nmTokenPath path " 1 " )
+  else if tag == " If " then
+    let test = tcFirst tree in
+    let authored =
+      if syntaxTag ( nmCtorPredicate test ) == " Name " then false
+      else if nmIsLoweredListCondition test then false
+      else true in
+    let leading =
+      if authored then [ nmTokenOrigin path " if " ] else [] in
+    append leading
+      ( append ( nmOperatorTokensGo test ( nmTokenPath path " 0 " ) )
+        ( append
+          ( nmOperatorTokensGo ( tcSecond tree )
+            ( nmTokenPath path " 1 " ) )
+          ( nmOperatorTokensGo ( tcThird tree )
+            ( nmTokenPath path " 2 " ) ) ) )
+  else [] ;
+
+def nmOperatorTokensOrdinary fn arg path =
+  append ( nmOperatorTokensGo fn ( nmTokenPath path " 0 " ) )
+    ( nmOperatorTokensGo arg ( nmTokenPath path " 1 " ) ) ;
+
+def nmSourceOperatorTokens template =
+  syntaxNode " NMTokenMap " ( nmOperatorTokensGo template " " ) ;
+
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
 # The Haxe macro expander is deliberately not called along this path.

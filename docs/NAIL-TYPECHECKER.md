@@ -474,10 +474,12 @@ name or an unrelated macro invocation.
 
 `NailSourceAnalysis.analyzeNailMacros` converts the symbolic node origin
 into source coordinates by scanning only the owning macro declaration.
-Numeric infix operators can be disambiguated by their in-order AST
-position, even when the same operator appears more than once; generated
-conditionals, straightforward function applications and unambiguous
-lowered `match` sites are also supported. Repeated `match` keywords
+Numeric infix operators and source-authored `if` expressions are
+disambiguated by Nail's own ordered structural token paths, including
+repeated occurrences of the same symbol. **`nmSourceOperatorTokens`**
+uses infix traversal and excludes synthetic pattern-lowering conditionals.
+Straightforward function applications and lowered `match` sites are
+also supported. Repeated `match` keywords
 inside one macro template are disambiguated by their corresponding
 Nail-parsed lowered binders, preserving the checker-node path and the
 original source order. A mismatch between the lowered AST and source
@@ -490,9 +492,9 @@ specific failing constructor predicate path. **Nail functions
 `nmSourcePatternTokens` and `nmSourceConstructorTokens`** now recover
 the ordered, path-labeled `match`, `function`, and constructor tokens
 from the Nail-lowered Syntax, including patterns nested in scrutinees and
-branches. Haxe no longer reimplements these pattern AST traversals:
-it scans the original template, checks complete token-count agreement
-and projects the Nail-generated token identity to its UTF-16 span.
+branches. Haxe no longer reimplements pattern, numeric or conditional AST
+traversals: it scans the original template, checks token-count agreement
+and projects Nail-generated token identities to UTF-16 spans.
 Coverage errors remain attached to the enclosing `match`/`function`.
 Ambiguous token order fails closed. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
