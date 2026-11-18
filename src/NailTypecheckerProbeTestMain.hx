@@ -7,6 +7,7 @@ import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
 import nail.TypeChecker;
+import nail.NailSourceAnalysis;
 
 /** End-to-end differential tests for the first Nail-written HM checker.
     The Nail checker is invoked via the source-free bytecode VM; it has no
@@ -467,6 +468,73 @@ class NailTypecheckerProbeTestMain {
       'Wide : '+signature+' ; '
       +'def wide '+params.join(' ')+' : Wide = p1 ; '
       +'wide '+values+' ;',['Text']);
+    // The diagnostic adapter must use Nail's checker result, never run the
+    // host TypeChecker or a second parser to invent source coordinates.
+    var report=NailSourceAnalysis.analyze(
+      'nail 0.54 ; def id x = x ; id 7 ;',boot);
+    eq(report.ok,true,'Nail source report succeeds');
+    eq(report.types,['Int'],'Nail report retains inferred evaluations');
+    eq(report.diagnostics.length,0,'success has no diagnostics');
+
+    var missingSource='nail 0.54 ;\ndef broken = missing ;';
+    report=NailSourceAnalysis.analyze(missingSource,boot);
+    eq(report.ok,false,'Nail report rejects unknown identifier');
+    eq(report.diagnostics[0].phase,'type','Nail diagnostic phase');
+    eq(report.diagnostics[0].span != null,true,
+      'unique unknown identifier receives original location');
+    eq(report.diagnostics[0].span.start,missingSource.indexOf('missing'),
+      'unknown identifier original UTF-16 offset');
+    eq(report.diagnostics[0].span.line,2,'unknown identifier line');
+    eq(report.diagnostics[0].span.column,14,'unknown identifier column');
+
+    var commented='nail 0.54 ; # missing in a comment\n'
+      +'def broken = missing ; " missing " ;';
+    report=NailSourceAnalysis.analyze(commented,boot);
+    eq(report.diagnostics[0].span != null,true,
+      'quoted text and comments are excluded from matching');
+    eq(report.diagnostics[0].span.start,commented.indexOf('missing ;'),
+      'unknown identifier excludes comment/quoted occurrences');
+
+    report=NailSourceAnalysis.analyze(
+      'nail 0.54 ; def bad = missing ; def later = missing ;',boot);
+    eq(report.diagnostics[0].span,null,
+      'ambiguous source tokens never receive a guessed span');
+
+    var duplicated='nail 0.54 ; def twice x = x ; def twice y = y ;';
+    report=NailSourceAnalysis.analyze(duplicated,boot);
+    eq(report.ok,false,'duplicate definition is rejected');
+    eq(report.diagnostics[0].span.start,duplicated.lastIndexOf('twice'),
+      'second declaration is the failing source location');
+
+    report=NailSourceAnalysis.analyze(
+      'nail 0.54 ; def wrong = 1 + true ;',boot);
+    eq(report.ok,false,'numeric mismatch is rejected');
+    eq(report.diagnostics[0].span,null,
+      'unattributable inferred mismatch has no invented location');
+
+    var partialSource='nail 0.54 ; type Option a = None | Some a ; '
+      +'def partial = function | Some x -> x ;';
+    report=NailSourceAnalysis.analyze(partialSource,boot);
+    eq(report.ok,false,'incomplete match rejected by Nail');
+    eq(report.diagnostics[0].span.start,partialSource.indexOf('function'),
+      'unique original function-pattern site pinpointed');
+
+    var macroSource='nail 0.54 ; type Option a = None | Some a ; '
+      +'macro partial x = quote ( match unquote x with '
+      +'| Some value -> value ) ;\n'
+      +'expand partial ( Some 1 ) ;';
+    report=NailSourceAnalysis.analyze(macroSource,boot);
+    eq(report.ok,false,'incomplete macro-generated match rejected');
+    eq(report.diagnostics[0].span.start,macroSource.indexOf('expand'),
+      'macro-generated failure uses unique expansion site');
+    eq(report.diagnostics[0].templateSpan.start,
+      macroSource.indexOf('match'),'origin retained as related pattern location');
+
+    var multiExpand=macroSource+'\nexpand partial ( Some 2 ) ;';
+    report=NailSourceAnalysis.analyze(multiExpand,boot);
+    eq(report.diagnostics[0].span,null,
+      'ambiguous macro expansion calls are not guessed');
+
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
