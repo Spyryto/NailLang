@@ -1225,6 +1225,60 @@ class NailTypecheckerProbeTestMain {
       numericMacro.indexOf('expand'),
       'generated numeric mismatch identifies original call site');
 
+    // Two expansions of the *same* macro in one source form used to
+    // produce an ambiguous callsite. Nail now threads the input AST path
+    // through its parallel trace, so only the failing branch is blamed.
+    var twiceSameMacro='nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'if true then expand add 2 else expand add " bad " ;';
+    var twiceSameReport=NailSourceAnalysis.analyzeNailMacros(
+      twiceSameMacro,boot,null,'src/two-expansions.nail');
+    eq(twiceSameReport.ok,false,'second same-name macro in if fails');
+    eq(twiceSameReport.diagnostics[0].span.start,
+      twiceSameMacro.lastIndexOf('expand'),
+      'single-pass Nail callsite selects second expand within same if');
+    eq(twiceSameReport.diagnostics[0].templateOrigin.span.start,
+      twiceSameMacro.indexOf(' + ')+1,
+      'both calls still resolve exact original numeric template operator');
+
+    var badFirstInIf='nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'if true then expand add " bad " else expand add 2 ;';
+    var firstInIfReport=NailSourceAnalysis.analyzeNailMacros(
+      badFirstInIf,boot,null,'src/first-branch.nail');
+    eq(firstInIfReport.ok,false,'first same-name macro in if fails');
+    eq(firstInIfReport.diagnostics[0].span.start,
+      badFirstInIf.indexOf('expand'),
+      'Nail selects first expand in the same source form');
+
+    var wrongImportedSecond='nail 0.54 ; '
+      +'import bad from numericBad ; '
+      +'if false then expand bad 2 else expand bad " bad " ;';
+    // Defined again here to avoid depending on later test initialization.
+    macroModules.set('numericBad',
+      'nail 0.54 ; macro bad x = quote ( unquote x + 1 ) ; export bad ;');
+    var importedInIf=NailSourceAnalysis.analyzeNailMacros(
+      wrongImportedSecond,boot,name -> macroModules.get(name),
+      'src/if-import.nail');
+    eq(importedInIf.ok,false,'imported macro fails in second conditional');
+    eq(importedInIf.diagnostics[0].span.start,
+      wrongImportedSecond.lastIndexOf('expand'),
+      'precise same-form expansion retains the foreign template caller site');
+    eq(importedInIf.diagnostics[0].templateOrigin.sourceId,'numericBad',
+      'precise caller selection retains imported owner module');
+
+    // Fail-closed check: lowered let expressions can rearrange the AST
+    // relative to textual order. Until a full source offset map exists,
+    // do not invent one when multiple same-name calls occur in a let.
+    var reorderedLet='nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'let good = expand add 2 in expand add " bad " ;';
+    var reorderedReport=NailSourceAnalysis.analyzeNailMacros(
+      reorderedLet,boot,null,'src/reordered-let.nail');
+    eq(reorderedReport.ok,false,'reordered let with generated numeric error fails');
+    eq(reorderedReport.diagnostics[0].templateOrigin,null,
+      'ambiguous lowered let callsites fail closed without guessed spans');
+
     var nestedNumeric='nail 0.54 ; '
       +'macro bad x = quote ( if true then ( unquote x + 1 ) else 0 ) ; '
       +'expand bad " text " ;';
