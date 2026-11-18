@@ -1541,3 +1541,104 @@ def modernRewrite tree =
 
 def compileModernSource source =
   compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+
+# --------------------------------------------------------------------------
+# Experimental Nail-written type inference, stage A (not yet the v0.54 ABI).
+# Types, schemes, substitutions and environments are ordinary immutable
+# Syntax values. No new runtime opcode or Haxe checker bridge is required.
+# The prefix tc avoids changing existing standard-library public functions.
+# --------------------------------------------------------------------------
+
+def tcVar label = syntaxLeaf " TCVar " label ;
+def tcBase name = syntaxLeaf " TCBase " name ;
+def tcFun domain codomain = syntaxNode " TCFun " [ domain , codomain ] ;
+def tcList element = syntaxNode " TCList " [ element ] ;
+def tcMissing = syntaxLeaf " TCMissing " " " ;
+def tcFault message = syntaxLeaf " TCFault " message ;
+def tcFirst tree = head ( syntaxChildren tree ) ;
+def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
+def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
+def tcBinding name value =
+  syntaxNode " TCBinding " [ syntaxLeaf " TCName " name , value ] ;
+def tcBindingName binding = syntaxText ( tcFirst binding ) ;
+def tcBindingValue binding = tcSecond binding ;
+
+# Persistent bindings support the same lexical shadowing as ordinary Nail.
+def tcFind name entries =
+  match entries with
+  | [] -> tcMissing
+  | binding :: rest ->
+    if tcBindingName binding == name then tcBindingValue binding
+    else tcFind name rest ;
+
+def tcFollow ty substitutions =
+  if syntaxTag ty == " TCVar " then
+    let bound = tcFind ( syntaxText ty ) substitutions in
+    if syntaxTag bound == " TCMissing " then ty
+    else tcFollow bound substitutions
+  else ty ;
+
+def tcNormalize ty substitutions =
+  let resolved = tcFollow ty substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCFun " then
+    tcFun
+      ( tcNormalize ( tcFirst resolved ) substitutions )
+      ( tcNormalize ( tcSecond resolved ) substitutions )
+  else if tag == " TCList " then
+    tcList ( tcNormalize ( tcFirst resolved ) substitutions )
+  else resolved ;
+
+def tcOccurs variable ty substitutions =
+  let resolved = tcFollow ty substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCVar " then syntaxText resolved == variable
+  else if tag == " TCFun " then
+    if tcOccurs variable ( tcFirst resolved ) substitutions then true
+    else tcOccurs variable ( tcSecond resolved ) substitutions
+  else if tag == " TCList " then
+    tcOccurs variable ( tcFirst resolved ) substitutions
+  else false ;
+
+def tcUnify left right substitutions =
+  let a = tcFollow left substitutions in
+  let b = tcFollow right substitutions in
+  let aTag = syntaxTag a in
+  let bTag = syntaxTag b in
+  if aTag == " TCVar " then
+    if bTag == " TCVar " then
+      if syntaxText a == syntaxText b then Ok substitutions
+      else if tcOccurs ( syntaxText a ) b substitutions then
+        Error " Recursive type "
+      else Ok ( cons ( tcBinding ( syntaxText a ) b ) substitutions )
+    else if tcOccurs ( syntaxText a ) b substitutions then
+      Error " Recursive type "
+    else Ok ( cons ( tcBinding ( syntaxText a ) b ) substitutions )
+  else if bTag == " TCVar " then
+    if tcOccurs ( syntaxText b ) a substitutions then
+      Error " Recursive type "
+    else Ok ( cons ( tcBinding ( syntaxText b ) a ) substitutions )
+  else if aTag != bTag then Error " Type mismatch "
+  else if aTag == " TCBase " then
+    if syntaxText a == syntaxText b then Ok substitutions
+    else Error " Type mismatch "
+  else if aTag == " TCList " then
+    tcUnify ( tcFirst a ) ( tcFirst b ) substitutions
+  else if aTag == " TCFun " then
+    match tcUnify ( tcFirst a ) ( tcFirst b ) substitutions with
+    | Error message -> Error message
+    | Ok next -> tcUnify ( tcSecond a ) ( tcSecond b ) next
+  else Error " Unknown type constructor " ;
+
+def tcPretty ty =
+  let tag = syntaxTag ty in
+  if tag == " TCVar " then syntaxText ty
+  else if tag == " TCBase " then syntaxText ty
+  else if tag == " TCList " then
+    textConcat ( textConcat " [ " ( tcPretty ( tcFirst ty ) ) ) " ] "
+  else if tag == " TCFun " then
+    textConcat
+      ( textConcat
+        ( textConcat " ( " ( tcPretty ( tcFirst ty ) ) ) " -> " )
+        ( textConcat ( tcPretty ( tcSecond ty ) ) " ) " )
+  else " <unknown-type> " ;
