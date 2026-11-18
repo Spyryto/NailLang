@@ -1813,9 +1813,9 @@ def tcInstantiate scheme substitutions seed =
   else tcInferResult instance ( syntaxChildren required )
     ( tcRenameSeed renaming ) ;
 
-# A deliberately limited, typed prelude for the *first* independent
-# checker prototype. Overloaded numeric relations and Eq are not yet
-# accepted here; no invalid inference is silently treated as valid.
+# A deliberately limited typed prelude for the independent checker.
+# Numeric relations and qualified Eq are handled by dedicated inference
+# paths; the prelude contains only statically known ordinary functions.
 def tcBuiltinType name =
   tcFind name [
     tcBinding " textConcat "
