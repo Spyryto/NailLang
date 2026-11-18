@@ -37,6 +37,8 @@ class OfficialBootstrapTestMain {
     var image=BootstrapImage.decode(seed);
     ok(image!=null,'modern image decodes');
     var vm=new BootRuntime(35000000);
+    trace('SELFHOST_PARSE: '+Std.string(vm.invoke('parseSource',nail.Value.Text(modern('1 / 3 + 1 / 6 ;')))));
+    trace('SELFHOST_COMPILE: '+Std.string(vm.compile(modern('1 / 3 + 1 / 6 ;'))));
     same(vm.runPlain(modern('1 / 3 + 1 / 6 ;')),
       ['R:1/2'],'exact rational arithmetic in published image');
     same(new BootRuntime(35000000).runPlain(
