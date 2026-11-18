@@ -1578,6 +1578,21 @@ def tcBase name = syntaxLeaf " TCBase " name ;
 def tcFun domain codomain = syntaxNode " TCFun " [ domain , codomain ] ;
 def tcList element = syntaxNode " TCList " [ element ] ;
 def tcStruct fields = syntaxNode " TCStruct " fields ;
+# Nominal type identity is the kind and owner, independent of field shape.
+# Generic owners also carry their inferred type arguments.
+def tcNominal kind owner arguments =
+  syntaxNode " TCNominal "
+    [ syntaxLeaf " TCKind " kind , syntaxLeaf " TCName " owner ,
+      syntaxNode " TCTypeArgs " arguments ] ;
+def tcNominalKind ty = syntaxText ( tcFirst ty ) ;
+def tcNominalName ty = syntaxText ( tcSecond ty ) ;
+def tcNominalArgs ty = syntaxChildren ( tcThird ty ) ;
+def tcNormalizeTypes types substitutions =
+  match types with
+  | [] -> []
+  | first :: rest ->
+    cons ( tcNormalize first substitutions )
+      ( tcNormalizeTypes rest substitutions ) ;
 def tcField name ty =
   syntaxNode " TCField " [ syntaxLeaf " TCName " name , ty ] ;
 def tcRowField name ty tail =
@@ -1617,6 +1632,9 @@ def tcNormalize ty substitutions =
       ( tcNormalize ( tcSecond resolved ) substitutions )
   else if tag == " TCList " then
     tcList ( tcNormalize ( tcFirst resolved ) substitutions )
+  else if tag == " TCNominal " then
+    tcNominal ( tcNominalKind resolved ) ( tcNominalName resolved )
+      ( tcNormalizeTypes ( tcNominalArgs resolved ) substitutions )
   else if tag == " TCStruct " then
     tcStruct ( map ( fun field ->
       tcField ( syntaxText ( tcFirst field ) )
@@ -1637,12 +1655,21 @@ def tcOccurs variable ty substitutions =
     else tcOccurs variable ( tcSecond resolved ) substitutions
   else if tag == " TCList " then
     tcOccurs variable ( tcFirst resolved ) substitutions
+  else if tag == " TCNominal " then
+    tcOccursTypes variable ( tcNominalArgs resolved ) substitutions
   else if tag == " TCStruct " then
     tcOccursFields variable ( syntaxChildren resolved ) substitutions
   else if tag == " TCRowField " then
     if tcOccurs variable ( tcSecond resolved ) substitutions then true
     else tcOccurs variable ( tcThird resolved ) substitutions
   else false ;
+
+def tcOccursTypes variable types substitutions =
+  match types with
+  | [] -> false
+  | first :: rest ->
+    if tcOccurs variable first substitutions then true
+    else tcOccursTypes variable rest substitutions ;
 
 def tcOccursFields variable fields substitutions =
   match fields with
@@ -1660,6 +1687,11 @@ def tcUnify left right substitutions =
     tcBindType ( syntaxText a ) b substitutions
   else if bTag == " TCVar " then
     tcBindType ( syntaxText b ) a substitutions
+  else if aTag == " TCNominal " then
+    if bTag != " TCNominal " then Error " Type mismatch "
+    else if tcNominalKind a != tcNominalKind b then Error " Type mismatch "
+    else if tcNominalName a != tcNominalName b then Error " Type mismatch "
+    else tcUnifyTypes ( tcNominalArgs a ) ( tcNominalArgs b ) substitutions
   else if aTag == " TCStruct " then
     if bTag == " TCStruct " then
       tcUnifyStructs ( syntaxChildren a ) ( syntaxChildren b ) substitutions
@@ -1687,6 +1719,27 @@ def tcUnify left right substitutions =
     | Ok next -> tcUnify ( tcSecond a ) ( tcSecond b ) next
   else Error " Unknown type constructor " ;
 
+def tcUnifyTypes left right substitutions =
+  match left with
+  | [] ->
+    if isEmpty right then Ok substitutions
+    else Error " Nominal type arity mismatch "
+  | a :: rest ->
+    match right with
+    | [] -> Error " Nominal type arity mismatch "
+    | b :: tail ->
+      match tcUnify a b substitutions with
+      | Error message -> Error message
+      | Ok updated -> tcUnifyTypes rest tail updated ;
+
+def tcPrettyNominalArgs types =
+  match types with
+  | [] -> " "
+  | first :: rest ->
+    if isEmpty rest then tcPretty first
+    else textConcat ( textConcat ( tcPretty first ) " , " )
+      ( tcPrettyNominalArgs rest ) ;
+
 def tcPretty ty =
   let tag = syntaxTag ty in
   if tag == " TCVar " then syntaxText ty
@@ -1698,6 +1751,12 @@ def tcPretty ty =
       ( textConcat
         ( textConcat " ( " ( tcPretty ( tcFirst ty ) ) ) " -> " )
         ( textConcat ( tcPretty ( tcSecond ty ) ) " ) " )
+  else if tag == " TCNominal " then
+    let name = tcNominalName ty in
+    let args = tcNominalArgs ty in
+    if isEmpty args then name
+    else textConcat ( textConcat name " [ " )
+      ( textConcat ( tcPrettyNominalArgs args ) " ] " )
   else if tag == " TCStruct " then " {record} "
   else if tag == " TCRowField " then " {open-record} "
   else " <unknown-type> " ;
@@ -1745,6 +1804,8 @@ def tcFreeType ty substitutions =
     tcUnionVars
       ( tcFreeType ( tcFirst resolved ) substitutions )
       ( tcFreeType ( tcSecond resolved ) substitutions )
+  else if tag == " TCNominal " then
+    tcFreeTypes ( tcNominalArgs resolved ) substitutions
   else if tag == " TCStruct " then
     tcFreeFields ( syntaxChildren resolved ) substitutions
   else if tag == " TCRowField " then
@@ -1752,6 +1813,13 @@ def tcFreeType ty substitutions =
       ( tcFreeType ( tcSecond resolved ) substitutions )
       ( tcFreeType ( tcThird resolved ) substitutions )
   else [] ;
+
+def tcFreeTypes types substitutions =
+  match types with
+  | [] -> []
+  | first :: rest ->
+    tcUnionVars ( tcFreeType first substitutions )
+      ( tcFreeTypes rest substitutions ) ;
 
 def tcFreeFields fields substitutions =
   match fields with
@@ -2592,6 +2660,14 @@ def tcFindEqQuantifiers quantifiers substitutions =
 # An Eq requirement propagates through structured types, marking every
 # unresolved component and rejecting functions. The fold is transactional:
 # failures do not leak into the caller's immutable substitutions.
+def tcRequireEqTypes types substitutions =
+  match types with
+  | [] -> Ok substitutions
+  | first :: rest ->
+    match tcRequireComparable first substitutions with
+    | Error message -> Error message
+    | Ok updated -> tcRequireEqTypes rest updated ;
+
 def tcRequireEqFields fields substitutions =
   match fields with
   | [] -> Ok substitutions
@@ -2610,6 +2686,8 @@ def tcRequireComparable ty substitutions =
     else Error " Eq constraint requires a comparable type "
   else if tag == " TCList " then
     tcRequireComparable ( tcFirst t ) substitutions
+  else if tag == " TCNominal " then
+    tcRequireEqTypes ( tcNominalArgs t ) substitutions
   else if tag == " TCStruct " then
     tcRequireEqFields ( syntaxChildren t ) substitutions
   else if tag == " TCRowField " then
