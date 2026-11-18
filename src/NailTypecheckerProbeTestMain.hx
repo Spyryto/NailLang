@@ -8,6 +8,7 @@ import nail.ResultValue;
 import nail.Value;
 import nail.TypeChecker;
 import nail.NailSourceAnalysis;
+import nail.NailMacroModuleInputs;
 
 /** End-to-end differential tests for the first Nail-written HM checker.
     The Nail checker is invoked via the source-free bytecode VM; it has no
@@ -65,6 +66,69 @@ class NailTypecheckerProbeTestMain {
     var fromSource=boot.invoke('tcCheckSourceNailMacrosTraced',Text(source));
     eq(ResultValue.tag(fromSource),ResultValue.OK,
       'self-hosted parsing, macro expansion and type inference: '+body);
+  }
+
+  static function compareImportedMacro(boot:BootRuntime,source:String,
+      moduleSources:StringMap<String>, expected:Array<String>):Void {
+    var reads=new StringMap<Int>();
+    var resolver=(name:String) -> {
+      var previous=reads.get(name);
+      reads.set(name,previous == null ? 1 : previous+1);
+      return moduleSources.get(name);
+    };
+    var prepared=boot.invoke('tcPrepareTypedSource',Text(source));
+    eq(switch(prepared) {
+      case SyntaxNode('TCPreparedMacros',_): true;
+      case _: false;
+    },true,'Nail typed parser prepares imported macro input');
+    var program=switch(prepared) {
+      case SyntaxNode('TCPreparedMacros',Cons(p,_)): p;
+      case _: throw 'Expected prepared Nail module source';
+    };
+    var modules=NailMacroModuleInputs.collect(boot,source,resolver,program);
+    for (name in reads.keys()) eq(reads.get(name),1,
+      'transitive module fetched once: '+name);
+    var request=NailMacroModuleInputs.request(program,modules);
+    var ours=boot.invoke('nailMacroExpandWithModules',request);
+    var theirs=MacroExpander.syntax(program,name -> {
+      var input=moduleSources.get(name);
+      return input == null ? null : NailMacroModuleInputs.parsedModern(boot,input);
+    });
+    eq(normalizedMacro(ours,new StringMap<String>(),0),
+      normalizedMacro(theirs,new StringMap<String>(),0),
+      'Nail vs Haxe imported macro Syntax alpha-equivalence');
+    var check=boot.invoke('tcCheckSourceNailModulesTraced',
+      SyntaxNode('NMSourceRequest',
+        Cons(SyntaxLeaf('NMSource',source),Cons(modules,Nil))));
+    eq(ResultValue.tag(check),ResultValue.OK,
+      'Nail-only module expansion + Nail HM inference');
+    var checkTypes=inspectResult(boot,boot.invoke('tcCheckExpandedTypedTraced',
+      SyntaxNode('TCExpansionRequest',
+        Cons(prepared,Cons(ours,Nil)))));
+    eq(checkTypes.ok,true,'Nail-generated expanded Syntax checks');
+    eq(checkTypes.types,expected,
+      'Nail-owned macro module expansion has inferred types');
+  }
+
+  static function rejectImportedMacro(boot:BootRuntime,source:String,
+      moduleSources:StringMap<String>):Void {
+    var program=NailMacroModuleInputs.parsedModern(boot,source);
+    var modules=NailMacroModuleInputs.collect(boot,source,
+      name -> moduleSources.get(name),program);
+    var ours=boot.invoke('nailMacroExpandWithModules',
+      NailMacroModuleInputs.request(program,modules));
+    var theirs=MacroExpander.syntax(program,name -> {
+      var input=moduleSources.get(name);
+      return input == null ? null : NailMacroModuleInputs.parsedModern(boot,input);
+    });
+    eq(switch(ours) {
+      case SyntaxLeaf('MacroError',_): true;
+      case _: false;
+    },true,'Nail rejects bad macro module: '+source);
+    eq(switch(theirs) {
+      case SyntaxLeaf('MacroError',_): true;
+      case _: false;
+    },true,'Haxe rejects same bad macro module: '+source);
   }
 
   static function inspect(boot:BootRuntime,source:String):{ok:Bool,types:Array<String>,message:String} {
@@ -943,6 +1007,69 @@ class NailTypecheckerProbeTestMain {
       eq(nailTag,hostTag,
         'Nail and host agree on parser or macro rejection: '+bad);
     }
+
+    // The host discovers text imports only, Nail parses their source and
+    // resolves exports, lexical definitions, nested imports and expansion.
+    var macroModules=new StringMap<String>();
+    macroModules.set('arithmetic','nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 10 ) ; export add ;');
+    macroModules.set('lesson','nail 0.54 ; import add from arithmetic ; '
+      +'macro hidden x = quote ( let tmp = 10 in tmp + unquote x ) ; '
+      +'macro publicScore x = quote ( expand add ( expand hidden ( unquote x ) ) ) ; '
+      +'macro globalScore x = quote ( helper ( unquote x ) ) ; '
+      +'export publicScore ; export globalScore ;');
+    macroModules.set('identity','nail 0.54 ; '
+      +'macro id x = quote ( unquote x ) ; export id ;');
+    compareImportedMacro(boot,
+      'nail 0.54 ; import add from arithmetic ; '
+      +'expand add 1 ; expand add 2 ;',
+      macroModules,['Int','Int']);
+    compareImportedMacro(boot,
+      'nail 0.54 ; import publicScore from lesson ; '
+      +'let tmp = 22 in expand publicScore tmp ;',
+      macroModules,['Int']);
+    compareImportedMacro(boot,
+      'nail 0.54 ; import globalScore from lesson ; '
+      +'def helper x = x + 10 ; let helper = false in expand globalScore 32 ;',
+      macroModules,['Int']);
+    compareImportedMacro(boot,
+      'nail 0.54 ; macro own x = quote ( unquote x + 1 ) ; '
+      +'import id from identity ; '
+      +'expand id ( expand own 40 ) ;',
+      macroModules,['Int']);
+    compareImportedMacro(boot,
+      'nail 0.54 ; import id from identity ; '
+      +'type Html = { h2 : Text Text , div : Text Text } ; '
+      +'def html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'expand id ( render html " Hello " ) ;',
+      macroModules,['Text']);
+
+    macroModules.set('hidden','nail 0.54 ; '
+      +'macro private x = quote ( unquote x ) ; export private ; '
+      +'macro notExported x = quote ( unquote x ) ;');
+    macroModules.set('reexport','nail 0.54 ; '
+      +'import add from arithmetic ; export add ;');
+    macroModules.set('a','nail 0.54 ; import b from b ; '
+      +'macro a = quote ( 1 ) ; export a ;');
+    macroModules.set('b','nail 0.54 ; import a from a ; '
+      +'macro b = quote ( 1 ) ; export b ;');
+    macroModules.set('runtime','nail 0.54 ; '
+      +'def notAllowed = 1 ; macro m = quote ( 1 ) ; export m ;');
+    macroModules.set('duplicate','nail 0.54 ; '
+      +'macro id x = quote ( unquote x ) ; '
+      +'macro id y = quote ( unquote y ) ; export id ;');
+    for (bad in [
+      'nail 0.54 ; import missing from arithmetic ; expand missing 1 ;',
+      'nail 0.54 ; import notExported from hidden ; expand notExported 1 ;',
+      'nail 0.54 ; import add from reexport ; expand add 1 ;',
+      'nail 0.54 ; import a from a ; expand a ;',
+      'nail 0.54 ; import m from runtime ; expand m ;',
+      'nail 0.54 ; import id from duplicate ; expand id 2 ;',
+      'nail 0.54 ; import id from nowhere ; expand id 2 ;',
+      'nail 0.54 ; import add from arithmetic ; '
+        +'import add from arithmetic ; expand add 2 ;'
+    ]) rejectImportedMacro(boot,bad,macroModules);
 
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
