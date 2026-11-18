@@ -452,6 +452,29 @@ An argument inserted through `unquote` retains its caller location.
 Failures with ambiguous call sites or ambiguous same-name template tokens
 are intentionally left without a template origin.
 
+The opt-in per-node `NMTrace` sidecar now also retains the **outermost
+original caller's structural expression path**: `NMSourceAt` records the
+template's owner/name/node-path *and* an `NMCallerSite` carrying the raw
+source form seed and the original invocation's Syntax-child path. Recursive
+macro expansion forwards the same original call site, while an `unquote`
+subtree keeps its own caller-origin trace. Neither the executable Program
+nor the VM bytecode includes these coordinates.
+
+For two `expand` calls **within the same source form**, the host performs
+read-only projection: it enumerates calls in Nail's already-parsed original
+Syntax, compares them against the original source's `expand` tokens and
+verifies both order and macro labels before accepting an offset. This
+disambiguates cases like `if test then expand bad 1 else expand bad text`
+without Haxe parser replay. The older `nmFaultNodeOrigin` still returns
+its three-field symbolic origin; `nmFaultNodeOriginAt` retains the fourth
+caller-site component for new tooling.
+
+Ordering that cannot be justified (including multi-call `let` expressions
+whose lambda lowering reorders the expression tree) intentionally falls
+back to an unknown source offset rather than guessing. The next refinement
+is a complete source-position sidecar emitted during parsing, which would
+remove even this conservative ordering limitation.
+
 The default `analyze` path still uses its existing optional Haxe
 macro-provenance replay, and neither `analyze` nor the production compiler
 switches expansion strategies.
