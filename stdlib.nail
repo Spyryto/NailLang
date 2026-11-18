@@ -2627,6 +2627,35 @@ def tcExpandTypedMacros program =
     else tcRestoreTypedMacros ( syntaxChildren expanded )
       ( syntaxChildren ( tcSecond prepared ) ) [] ;
 
+# Module-aware checker boundary. Parsing and *all* typed metadata
+# preservation are written in Nail; an outer resolver may expand the prepared
+# executable Syntax with imported macro modules before invoking the checker.
+# The ordinary tcCheckSource* entry points are unchanged.
+def tcPrepareTypedSource source =
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    syntaxLeaf " Error "
+      " Nail typechecker currently requires versioned modern source "
+  else let parsed = parseTypedForms ( stripNailHeader tokens ) in
+    if syntaxTag parsed != " Program " then parsed
+    else tcPrepareTypedMacros ( syntaxChildren parsed ) " m " [] [] ;
+
+def tcCheckExpandedTypedTraced payload =
+  let prepared = tcFirst payload in
+  let expanded = tcSecond payload in
+  if syntaxTag prepared != " TCPreparedMacros " then
+    if syntaxTag prepared == " Error " then
+      Error ( tcFault ( syntaxText prepared ) )
+    else Error ( tcFault " Invalid prepared typed source " )
+  else if syntaxTag expanded == " MacroError " then
+    Error ( tcFault ( syntaxText expanded ) )
+  else if syntaxTag expanded != " Program " then
+    Error ( tcFault " Macro expansion did not produce a Program " )
+  else tcCheckSyntaxTraced
+    ( modernRewrite
+      ( tcRestoreTypedMacros ( syntaxChildren expanded )
+        ( syntaxChildren ( tcSecond prepared ) ) [] ) ) ;
+
 # Convenience source entry point: parse, expand macros once, restore typed
 # metadata, rewrite modern numeric syntax and infer entirely in Nail. The
 # existing Haxe macro expander is a syntax transformation primitive, never a
