@@ -1761,3 +1761,145 @@ def tcBuiltinType name =
       ( tcScheme ( tcFun ( tcBase " Int " )
         ( tcFun ( tcBase " Int " ) ( tcBase " Int " ) ) ) [] )
   ] ;
+
+# Core inference covers all five expression constructors (a Nil literal is
+# represented as a polymorphic list). Direct Lambda/Apply, the lowering of
+# `let`, generalizes the evaluated value before checking the body.
+def tcInferExpression tree environment substitutions seed =
+  let tag = syntaxTag tree in
+  if tag == " Var " then
+    let name = syntaxText tree in
+    let local = tcFind name environment in
+    let scheme = if syntaxTag local == " TCMissing " then
+      tcBuiltinType name else local in
+    if syntaxTag scheme == " TCMissing " then
+      tcFault ( textConcat " Unknown name: " name )
+    else tcInstantiate scheme substitutions seed
+  else if tag == " Literal " then
+    let literal = tcFirst tree in
+    let kind = syntaxTag literal in
+    if kind == " Nil " then
+      tcInferResult ( tcList ( tcVar seed ) ) substitutions ( tcNext seed )
+    else if kind == " Int " then
+      tcInferResult ( tcBase " Int " ) substitutions seed
+    else if kind == " Ratio " then
+      tcInferResult ( tcBase " Ratio " ) substitutions seed
+    else if kind == " Number " then
+      tcInferResult ( tcBase " Number " ) substitutions seed
+    else if kind == " ExactNumber " then
+      tcInferResult ( tcBase " Exact " ) substitutions seed
+    else if kind == " Text " then
+      tcInferResult ( tcBase " Text " ) substitutions seed
+    else if kind == " Bool " then
+      tcInferResult ( tcBase " Bool " ) substitutions seed
+    else tcFault ( textConcat " Unsupported literal: " kind )
+  else if tag == " Lambda " then
+    let param = syntaxText ( tcFirst tree ) in
+    let variable = tcVar seed in
+    let local = cons
+      ( tcBinding param ( tcScheme variable [] ) ) environment in
+    let body = tcInferExpression
+      ( tcSecond tree ) local substitutions ( tcNext seed ) in
+    if syntaxTag body == " TCFault " then body
+    else tcInferResult
+      ( tcFun ( tcNormalize variable ( tcResultSubs body ) )
+        ( tcResultType body ) )
+      ( tcResultSubs body ) ( tcResultSeed body )
+  else if tag == " Apply " then
+    let fn = tcFirst tree in
+    let arg = tcSecond tree in
+    if syntaxTag fn == " Lambda " then
+      let inferred = tcInferExpression arg environment substitutions seed in
+      if syntaxTag inferred == " TCFault " then inferred
+      else let scheme = tcGeneralize
+        ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
+        tcInferExpression ( tcSecond fn )
+          ( cons ( tcBinding ( syntaxText ( tcFirst fn ) ) scheme ) environment )
+          ( tcResultSubs inferred ) ( tcResultSeed inferred )
+    else
+      let inferredFn = tcInferExpression fn environment substitutions seed in
+      if syntaxTag inferredFn == " TCFault " then inferredFn
+      else let inferredArg = tcInferExpression arg environment
+        ( tcResultSubs inferredFn ) ( tcResultSeed inferredFn ) in
+        if syntaxTag inferredArg == " TCFault " then inferredArg
+        else let output = tcVar ( tcResultSeed inferredArg ) in
+          match tcUnify ( tcResultType inferredFn )
+            ( tcFun ( tcResultType inferredArg ) output )
+            ( tcResultSubs inferredArg ) with
+          | Error message -> tcFault message
+          | Ok updated -> tcInferResult ( tcNormalize output updated )
+              updated ( tcNext ( tcResultSeed inferredArg ) )
+  else if tag == " If " then
+    let cond = tcInferExpression ( tcFirst tree )
+      environment substitutions seed in
+    if syntaxTag cond == " TCFault " then cond
+    else
+      match tcUnify ( tcResultType cond ) ( tcBase " Bool " )
+        ( tcResultSubs cond ) with
+      | Error message -> tcFault message
+      | Ok afterCond ->
+        let yes = tcInferExpression ( tcSecond tree )
+          environment afterCond ( tcResultSeed cond ) in
+        if syntaxTag yes == " TCFault " then yes
+        else let no = tcInferExpression ( tcThird tree )
+          environment ( tcResultSubs yes ) ( tcResultSeed yes ) in
+          if syntaxTag no == " TCFault " then no
+          else match tcUnify ( tcResultType yes ) ( tcResultType no )
+            ( tcResultSubs no ) with
+          | Error message -> tcFault message
+          | Ok updated ->
+            tcInferResult ( tcNormalize ( tcResultType yes ) updated )
+              updated ( tcResultSeed no )
+  else tcFault ( textConcat " Unsupported core expression: " tag ) ;
+
+# Top-level definitions are inferred with a monomorphic placeholder for
+# recursion. Only after the definition succeeds do we generalize against
+# the previous environment. Expressions record their inferred result types.
+def tcCheckForms forms environment substitutions seed reversed =
+  match forms with
+  | [] -> syntaxNode " TCChecked " ( reverse reversed )
+  | form :: rest ->
+    let tag = syntaxTag form in
+    if tag == " Define " then
+      let name = syntaxText ( tcFirst form ) in
+      if syntaxTag ( tcFind name environment ) != " TCMissing " then
+        tcFault ( textConcat " Duplicate definition: " name )
+      else let provisional = tcVar seed in
+        let recursive = cons
+          ( tcBinding name ( tcScheme provisional [] ) ) environment in
+        let inferred = tcInferExpression ( tcSecond form ) recursive
+          substitutions ( tcNext seed ) in
+        if syntaxTag inferred == " TCFault " then inferred
+        else match tcUnify provisional ( tcResultType inferred )
+          ( tcResultSubs inferred ) with
+        | Error message -> tcFault message
+        | Ok updated ->
+          let scheme = tcGeneralize provisional environment updated in
+          tcCheckForms rest
+            ( cons ( tcBinding name scheme ) environment )
+            updated ( tcResultSeed inferred ) reversed
+    else if tag == " Evaluate " then
+      let inferred = tcInferExpression ( tcFirst form ) environment
+        substitutions seed in
+      if syntaxTag inferred == " TCFault " then inferred
+      else tcCheckForms rest environment ( tcResultSubs inferred )
+        ( tcResultSeed inferred )
+        ( cons
+          ( tcNormalize ( tcResultType inferred ) ( tcResultSubs inferred ) )
+          reversed )
+    else tcFault ( textConcat " Unsupported top-level form: " tag ) ;
+
+# Public experimental entry points. Errors are ordinary Result[Syntax,Text],
+# not VM exceptions. The input syntax must already have macro expansion and
+# language-version numeric rewriting applied where applicable.
+def tcCheckSyntax program =
+  if syntaxTag program != " Program " then
+    if syntaxTag program == " Error " then Error ( syntaxText program )
+    else Error " Expected parsed Nail program "
+  else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] in
+    if syntaxTag checked == " TCFault " then Error ( syntaxText checked )
+    else Ok checked ;
+
+# Convenience for examples using the supported subset of the modern surface
+# language. This helper is deliberately not wired into compilation yet.
+def tcCheckSource source = tcCheckSyntax ( modernRewrite ( parseSource source ) ) ;
