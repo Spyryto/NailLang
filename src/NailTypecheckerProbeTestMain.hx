@@ -95,6 +95,18 @@ class NailTypecheckerProbeTestMain {
     eq(rejected,true,'Haxe must reject same structural failure: '+body);
   }
 
+  static function deferredNailFeature(boot:BootRuntime,body:String,reason:String,
+      expectedHaxe:Array<String>):Void {
+    var source='nail 0.54 ; '+body;
+    var found=inspect(boot,source);
+    eq(found.ok,false,'unsupported feature must not appear successfully checked');
+    if(found.message.indexOf(reason)<0)
+      throw 'NAIL TYPECHECKER: deferred '+reason+' got '+found.message;
+    checks++;
+    eq(new TypeChecker().check(source),expectedHaxe,
+      'reference checker can handle the explicitly deferred feature');
+  }
+
   static function main():Void {
     var boot=new BootRuntime(60000000);
     checkGood(boot,'42 ;',['Int']);
@@ -179,6 +191,11 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'Add : Int Int Int ; '
       +'def add x y : Add = x + y ; add 1.0 2.0 ;',
       'No relation instance');
+    deferredNailFeature(boot,
+      'Join3 : Text Text Text Text ; '
+      +'def join3 a b c : Join3 = textConcat ( textConcat a b ) c ; '
+      +'join3 " A " " B " " C " ;',
+      'arity other than two',['Text']);
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
