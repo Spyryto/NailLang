@@ -1657,18 +1657,9 @@ def tcUnify left right substitutions =
   let aTag = syntaxTag a in
   let bTag = syntaxTag b in
   if aTag == " TCVar " then
-    if bTag == " TCVar " then
-      if syntaxText a == syntaxText b then Ok substitutions
-      else if tcOccurs ( syntaxText a ) b substitutions then
-        Error " Recursive type "
-      else Ok ( cons ( tcBinding ( syntaxText a ) b ) substitutions )
-    else if tcOccurs ( syntaxText a ) b substitutions then
-      Error " Recursive type "
-    else Ok ( cons ( tcBinding ( syntaxText a ) b ) substitutions )
+    tcBindType ( syntaxText a ) b substitutions
   else if bTag == " TCVar " then
-    if tcOccurs ( syntaxText b ) a substitutions then
-      Error " Recursive type "
-    else Ok ( cons ( tcBinding ( syntaxText b ) a ) substitutions )
+    tcBindType ( syntaxText b ) a substitutions
   else if aTag == " TCStruct " then
     if bTag == " TCStruct " then
       tcUnifyStructs ( syntaxChildren a ) ( syntaxChildren b ) substitutions
@@ -1713,10 +1704,14 @@ def tcPretty ty =
 
 # Hindley-Milner schemes: a term plus the variables quantified by its scope.
 # Free variables are represented by the same TCVar Syntax leaves as types.
-def tcScheme ty quantifiers =
-  syntaxNode " TCScheme " [ ty , syntaxNode " TCQuant " quantifiers ] ;
+def tcSchemeQualified ty quantifiers comparable =
+  syntaxNode " TCScheme "
+    [ ty , syntaxNode " TCQuant " quantifiers ,
+      syntaxNode " TCEqQuant " comparable ] ;
+def tcScheme ty quantifiers = tcSchemeQualified ty quantifiers [] ;
 def tcSchemeType scheme = tcFirst scheme ;
 def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
+def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
 
 def tcContainsVar label variables =
   match variables with
@@ -1779,7 +1774,9 @@ def tcGeneralize ty environment substitutions =
   let normalized = tcNormalize ty substitutions in
   let free = tcFreeType normalized [] in
   let fixed = tcFreeEnvironment environment substitutions in
-  tcScheme normalized ( tcExceptVars free fixed ) ;
+  let quantified = tcExceptVars free fixed in
+  tcSchemeQualified normalized quantified
+    ( tcFindEqQuantifiers quantified substitutions ) ;
 
 # The counter is a text string ("t", "tx", "txx", ...), avoiding a native
 # type-variable allocator and keeping generated variable IDs deterministic.
@@ -1810,7 +1807,11 @@ def tcInstantiate scheme substitutions seed =
     ( tcSchemeQuantifiers scheme ) seed [] in
   let instance = tcNormalize
     ( tcSchemeType scheme ) ( tcRenameSubs renaming ) in
-  tcInferResult instance substitutions ( tcRenameSeed renaming ) ;
+  let required = tcInstantiateEq ( tcSchemeComparable scheme )
+    ( tcRenameSubs renaming ) substitutions in
+  if syntaxTag required == " TCFault " then required
+  else tcInferResult instance ( syntaxChildren required )
+    ( tcRenameSeed renaming ) ;
 
 # A deliberately limited, typed prelude for the *first* independent
 # checker prototype. Overloaded numeric relations and Eq are not yet
