@@ -395,11 +395,37 @@ a mutable global serial, and nested invocations use distinct paths.
 
 Error cases (duplicate macro names/parameters, unknown macro or unquote
 parameter, malformed quote and nested quote) return `MacroError` Syntax.
-Recursive expansion has a depth limit. This is deliberately not a silent
-fallback to Haxe when unsupported constructs are found: macro
-`import`/`export` remain **outside this first Nail-owned expansion
-subset** and return an explicit error. The production compiler still uses
-the Haxe syntax expander.
+Recursive expansion has a depth limit.
+
+### Module-aware Nail macro expansion (opt-in)
+
+`nailMacroExpandWithModules` accepts `NMRequest(Program, NMModules)`, where
+`NMModules` holds `TCBinding(moduleName, Program)` entries. The expansion
+logic is **written in Nail**: module scope, selective imports and exports,
+transitive dependency traversal, lexical capture of imported definitions,
+re-export restrictions, duplicate checking and circular import detection.
+Definitions retain the environment in which they were declared; imports
+do not inherit the caller's variables.
+
+`NailMacroModuleInputs.collect` is a narrow Haxe adapter. It asks a
+caller-provided resolver for source text **once per logical module**, parses
+the returned source using Nail's `parseSource` and `modernRewrite`, and
+collects transitive import keys by reading Nail's Syntax. It does **not**
+invoke the Haxe parser, macro expander, or typechecker. It checks module
+dialect compatibility and bounds module discovery to 256 entries.
+
+Use `NailSourceAnalysis.analyzeNailMacros(source, boot, resolver, sourceId)`
+to opt into this path, or call `tcCheckSourceNailModulesTraced` with the
+corresponding prepared `NMSourceRequest` Syntax directly. Diagnostic
+origin mapping remains a separate optional Haxe read-only sidecar, which
+can replay the production expander for source positions but **never**
+controls the Nail type verdict. Neither existing `analyze` nor the
+production compiler switches expansion strategies.
+
+The tests compare the Nail-expanded program with the Haxe oracle up to
+bound-variable alpha-equivalence, including transitive imports, lexical
+capture, typed contextual DSLs, imported macro validity and rejection of
+non-exported/re-exported names and import cycles.
 
 The `tcCheckSourceNailMacrosTraced` experiment runs the entire **local**
 source checking pipeline through Nail's typed parser, normalized numeric
@@ -418,11 +444,13 @@ variable capture or wrong lexical resolution fails the comparison. Tests
 also check Nail's type verdict independently on both expanded programs,
 and validate rejection of malformed macro declarations and calls.
 
-**Known gaps before substitution in the public compiler:** imported macro
-modules and exports, full equivalence of error messages, work/node-count
-limits, generated-node provenance continuity, performance under large
-recursive templates, and differential parity over the complete macro
-corpus. The presence of this entry point is not a release guarantee.
+**Known gaps before substitution in the public compiler:** full
+equivalence of error messages, a global work/node-count limit (only
+expansion depth and module discovery are bounded), pure Nail provenance
+through all generated nodes, performance under large recursive templates,
+memoized module export evaluation within the Nail transformer, and
+differential parity over the full macro corpus. The existing production
+compiler remains authoritative.
 
 ## Parity and coverage gaps
 
