@@ -430,9 +430,10 @@ class NailSourceAnalysis {
           MacroModuleDialect.requireCompatible(
             numeric.LanguageVersion.declared(source),
             numeric.NumericDialect.isExact(source), moduleSource, name);
-          // Parse imported source using the same Nail bytecode parser as
-          // the caller; the host only supplies module text.
-          return runtime.invoke('parseSource',Text(moduleSource));
+          // Preserve 1 (Int) vs 1.0 (Float) before an AST Syntax round-trip.
+          // Both parsing and numeric rewriting happen in Nail bytecode.
+          return runtime.invoke('modernRewrite',
+            runtime.invoke('parseSource',Text(moduleSource)));
         });
         result = runtime.invoke('tcCheckExpandedTypedTraced',
           SyntaxNode('TCExpansionRequest',
