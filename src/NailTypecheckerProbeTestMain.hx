@@ -742,6 +742,22 @@ class NailTypecheckerProbeTestMain {
     var typedResolver=(name:String) -> name == 'typedHelpers'
       ? typedIdentity : null;
 
+    var numericSpellings='nail 0.54 ; import identity from typedHelpers ; '
+      +'expand identity 1 ; expand identity 1.0 ; '
+      +'expand identity 2.50 ;';
+    report=NailSourceAnalysis.analyze(numericSpellings,boot,typedResolver);
+    eq(report.ok,true,'imported macros preserve numerical literal spelling');
+    eq(report.types,['Int','Float','Float'],
+      'macro syntax conversion cannot silently convert decimal Float to Int');
+
+    var badMixedNumeric='nail 0.54 ; import identity from typedHelpers ; '
+      +'expand identity ( 1.0 + 2 ) ;';
+    report=NailSourceAnalysis.analyze(badMixedNumeric,boot,typedResolver);
+    eq(report.ok,false,
+      'imported macro cannot make mixed Int/Float addition look well typed');
+    eq(report.diagnostics[0].message.indexOf('No numeric relation instance') >= 0,
+      true,'mixed numeric types retain the checker rejection');
+
     var typedHtml='nail 0.54 ; '
       +'import identity from typedHelpers ; '
       +'type Html = { h2 : Text Text , div : Text Text } ; '
