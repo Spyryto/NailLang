@@ -3377,10 +3377,29 @@ def tcCheckSumDeclaration form rest environment substitutions seed reversed alia
 
 # Fuel is an immutable Number threaded through *all* executable macro
 # expression visits and top-level forms. No mutable VM state or opcode.
-type NMExpansionStep { result Syntax remaining Number } ;
-def nmPack result remaining = NMExpansionStep result remaining ;
+type NMExpansionStep { result Syntax remaining Number trace Syntax } ;
+
+# The provenance tree is a sidecar, never an extra expression constructor.
+# Paths are structural child indices (0/1/2), rooted at a macro template.
+# Caller-owned syntax is distinct from template-generated syntax.
+def nmNoTrace = syntaxLeaf " NMNoTrace " " " ;
+def nmSource owner macro path =
+  syntaxNode " NMSource " [ syntaxName owner , syntaxName macro ,
+    syntaxName path ] ;
+def nmAt source child =
+  if syntaxTag source != " NMSource " then nmNoTrace
+  else nmSource ( syntaxText ( tcFirst source ) )
+    ( syntaxText ( tcSecond source ) )
+    ( textConcat ( syntaxText ( tcThird source ) ) child ) ;
+def nmTrace origin children =
+  syntaxNode " NMTrace " [ origin , syntaxNode " NMTraceNodes " children ] ;
+def nmPackTrace result remaining trace =
+  NMExpansionStep result remaining trace ;
+def nmPack result remaining =
+  nmPackTrace result remaining nmNoTrace ;
 def nmValue step = step . result ;
 def nmRemaining step = step . remaining ;
+def nmTraceOf step = step . trace ;
 def nmBad step = nmIsError ( nmValue step ) ;
 def nmOutOfFuel fuel =
   nmPack ( syntaxLeaf " MacroError " " macro expansion work limit exceeded " ) fuel ;
@@ -3588,7 +3607,12 @@ def nmValidateChildren fn arg params name depth =
 
 # A macro invocation is a left-associated Apply spine whose head is
 # ( #macro_expand macroName ). Arguments are collected in source order.
-def nmInvocation tree args =
+# Arguments retain their *source* locations even when they are later
+# substituted through unquote or expanded by a nested macro.
+def nmArgument expr source =
+  syntaxNode " NMArgument " [ expr , source ] ;
+
+def nmInvocation tree args source =
   if syntaxTag tree != " Apply " then
     syntaxLeaf " NMNotCall " " "
   else let fn = tcFirst tree in
@@ -3600,8 +3624,12 @@ def nmInvocation tree args =
         else syntaxNode " NMCall "
           [ syntaxName ( syntaxText arg ) ,
             syntaxNode " NMArgs " args ]
-      else nmInvocation fn ( cons arg args )
-    else nmInvocation fn ( cons arg args ) ;
+      else nmInvocation fn
+        ( cons ( nmArgument arg ( nmAt source " 1 " ) ) args )
+        ( nmAt source " 0 " )
+    else nmInvocation fn
+      ( cons ( nmArgument arg ( nmAt source " 1 " ) ) args )
+      ( nmAt source " 0 " ) ;
 
 def nmDropArguments params args =
   match params with
@@ -3616,6 +3644,8 @@ def nmDropArguments params args =
 # Each recursive syntax visit consumes one fuel unit. The remaining fuel
 # is passed to the next sibling, including caller arguments and extra args.
 # This bounds total expansion visits rather than just nesting depth.
+# Evaluate caller arguments with their own provenance. A binding stores
+# NMArgument(expandedSyntax, provenanceTree); unquote does not relabel it.
 def nmBindArguments params args scope holes locals seed depth entries fuel =
   match params with
   | [] -> nmPack ( nmBindings entries ) fuel
@@ -3623,23 +3653,30 @@ def nmBindArguments params args scope holes locals seed depth entries fuel =
     match args with
     | [] -> nmPack ( nmError " missing macro argument " ) fuel
     | arg :: rest ->
-      let substituted = nmWalk arg scope holes locals
-        ( nmChild seed " _a " ) ( depth + 1 ) fuel in
+      let substituted = nmWalk ( tcFirst arg ) scope holes locals
+        ( nmChild seed " _a " ) ( depth + 1 ) fuel
+        ( tcSecond arg ) in
       if nmBad substituted then substituted
       else nmBindArguments remaining rest scope holes locals
         ( nmChild seed " _next " ) ( depth + 1 )
-        ( cons ( tcBinding ( syntaxText param ) ( nmValue substituted ) )
+        ( cons
+          ( tcBinding ( syntaxText param )
+            ( nmArgument ( nmValue substituted )
+              ( nmTraceOf substituted ) ) )
           entries ) ( nmRemaining substituted ) ;
 
-def nmApplyExtra result extras scope holes locals seed depth fuel =
+def nmApplyExtra result extraTrace extras scope holes locals seed depth fuel =
   match extras with
-  | [] -> nmPack result fuel
+  | [] -> nmPackTrace result fuel extraTrace
   | arg :: rest ->
-    let expanded = nmWalk arg scope holes locals
-      ( nmChild seed " _extra " ) ( depth + 1 ) fuel in
+    let expanded = nmWalk ( tcFirst arg ) scope holes locals
+      ( nmChild seed " _extra " ) ( depth + 1 ) fuel
+      ( tcSecond arg ) in
     if nmBad expanded then expanded
-    else nmApplyExtra ( syntaxApply result ( nmValue expanded ) ) rest
-      scope holes locals ( nmChild seed " _next " )
+    else nmApplyExtra
+      ( syntaxApply result ( nmValue expanded ) )
+      ( nmTrace nmNoTrace [ extraTrace , nmTraceOf expanded ] )
+      rest scope holes locals ( nmChild seed " _next " )
       ( depth + 1 ) ( nmRemaining expanded ) ;
 
 def nmExpandCall call scope holes locals seed depth fuel =
@@ -3657,12 +3694,15 @@ def nmExpandCall call scope holes locals seed depth fuel =
       if nmBad bound then bound
       else let captured = syntaxChildren ( tcFourth definition ) in
         let ownScope = cons ( tcBinding name definition ) captured in
+        let source = nmSource ( syntaxText ( tcFifth definition ) )
+          name " " in
         let generated = nmWalk ( tcThird definition ) ownScope
           ( nmValue bound ) ( nmBindings [] )
           ( nmChild seed " _template " ) ( depth + 1 )
-          ( nmRemaining bound ) in
+          ( nmRemaining bound ) source in
         if nmBad generated then generated
         else nmApplyExtra ( nmValue generated )
+          ( nmTraceOf generated )
           ( nmDropArguments params args )
           scope holes locals ( nmChild seed " _remaining " )
           ( depth + 1 ) ( nmRemaining generated ) ;
@@ -3741,7 +3781,7 @@ def nmWalk tree scope holes locals seed depth fuel =
     else nmPack tree available ;
 
 def nmWalkApplication tree fn arg scope holes locals seed depth fuel =
-  let invocation = nmInvocation tree [] in
+  let invocation = nmInvocation tree [] nmNoTrace in
   if nmIsError invocation then nmPack invocation fuel
   else if syntaxTag invocation == " NMCall " then
     nmExpandCall invocation scope holes locals seed ( depth + 1 ) fuel
@@ -3827,7 +3867,7 @@ def nmUniqueCall first second =
 def nmFindUniqueCall tree =
   let tag = syntaxTag tree in
   if tag == " Apply " then
-    let call = nmInvocation tree [] in
+    let call = nmInvocation tree [] nmNoTrace in
     if syntaxTag call == " NMCall " then call
     else nmUniqueCall
       ( nmFindUniqueCall ( tcFirst tree ) )
