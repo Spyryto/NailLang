@@ -657,7 +657,7 @@ def parseNamedDefinition prefix tokens =
           if isEmpty ( syntaxChildren params ) then parsePeek ( tail afterParams )
           else " _ "
           else " _ " in
-        let startBody = if hasTrailing then tail ( tail afterParams ) else tail afterParams in
+        let startBody = if hasTrailing then tail ( tail ( tail afterParams ) ) else tail afterParams in
         if prefix != " " then
           if hasTrailing then parseError " Macro relations are not supported "
           else if isEmpty ( syntaxChildren annotations ) == false then
