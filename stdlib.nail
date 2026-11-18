@@ -1833,9 +1833,7 @@ def tcBuiltinType name =
     tcBinding " isEmpty "
       ( tcScheme
         ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
-        [ tcVar " a " ] ) ,
-    tcBinding " #nail_tc_no_numeric_overloads "
-      ( tcScheme ( tcBase " Bool " ) [] )
+        [ tcVar " a " ] )
   ] ;
 
 # Core inference covers all five expression constructors (a Nil literal is
@@ -1861,7 +1859,7 @@ def tcInferExpression tree environment substitutions seed =
     else if kind == " Ratio " then
       tcInferResult ( tcBase " Ratio " ) substitutions seed
     else if kind == " Number " then
-      tcInferResult ( tcBase " Number " ) substitutions seed
+      tcInferResult ( tcBase " Float " ) substitutions seed
     else if kind == " ExactNumber " then
       tcInferResult ( tcBase " Exact " ) substitutions seed
     else if kind == " Text " then
