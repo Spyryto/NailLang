@@ -374,6 +374,56 @@ propagation. A future positioned parser written in Nail could replace the
 read-only Haxe sidecar. The current implementation remains opt-in and is
 exercised on Haxe, Node and PHP.
 
+## Dogfooding: hygienic macro expander written in Nail
+
+The **opt-in experimental** `nailMacroExpandSyntax` function implements the
+core of local hygienic macro expansion entirely in Nail (near the end of
+`stdlib.nail`). It accepts and returns `Program` Syntax:
+
+```nail
+nailMacroExpandSyntax ( parseSource source )
+```
+
+The transformation handles local `macro name params = quote ( expression )`
+declarations; `expand` invocation spines, positional `unquote` substitution,
+overapplied macro results, lexical macro scope and self-reference,
+source-scope caller arguments, and hygienic `Lambda` binding renaming.
+Templates resolve free identifiers to reserved `#macro_global_` names;
+binders introduced in templates receive reserved `#macro_local_` names.
+The names are deterministic from their structural expansion paths, not from
+a mutable global serial, and nested invocations use distinct paths.
+
+Error cases (duplicate macro names/parameters, unknown macro or unquote
+parameter, malformed quote and nested quote) return `MacroError` Syntax.
+Recursive expansion has a depth limit. This is deliberately not a silent
+fallback to Haxe when unsupported constructs are found: macro
+`import`/`export` remain **outside this first Nail-owned expansion
+subset** and return an explicit error. The production compiler still uses
+the Haxe syntax expander.
+
+The `tcCheckSourceNailMacrosTraced` experiment runs the entire **local**
+source checking pipeline through Nail's typed parser, normalized numeric
+Syntax, Nail's macro expander, typed metadata restoration, and Nail's HM
+checker. It does not invoke the Haxe expander or typechecker:
+
+```haxe
+var checked = boot.invoke("tcCheckSourceNailMacrosTraced",
+  nail.Value.Text("nail 0.54 ; macro id x = quote ( unquote x ) ; expand id 1 ;"));
+```
+
+The test suite `NailTypecheckerProbeTestMain` checks the resulting Syntax
+against the Haxe macro oracle **up to alpha-equivalence**. It normalizes
+only bound variable names: free global names remain exact, so unintended
+variable capture or wrong lexical resolution fails the comparison. Tests
+also check Nail's type verdict independently on both expanded programs,
+and validate rejection of malformed macro declarations and calls.
+
+**Known gaps before substitution in the public compiler:** imported macro
+modules and exports, full equivalence of error messages, work/node-count
+limits, generated-node provenance continuity, performance under large
+recursive templates, and differential parity over the complete macro
+corpus. The presence of this entry point is not a release guarantee.
+
 ## Parity and coverage gaps
 
 The Haxe checker is used **only in differential tests**, not by the Nail
