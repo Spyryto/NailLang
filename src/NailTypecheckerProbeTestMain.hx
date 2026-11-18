@@ -138,16 +138,38 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'( fun x -> x ) == ( fun y -> y ) ;',
       'Eq constraints');
     checkBad(boot,'[ 1 ] == [ true ] ;','Type mismatch');
-    var qualifiedEqSource='nail 0.54 ; '
-      +'def same x y = x == y ; same 3 3 ;';
-    var qualifiedEq=inspect(boot,qualifiedEqSource);
-    eq(qualifiedEq.ok,false,
-      'generic equality must be rejected until qualified HM schemes exist');
-    if(qualifiedEq.message.indexOf('Eq constraints')<0)
-      throw 'NAIL TYPECHECKER: unexpected qualified Eq diagnostic '+qualifiedEq.message;
-    checks++;
-    eq(new TypeChecker().check(qualifiedEqSource),['Bool'],
-      'reference checker already supports polymorphic Eq constraints');
+    checkGood(boot,
+      'def same x y = x == y ; same 3 3 ; same true false ; '
+      +'same " A " " B " ;',
+      ['Bool','Bool','Bool']);
+    checkGood(boot,
+      'def same x y = x == y ; '
+      +'same [ 1 , 2 ] [ 1 , 3 ] ; '
+      +'same [ true ] [ false ] ;',
+      ['Bool','Bool']);
+    checkGood(boot,
+      'def same x y = x == y ; '
+      +'let compare = same in compare 1 2 ; compare " A " " B " ;',
+      ['Bool','Bool']);
+    checkGood(boot,
+      'def same x y = x == y ; def eqList xs ys = same xs ys ; '
+      +'eqList [ 1 ] [ 2 ] ; eqList [ true ] [ false ] ;',
+      ['Bool','Bool']);
+    checkGood(boot,
+      'def same x y = x == y ; '
+      +'same { x = 1 , y = true } { x = 1 , y = false } ;',
+      ['Bool']);
+    checkBad(boot,
+      'def same x y = x == y ; same 1 " Mismatch " ;',
+      'Type mismatch');
+    checkBad(boot,
+      'def same x y = x == y ; '
+      +'same ( fun a -> a ) ( fun b -> b ) ;',
+      'Eq constraint');
+    checkBad(boot,
+      'def same x y = x == y ; '
+      +'same [ fun x -> x ] [ fun y -> y ] ;',
+      'Eq constraint');
     checkGood(boot,'[ 1 , 2 , 3 ] ;',['[Int]']);
     checkGood(boot,'head [ 1 , 2 ] ;',['Int']);
     checkBad(boot,'[ 1 , true ] ;','Type mismatch');
