@@ -2567,9 +2567,87 @@ def tcInferNumericApply tree environment substitutions seed =
         if syntaxTag output == " TCFault " then output
         else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg ) ;
 
-# Equality is structural for known comparable types. Free type variables
-# require Eq-qualified HM schemes (still pending); do not infer an
-# unrestricted, unsound equality function from an unknown parameter.
+# Eq qualifications are stored in the same persistent substitution stream
+# as type bindings, under disjoint compiler-private keys. This gives each
+# unification step access to both type substitutions and Eq requirements.
+def tcEqKey variable = textConcat " #nail_eq_ " variable ;
+def tcHasEq variable substitutions =
+  syntaxTag ( tcFind ( tcEqKey variable ) substitutions ) != " TCMissing " ;
+
+def tcMarkEq variable substitutions =
+  if tcHasEq variable substitutions then substitutions
+  else cons
+    ( tcBinding ( tcEqKey variable ) ( tcBase " Bool " ) )
+    substitutions ;
+
+def tcFindEqQuantifiers quantifiers substitutions =
+  match quantifiers with
+  | [] -> []
+  | variable :: rest ->
+    let other = tcFindEqQuantifiers rest substitutions in
+    if tcHasEq ( syntaxText variable ) substitutions then
+      cons variable other
+    else other ;
+
+# An Eq requirement propagates through structured types, marking every
+# unresolved component and rejecting functions. The fold is transactional:
+# failures do not leak into the caller's immutable substitutions.
+def tcRequireEqFields fields substitutions =
+  match fields with
+  | [] -> Ok substitutions
+  | field :: rest ->
+    match tcRequireComparable ( tcSecond field ) substitutions with
+    | Error message -> Error message
+    | Ok updated -> tcRequireEqFields rest updated ;
+
+def tcRequireComparable ty substitutions =
+  let t = tcFollow ty substitutions in
+  let tag = syntaxTag t in
+  if tag == " TCVar " then
+    Ok ( tcMarkEq ( syntaxText t ) substitutions )
+  else if tag == " TCBase " then
+    if tcComparable t substitutions then Ok substitutions
+    else Error " Eq constraint requires a comparable type "
+  else if tag == " TCList " then
+    tcRequireComparable ( tcFirst t ) substitutions
+  else if tag == " TCStruct " then
+    tcRequireEqFields ( syntaxChildren t ) substitutions
+  else if tag == " TCRowField " then
+    match tcRequireComparable ( tcSecond t ) substitutions with
+    | Error message -> Error message
+    | Ok updated -> tcRequireComparable ( tcThird t ) updated
+  else Error " Eq constraint requires a comparable type " ;
+
+# All type-variable bindings share this path. Otherwise a variable
+# previously marked Eq could silently become a function after unification.
+def tcBindType variable ty substitutions =
+  if syntaxTag ty == " TCVar " then
+    if syntaxText ty == variable then Ok substitutions
+    else tcBindDifferentType variable ty substitutions
+  else tcBindDifferentType variable ty substitutions ;
+
+def tcBindDifferentType variable ty substitutions =
+  if tcOccurs variable ty substitutions then
+    Error " Recursive type "
+  else if tcHasEq variable substitutions then
+    match tcRequireComparable ty substitutions with
+    | Error message -> Error message
+    | Ok updated ->
+      Ok ( cons ( tcBinding variable ty ) updated )
+  else Ok ( cons ( tcBinding variable ty ) substitutions ) ;
+
+# Instantiate qualifiers using the *same* fresh renaming as their scheme
+# body. Generic equality thus remains checked at every call site.
+def tcInstantiateEq quantified renaming substitutions =
+  match quantified with
+  | [] -> syntaxNode " TCSubstitutions " substitutions
+  | variable :: rest ->
+    let fresh = tcFind ( syntaxText variable ) renaming in
+    if syntaxTag fresh == " TCMissing " then
+      tcFault " Malformed Eq scheme quantifier "
+    else match tcRequireComparable fresh substitutions with
+    | Error message -> tcFault message
+    | Ok updated -> tcInstantiateEq rest renaming updated ;
 def tcComparableFields fields substitutions =
   match fields with
   | [] -> true
@@ -2617,6 +2695,7 @@ def tcInferEqualityApply tree environment substitutions seed =
       ( tcResultSubs second ) with
     | Error message -> tcFault message
     | Ok updated ->
-      if tcComparable ( tcResultType first ) updated == false then
-        tcFault " Eq constraints for unresolved or function types are not supported "
-      else tcInferResult ( tcBase " Bool " ) updated ( tcResultSeed second ) ;
+      match tcRequireComparable ( tcResultType first ) updated with
+      | Error message -> tcFault message
+      | Ok constrained -> tcInferResult
+          ( tcBase " Bool " ) constrained ( tcResultSeed second ) ;
