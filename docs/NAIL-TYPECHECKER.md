@@ -22,6 +22,7 @@ existing VM and primitive boundary are unchanged.
 | Function / list | `syntaxNode "TCFun"/"TCList"` |
 | Closed structural record | `syntaxNode "TCStruct" fields` |
 | Open structural requirement | `syntaxNode "TCRowField" [name, type, rest]` |
+| Nominal record/sum | `syntaxNode "TCNominal" [kind, owner, typeArguments]` |
 | Polymorphic scheme | `syntaxNode "TCScheme" [term, quantifiers, EqQuantifiers]` |
 | Substitutions / environments | Persistent association lists |
 | Inference outcome | `Ok(TCChecked)` or `Error(Text)` |
@@ -41,6 +42,13 @@ Unification performs an **occurs check** to reject infinite types.
   and type-variable lists
 - Closed anonymous record fields and **limited open-row projection** of
   unknown record parameters, including width matching against known records
+- **Nominal record constructors**, typed positional and named-field creation,
+  generic parameters and field accessors, with nominal identity enforced on
+  unification; an unbound receiver's field selects a nominal owner only
+  when that field is unique across declared records
+- **Algebraic sum constructors**, including zero-field cases and polymorphic
+  variants (for example `type Option a = None | Some a`); distinct sum
+  owners remain distinct, with predicate and positional accessor signatures
 - **Optional parameter and value annotations**, structural type aliases
   `type Html = { h2 : Text Text , div : Text Text }`, required-field
   validation with allowance for additional implementation fields
@@ -134,6 +142,35 @@ persistent binding stream as substitutions (with a disjoint private key),
 and the scheme preserves the quantified variables that are comparable.
 The compiler does not perform runtime type-class dispatch.
 
+## Example: nominal identity and generic constructors
+
+```nail
+type Person { name Text age Int } ;
+type Badge { owner Person valid Bool } ;
+( Badge { owner = Person " Ada " 35 , valid = true } ) . owner . name ;
+
+type Box a { value a } ;
+( Box 21 ) . value ;
+( Box true ) . value ;
+
+type Option a = None | Some a ;
+Some 3 ;
+Some true ;
+```
+
+Record constructors and generic sum constructors are checked through
+ordinary polymorphic schemes in the lexical type environment. A nominal
+record field accessor is resolved to one declared owner when unambiguous;
+two owners declaring the same field require a more explicit use or will
+raise an ambiguity diagnostic. Nominal identity cannot be forged by
+providing the same structural fields. The runtime already lowers all
+these declarations to ordinary `Define` forms: the new logic exists only
+in the Nail-written type checker.
+
+The generic constructor tests compare Nail's output with the separate
+Haxe checker. Sum-pattern checking and nominal public-interface ABI
+validation are not yet claimed by this experiment.
+
 ## Parity and coverage gaps
 
 The Haxe checker is used **only in differential tests**, not by the Nail
@@ -144,8 +181,11 @@ The following are not yet complete:
 - Higher-order and partially applied overloaded numerical relations,
   nonconcrete numeric operand inference and explicit `Eq` syntax in
   user-authored signatures (inferred qualified schemes are implemented)
-- Nominal record/sum declarations and complete structural row algebra:
-  open-row **reordering**, row-lacks constraints and row-polymorphic ABI
+- Full **sum-pattern exhaustiveness** and destructuring (the current
+  source-free parser lowers patterns to core expressions before the checker
+  sees the original pattern); variant diagnostics and generic recursion edges
+- Complete structural row algebra: open-row **reordering**, row-lacks
+  constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
 - Full standard-library primitive signatures, macro-aware typed expansion,
