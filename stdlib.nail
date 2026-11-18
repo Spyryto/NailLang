@@ -1979,7 +1979,7 @@ def tcInferExpression tree environment substitutions seed =
         environment substitutions seed in
       if syntaxTag projected == " TCFault " then projected
       else tcProjectField ( tcResultType projected )
-        ( syntaxText ( tcFirst arg ) )
+        ( syntaxText ( tcFirst arg ) ) environment
         ( tcResultSubs projected ) ( tcResultSeed projected )
     else if syntaxTag fn == " Lambda " then
       let inferred = tcInferExpression arg environment substitutions seed in
@@ -2073,7 +2073,8 @@ def tcRequireFields receiver fields substitutions seed =
   | [] -> tcInferResult receiver substitutions seed
   | field :: rest ->
     let projected = tcProjectField receiver
-      ( syntaxText ( tcFirst field ) ) substitutions seed in
+      ( syntaxText ( tcFirst field ) ) []
+      substitutions seed in
     if syntaxTag projected == " TCFault " then projected
     else match tcUnify ( tcResultType projected )
       ( tcSecond field ) ( tcResultSubs projected ) with
@@ -2380,7 +2381,10 @@ def tcCheckForms forms environment substitutions seed reversed aliases relations
   | [] -> syntaxNode " TCChecked " ( reverse reversed )
   | form :: rest ->
     let tag = syntaxTag form in
-    if tag == " RelationDecl " then
+    if tag == " RecordType " then
+      tcCheckRecordDeclaration form rest environment substitutions seed
+        reversed aliases relations
+    else if tag == " RelationDecl " then
       tcCollectRelation form rest environment substitutions seed reversed aliases relations
     else if tag == " TypeAliasDecl " then
       let name = syntaxText ( tcFirst form ) in
@@ -2553,18 +2557,43 @@ def tcInferStructuralMake tree environment substitutions seed =
   let ownerCall = tcFirst fn in
   let owner = tcSecond ownerCall in
   if syntaxTag owner != " Literal " then
-    tcFault " Malformed structural record owner "
-  else if syntaxText ( tcFirst owner ) != " #struct " then
-    tcFault " Nominal record inference is not yet implemented "
-  else tcInferStructuralFields
-    ( tcLiteralConsItems ( tcSecond fn ) )
-    ( tcLiteralConsItems ( tcSecond tree ) )
-    environment substitutions seed [] ;
+    tcFault " Malformed record owner "
+  else let name = syntaxText ( tcFirst owner ) in
+    let names = tcLiteralConsItems ( tcSecond fn ) in
+    let values = tcLiteralConsItems ( tcSecond tree ) in
+    if name == " #struct " then
+      tcInferStructuralFields names values environment substitutions seed []
+    else let entry = tcFind ( tcNominalRecordNames name ) environment in
+      if syntaxTag entry == " TCMissing " then
+        tcFault ( textConcat " Unknown nominal record owner: " name )
+      else let declared = syntaxChildren ( tcSchemeType entry ) in
+        if length declared != length names then
+          tcFault " Nominal record field count mismatch "
+        else let call = tcNominalNamedCall
+          ( syntaxVar name ) declared names values in
+          if syntaxTag call == " TCFault " then call
+          else tcInferExpression call environment substitutions seed ;
 
-def tcProjectField receiver field substitutions seed =
+def tcProjectField receiver field environment substitutions seed =
   let ty = tcFollow receiver substitutions in
   let tag = syntaxTag ty in
-  if tag == " TCStruct " then
+  if tag == " TCNominal " then
+    if tcNominalKind ty != " Record " then
+      tcFault " Sum fields must be accessed through a variant "
+    else let getter = textConcat
+      ( textConcat ( tcNominalName ty ) " . " ) field in
+      let scheme = tcFind getter environment in
+      if syntaxTag scheme == " TCMissing " then
+        tcFault ( textConcat " Missing nominal record field: " field )
+      else let instance = tcInstantiate scheme substitutions seed in
+        if syntaxTag instance == " TCFault " then instance
+        else let projected = tcVar ( tcResultSeed instance ) in
+          match tcUnify ( tcResultType instance )
+            ( tcFun ty projected ) ( tcResultSubs instance ) with
+          | Error message -> tcFault message
+          | Ok updated -> tcInferResult ( tcNormalize projected updated )
+              updated ( tcNext ( tcResultSeed instance ) )
+  else if tag == " TCStruct " then
     let found = tcFindField field ( syntaxChildren ty ) in
     if syntaxTag found == " TCMissing " then
       tcFault ( textConcat " Missing structural field: " field )
@@ -2572,7 +2601,7 @@ def tcProjectField receiver field substitutions seed =
   else if tag == " TCRowField " then
     if syntaxText ( tcFirst ty ) == field then
       tcInferResult ( tcSecond ty ) substitutions seed
-    else tcProjectField ( tcThird ty ) field substitutions seed
+    else tcProjectField ( tcThird ty ) field environment substitutions seed
   else if tag == " TCVar " then
     let member = tcVar seed in
     let tail = tcVar ( tcNext seed ) in
