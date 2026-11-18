@@ -162,6 +162,23 @@ class NailTypecheckerProbeTestMain {
     rejectsStructural(boot,'type Html = { h2 : UnknownType Text } ; '
       +'def render ( html : Html ) = html { h2 " X " } ;',
       'Unknown type');
+    checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
+      +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
+      ['Int','Float']);
+    checkGood(boot,'Div : Int Int Ratio ; Div : Float Float Float ; '
+      +'def divide x y : Div = x / y ; divide 7 2 ; divide 7.0 2.0 ;',
+      ['Ratio','Float']);
+    checkGood(boot,'Merge : Text Text Text ; '
+      +'def merge a b : Merge = textConcat a b ; '
+      +'merge " A " " B " ;',['Text']);
+    checkBad(boot,'Add : Int Int Ratio ; '
+      +'def wrong a b : Add = a + b ;','Type mismatch');
+    checkBad(boot,'Add : Int Int Int ; Add : Int Int Int ; '
+      +'def add x y : Add = x + y ;',
+      'Duplicate relation input types');
+    checkBad(boot,'Add : Int Int Int ; '
+      +'def add x y : Add = x + y ; add 1.0 2.0 ;',
+      'No relation instance');
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
