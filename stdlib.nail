@@ -2820,7 +2820,7 @@ def tcNominalParamBindings names owner reversed =
     else tcNominalParamBindings rest owner
       ( cons
         ( tcBinding name
-          ( tcVar ( textConcat ( textConcat " #nominal_" owner ) name ) ) )
+          ( tcVar ( textConcat ( textConcat " #nominal_ " owner ) name ) ) )
         reversed ) ;
 
 def tcNominalParamVars params =
