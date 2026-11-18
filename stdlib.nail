@@ -1553,6 +1553,12 @@ def tcVar label = syntaxLeaf " TCVar " label ;
 def tcBase name = syntaxLeaf " TCBase " name ;
 def tcFun domain codomain = syntaxNode " TCFun " [ domain , codomain ] ;
 def tcList element = syntaxNode " TCList " [ element ] ;
+def tcStruct fields = syntaxNode " TCStruct " fields ;
+def tcField name ty =
+  syntaxNode " TCField " [ syntaxLeaf " TCName " name , ty ] ;
+def tcRowField name ty tail =
+  syntaxNode " TCRowField "
+    [ syntaxLeaf " TCName " name , ty , tail ] ;
 def tcMissing = syntaxLeaf " TCMissing " " " ;
 def tcFault message = syntaxLeaf " TCFault " message ;
 def tcFirst tree = head ( syntaxChildren tree ) ;
@@ -1587,6 +1593,15 @@ def tcNormalize ty substitutions =
       ( tcNormalize ( tcSecond resolved ) substitutions )
   else if tag == " TCList " then
     tcList ( tcNormalize ( tcFirst resolved ) substitutions )
+  else if tag == " TCStruct " then
+    tcStruct ( map ( fun field ->
+      tcField ( syntaxText ( tcFirst field ) )
+        ( tcNormalize ( tcSecond field ) substitutions ) )
+      ( syntaxChildren resolved ) )
+  else if tag == " TCRowField " then
+    tcRowField ( syntaxText ( tcFirst resolved ) )
+      ( tcNormalize ( tcSecond resolved ) substitutions )
+      ( tcNormalize ( tcThird resolved ) substitutions )
   else resolved ;
 
 def tcOccurs variable ty substitutions =
@@ -1598,7 +1613,19 @@ def tcOccurs variable ty substitutions =
     else tcOccurs variable ( tcSecond resolved ) substitutions
   else if tag == " TCList " then
     tcOccurs variable ( tcFirst resolved ) substitutions
+  else if tag == " TCStruct " then
+    tcOccursFields variable ( syntaxChildren resolved ) substitutions
+  else if tag == " TCRowField " then
+    if tcOccurs variable ( tcSecond resolved ) substitutions then true
+    else tcOccurs variable ( tcThird resolved ) substitutions
   else false ;
+
+def tcOccursFields variable fields substitutions =
+  match fields with
+  | [] -> false
+  | field :: rest ->
+    if tcOccurs variable ( tcSecond field ) substitutions then true
+    else tcOccursFields variable rest substitutions ;
 
 def tcUnify left right substitutions =
   let a = tcFollow left substitutions in
@@ -1618,6 +1645,21 @@ def tcUnify left right substitutions =
     if tcOccurs ( syntaxText b ) a substitutions then
       Error " Recursive type "
     else Ok ( cons ( tcBinding ( syntaxText b ) a ) substitutions )
+  else if aTag == " TCStruct " then
+    if bTag == " TCStruct " then
+      tcUnifyStructs ( syntaxChildren a ) ( syntaxChildren b ) substitutions
+    else if bTag == " TCRowField " then
+      tcUnifyOpenStruct b a substitutions
+    else Error " Type mismatch "
+  else if aTag == " TCRowField " then
+    if bTag == " TCStruct " then tcUnifyOpenStruct a b substitutions
+    else if bTag == " TCRowField " then
+      if syntaxText ( tcFirst a ) == syntaxText ( tcFirst b ) then
+        match tcUnify ( tcSecond a ) ( tcSecond b ) substitutions with
+        | Error message -> Error message
+        | Ok next -> tcUnify ( tcThird a ) ( tcThird b ) next
+      else Error " Open row ordering is not yet supported "
+    else Error " Type mismatch "
   else if aTag != bTag then Error " Type mismatch "
   else if aTag == " TCBase " then
     if syntaxText a == syntaxText b then Ok substitutions
@@ -1641,6 +1683,8 @@ def tcPretty ty =
       ( textConcat
         ( textConcat " ( " ( tcPretty ( tcFirst ty ) ) ) " -> " )
         ( textConcat ( tcPretty ( tcSecond ty ) ) " ) " )
+  else if tag == " TCStruct " then " {record} "
+  else if tag == " TCRowField " then " {open-record} "
   else " <unknown-type> " ;
 
 # Hindley-Milner schemes: a term plus the variables quantified by its scope.
@@ -1682,7 +1726,20 @@ def tcFreeType ty substitutions =
     tcUnionVars
       ( tcFreeType ( tcFirst resolved ) substitutions )
       ( tcFreeType ( tcSecond resolved ) substitutions )
+  else if tag == " TCStruct " then
+    tcFreeFields ( syntaxChildren resolved ) substitutions
+  else if tag == " TCRowField " then
+    tcUnionVars
+      ( tcFreeType ( tcSecond resolved ) substitutions )
+      ( tcFreeType ( tcThird resolved ) substitutions )
   else [] ;
+
+def tcFreeFields fields substitutions =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    tcUnionVars ( tcFreeType ( tcSecond field ) substitutions )
+      ( tcFreeFields rest substitutions ) ;
 
 def tcFreeEnvironment environment substitutions =
   match environment with
@@ -1903,3 +1960,49 @@ def tcCheckSyntax program =
 # Convenience for examples using the supported subset of the modern surface
 # language. This helper is deliberately not wired into compilation yet.
 def tcCheckSource source = tcCheckSyntax ( modernRewrite ( parseSource source ) ) ;
+
+# Structural rows: a closed record is TCStruct(fields); a receiver whose
+# fields are being inferred uses TCRowField(name,type,tail). This first
+# implementation handles field projections and matching against closed
+# records. Cross-row reordering and explicit row-lacks constraints are
+# deliberately rejected rather than guessed.
+def tcFindField name fields =
+  match fields with
+  | [] -> tcMissing
+  | field :: rest ->
+    if syntaxText ( tcFirst field ) == name then tcSecond field
+    else tcFindField name rest ;
+
+def tcWithoutField name fields =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    if syntaxText ( tcFirst field ) == name then rest
+    else cons field ( tcWithoutField name rest ) ;
+
+def tcUnifyStructs left right substitutions =
+  match left with
+  | [] ->
+    if isEmpty right then Ok substitutions
+    else Error " Structural record field mismatch "
+  | field :: rest ->
+    let name = syntaxText ( tcFirst field ) in
+    let found = tcFindField name right in
+    if syntaxTag found == " TCMissing " then
+      Error " Structural record field mismatch "
+    else match tcUnify ( tcSecond field ) found substitutions with
+    | Error message -> Error message
+    | Ok updated ->
+      tcUnifyStructs rest ( tcWithoutField name right ) updated ;
+
+def tcUnifyOpenStruct row record substitutions =
+  let name = syntaxText ( tcFirst row ) in
+  let fields = syntaxChildren record in
+  let found = tcFindField name fields in
+  if syntaxTag found == " TCMissing " then
+    Error ( textConcat " Missing structural field: " name )
+  else match tcUnify ( tcSecond row ) found substitutions with
+  | Error message -> Error message
+  | Ok updated ->
+    tcUnify ( tcThird row )
+      ( tcStruct ( tcWithoutField name fields ) ) updated ;
