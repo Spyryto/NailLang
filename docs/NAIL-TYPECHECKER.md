@@ -501,16 +501,15 @@ on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
 
-**Caller-site disambiguation:** the Nail trace now carries an original
-invocation's **structural call path**. The read-only projector walks the
-already Nail-parsed caller Syntax in source order and matches its order
-against literal `expand name` token pairs. It accepts a location only
-when the complete ordered names and occurrences agree; otherwise it
-falls back to the previous unambiguous unique-call rules. This
-distinguishes repeated calls to the **same** macro within one form and
-retains the correct outermost call when an imported or nested macro
-generates the failure. The runtime Program, VM opcodes and core AST
-remain unchanged.
+**Caller-site disambiguation:** the Nail trace carries the original
+invocation's **structural call path**. The Nail-written
+`nmSourceCallTokens` traverses the unexpanded expression and emits
+ordered `NMTokenOrigin(path,macroName)` records. Haxe no longer
+reimplements the `#macro_expand` application spine: it only compares
+this list with the scanned `expand name` pairs and maps matches to
+source offsets. In case of disagreement, it falls back to prior safe
+unique-call rules. This covers repeated names, nested arguments, and
+imported macro invocations. No runtime AST or bytecode change occurs.
 
 **Conservative limits:** unsupported lowerings, source/AST call-count
 mismatches, duplicated symbolic template tokens, and absent exact source

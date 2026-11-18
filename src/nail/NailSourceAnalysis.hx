@@ -525,53 +525,6 @@ class NailSourceAnalysis {
     return null;
   }
 
-  /** Read-only caller-site mapping. Nail already carried the structural
-      invocation path across nested expansions; only the original Nail-parsed
-      Syntax and the scanner's actual keyword tokens are consulted here. */
-  static function originalMacroName(expr:Value):Null<String> return switch(expr) {
-    case SyntaxNode('Apply',Cons(SyntaxLeaf('Var','#macro_expand'),
-        Cons(SyntaxLeaf('Var',name),Nil))): name;
-    case SyntaxNode('Apply',Cons(fn,Cons(_,Nil))): originalMacroName(fn);
-    case _: null;
-  };
-
-  static function originalMacroArgs(expr:Value,path:String,
-      out:Array<{expr:Value,path:String}>):Void {
-    switch(expr) {
-      case SyntaxNode('Apply',Cons(SyntaxLeaf('Var','#macro_expand'),
-          Cons(SyntaxLeaf('Var',_),Nil))): return;
-      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
-        out.unshift({expr:arg,path:path+'1'});
-        originalMacroArgs(fn,path+'0',out);
-      case _: return;
-    }
-  }
-
-  static function originalMacroCallOrder(expr:Value,path:String,
-      out:Array<{name:String,path:String}>):Void {
-    var name=originalMacroName(expr);
-    if (name!=null) {
-      out.push({name:name,path:path});
-      var arguments:Array<{expr:Value,path:String}>=[];
-      originalMacroArgs(expr,path,arguments);
-      for (argument in arguments)
-        originalMacroCallOrder(argument.expr,argument.path,out);
-      return;
-    }
-    switch(expr) {
-      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
-        originalMacroCallOrder(fn,path+'0',out);
-        originalMacroCallOrder(arg,path+'1',out);
-      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
-        originalMacroCallOrder(body,path+'1',out);
-      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
-        originalMacroCallOrder(test,path+'0',out);
-        originalMacroCallOrder(yes,path+'1',out);
-        originalMacroCallOrder(no,path+'2',out);
-      case _:
-    }
-  }
-
   static function originalFormAt(program:Value,index:Int):Null<Value> {
     var current=0;
     for (form in syntaxChildren(program)) {
@@ -589,10 +542,10 @@ class NailSourceAnalysis {
     return null;
   }
 
-  /** Map an exact structural call path to the corresponding 'expand name'
-      pair. Requiring both ordered call lists to agree fails closed on
-      unsupported syntax/lowering instead of assigning a guessed offset. */
-  static function tracedCallSite(tokens:Array<SourceToken>,area:SourceSpan,
+  /** Nail owns call discovery and structural order; Haxe only projects
+      ordered (path,name) tokens to verified source offsets. */
+  static function tracedCallSite(boot:BootRuntime,
+      tokens:Array<SourceToken>,area:SourceSpan,
       program:Value,index:Int,callPath:String):Null<SourceSpan> {
     var form=originalFormAt(program,index);
     if (form==null) return null;
@@ -601,8 +554,7 @@ class NailSourceAnalysis {
       case SyntaxNode('Evaluate',Cons(expr,Nil)): expr;
       case _: return null;
     };
-    var calls:Array<{name:String,path:String}>=[];
-    originalMacroCallOrder(body,'',calls);
+    var calls=nailOriginTokens(boot,'nmSourceCallTokens',body);
     var keywords:Array<{name:String,span:SourceSpan}>=[];
     for (i in 0...tokens.length-1) {
       var keyword=tokens[i];
@@ -614,7 +566,7 @@ class NailSourceAnalysis {
     if (calls.length!=keywords.length) return null;
     var found:Null<SourceSpan>=null;
     for (i in 0...calls.length) {
-      if (calls[i].name!=keywords[i].name) return null;
+      if (calls[i].token!=keywords[i].name) return null;
       if (calls[i].path==callPath) {
         if (found!=null) return null;
         found=keywords[i].span;
@@ -645,7 +597,7 @@ class NailSourceAnalysis {
       case SyntaxNode('NMSource',Cons(_,Cons(
           SyntaxLeaf('Name',producer),Cons(_,Cons(
           SyntaxLeaf('Name',callPath),Nil))))) if (producer!='#caller'):
-        site=tracedCallSite(tokens,area,callerProgram,cursor.index,callPath);
+        site=tracedCallSite(boot,tokens,area,callerProgram,cursor.index,callPath);
       case _:
     }
     if (site==null) site=uniqueInForm(tokens,'expand',area);

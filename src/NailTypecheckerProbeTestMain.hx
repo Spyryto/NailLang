@@ -1268,6 +1268,50 @@ class NailTypecheckerProbeTestMain {
       firstBadCall.indexOf('expand bad'),
       'caller path also identifies the first duplicate call');
 
+
+    // The Nail-projected map retains original lexical order and full paths,
+    // even with both nested and repeated calls in the same expression.
+    var callOrderSource='nail 0.54 ; '
+      +'( expand outer ( expand inner 1 ) ) + ( expand outer 2 ) ;';
+    var callOrderParsed=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text(callOrderSource)));
+    var callOrderExpression=switch(callOrderParsed) {
+      case SyntaxNode('Program',Cons(
+          SyntaxNode('Evaluate',Cons(expr,Nil)),Nil)): expr;
+      case _: throw 'Expected original expression for Nail call order test';
+    };
+    var callOrderMap=boot.invoke('nmSourceCallTokens',callOrderExpression);
+    var mappedCalls:Array<String>=[];
+    switch(callOrderMap) {
+      case SyntaxNode('NMTokenMap',nodes):
+        var remaining:Value=nodes;
+        while (true) switch(remaining) {
+          case Cons(SyntaxNode('NMTokenOrigin',Cons(
+              SyntaxLeaf('Name',path),Cons(
+              SyntaxLeaf('Name',name),Nil))),tail):
+            mappedCalls.push(path+':'+name);
+            remaining=tail;
+          case Nil: break;
+          case _: throw 'Malformed Nail call-order token map';
+        }
+      case _: throw 'Expected Nail call-order token map';
+    }
+    eq(mappedCalls,['01:outer','011:inner','1:outer'],
+      'Nail source call map preserves nested arguments and duplicate names');
+
+    var nestedArguments='nail 0.54 ; '
+      +'macro identity x = quote ( unquote x ) ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'( expand identity ( expand add 2 ) ) + '
+      +'( expand add " text " ) ;';
+    var nestedArgumentReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedArguments,boot,null,'src/nested-expand-arguments.nail');
+    eq(nestedArgumentReport.ok,false,
+      'nested macro arguments and repeated calls are checked in Nail');
+    eq(nestedArgumentReport.diagnostics[0].span.start,
+      nestedArguments.lastIndexOf('expand add'),
+      'Nail caller-token map selects invalid repeated macro expansion');
+
     var nestedDuplicates='nail 0.54 ; '
       +'macro inner x = quote ( unquote x + 1 ) ; '
       +'macro outer x = quote ( expand inner ( unquote x ) ) ; '
