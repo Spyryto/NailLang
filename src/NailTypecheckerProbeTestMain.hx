@@ -367,7 +367,7 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'type Box a { value a } ; '
       +'macro makeBox x = quote ( Box ( unquote x ) ) ; '
       +'( expand makeBox 7 ) . value ;',['Int']);
-    checkGood(boot,'def id ( x : Int ) = x ; '
+    checkStructural(boot,'def id ( x : Int ) = x ; '
       +'macro callId x = quote ( id ( unquote x ) ) ; '
       +'expand callId 42 ;',['Int']);
     checkGood(boot,'Add : Int Int Int ; '
