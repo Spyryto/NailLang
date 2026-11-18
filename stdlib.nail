@@ -1834,12 +1834,8 @@ def tcBuiltinType name =
       ( tcScheme
         ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
         [ tcVar " a " ] ) ,
-    tcBinding " + "
-      ( tcScheme ( tcFun ( tcBase " Int " )
-        ( tcFun ( tcBase " Int " ) ( tcBase " Int " ) ) ) [] ) ,
-    tcBinding " #modern+ "
-      ( tcScheme ( tcFun ( tcBase " Int " )
-        ( tcFun ( tcBase " Int " ) ( tcBase " Int " ) ) ) [] )
+    tcBinding " #nail_tc_no_numeric_overloads "
+      ( tcScheme ( tcBase " Bool " ) [] )
   ] ;
 
 # Core inference covers all five expression constructors (a Nil literal is
@@ -1888,7 +1884,9 @@ def tcInferExpression tree environment substitutions seed =
   else if tag == " Apply " then
     let fn = tcFirst tree in
     let arg = tcSecond tree in
-    if tcIsStructuralMake tree then
+    if tcIsNumericApply tree then
+      tcInferNumericApply tree environment substitutions seed
+    else if tcIsStructuralMake tree then
       tcInferStructuralMake tree environment substitutions seed
     else if tcIsRecordGet tree then
       let projected = tcInferExpression ( tcSecond fn )
@@ -2260,3 +2258,57 @@ def tcProjectField receiver field substitutions seed =
     | Error message -> tcFault message
     | Ok updated -> tcInferResult member updated ( tcNext ( tcNext seed ) )
   else tcFault " Projection requires a record " ;
+
+# Finite numeric relations: overload selection is static, by the types of
+# *both* operands. Do not fake a single Int -> Int -> Int type for +.
+# The initial implementation supports only fully applied expressions;
+# unconstrained or partially applied overloaded operators fail closed.
+def tcNumericOperation name =
+  if name == " #modern+ " then " Add "
+  else if name == " #modern- " then " Sub "
+  else if name == " #modern* " then " Mul "
+  else if name == " #modern/ " then " Div "
+  else " _ " ;
+
+def tcIsNumericApply tree =
+  let firstCall = tcFirst tree in
+  if syntaxTag firstCall != " Apply " then false
+  else let operator = tcFirst firstCall in
+    if syntaxTag operator != " Var " then false
+    else tcNumericOperation ( syntaxText operator ) != " _ " ;
+
+def tcNumericResult relation left right =
+  if left == " Int " then
+    if right == " Int " then
+      if relation == " Div " then tcBase " Ratio "
+      else tcBase " Int "
+    else if right == " Ratio " then tcBase " Ratio "
+    else tcFault " No numeric relation instance "
+  else if left == " Ratio " then
+    if right == " Int " then tcBase " Ratio "
+    else if right == " Ratio " then tcBase " Ratio "
+    else tcFault " No numeric relation instance "
+  else if left == " Float " then
+    if right == " Float " then tcBase " Float "
+    else tcFault " No numeric relation instance "
+  else tcFault " No numeric relation instance " ;
+
+def tcInferNumericApply tree environment substitutions seed =
+  let call = tcFirst tree in
+  let op = syntaxText ( tcFirst call ) in
+  let firstArg = tcInferExpression ( tcSecond call )
+    environment substitutions seed in
+  if syntaxTag firstArg == " TCFault " then firstArg
+  else let secondArg = tcInferExpression ( tcSecond tree )
+    environment ( tcResultSubs firstArg ) ( tcResultSeed firstArg ) in
+    if syntaxTag secondArg == " TCFault " then secondArg
+    else let left = tcFollow ( tcResultType firstArg ) ( tcResultSubs secondArg ) in
+      let right = tcFollow ( tcResultType secondArg ) ( tcResultSubs secondArg ) in
+      if syntaxTag left != " TCBase " then
+        tcFault " Numeric operands require concrete types or an explicit relation "
+      else if syntaxTag right != " TCBase " then
+        tcFault " Numeric operands require concrete types or an explicit relation "
+      else let output = tcNumericResult ( tcNumericOperation op )
+        ( syntaxText left ) ( syntaxText right ) in
+        if syntaxTag output == " TCFault " then output
+        else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg ) ;
