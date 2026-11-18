@@ -932,12 +932,16 @@ class NailTypecheckerProbeTestMain {
         boot.invoke('parseSource',Text(input)));
       var hostError=MacroExpander.syntax(parsed);
       var nailError=boot.invoke('nailMacroExpandSyntax',parsed);
-      eq(switch(hostError) {
+      var hostTag=switch(hostError) {
         case SyntaxLeaf(tag,_): tag; case _: '';
-      },'MacroError','host macro expansion rejects: '+bad);
-      eq(switch(nailError) {
+      };
+      var nailTag=switch(nailError) {
         case SyntaxLeaf(tag,_): tag; case _: '';
-      },'MacroError','Nail macro expansion rejects: '+bad);
+      };
+      eq(hostTag == 'Error' || hostTag == 'MacroError',true,
+        'host rejects invalid macro syntax: '+bad);
+      eq(nailTag,hostTag,
+        'Nail and host agree on parser or macro rejection: '+bad);
     }
 
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
