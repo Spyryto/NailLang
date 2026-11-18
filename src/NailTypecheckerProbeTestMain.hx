@@ -354,6 +354,31 @@ class NailTypecheckerProbeTestMain {
       +'| Only -> 1 | Other -> 2 ) ; '
       +'expand mixed Only ;','Mixed constructors');
 
+    // Full Nail source path: preserve static type metadata while expanding
+    // macros before HM inference, without Haxe-side AST preparation.
+    checkGood(boot,option
+      +'macro unwrap p = quote ( match unquote p with '
+      +'| None -> 0 | Some value -> value ) ; '
+      +'expand unwrap ( Some 42 ) ;',['Int']);
+    checkGood(boot,'def helper x = x ; '
+      +'macro applyHelper arg = quote ( helper ( unquote arg ) ) ; '
+      +'let helper = fun x -> true in expand applyHelper 42 ;',['Int']);
+    checkGood(boot,'type Box a { value a } ; '
+      +'macro makeBox x = quote ( Box ( unquote x ) ) ; '
+      +'( expand makeBox 7 ) . value ;',['Int']);
+    checkGood(boot,'def id ( x : Int ) = x ; '
+      +'macro callId x = quote ( id ( unquote x ) ) ; '
+      +'expand callId 42 ;',['Int']);
+    checkGood(boot,'Add : Int Int Int ; '
+      +'macro sumInt x = quote ( unquote x + 1 ) ; '
+      +'expand sumInt 9 ;',['Int']);
+    checkBad(boot,option
+      +'macro partial p = quote ( match unquote p with '
+      +'| Some x -> x ) ; expand partial ( Some 1 ) ;',
+      'Non-exhaustive match');
+    checkBad(boot,'macro broken x = quote ( unquote missing ) ; '
+      +'expand broken 1 ;','unknown unquote parameter');
+
     var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
     checkStructural(boot,htmlContract
       +'def html = { h2 = fun x -> textConcat " H: " x , '
