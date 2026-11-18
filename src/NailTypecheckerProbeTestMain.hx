@@ -1,6 +1,8 @@
 import haxe.Json;
 import haxe.ds.StringMap;
 import nail.Parser;
+import nail.MacroExpander;
+import nail.SyntaxEncoder;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -18,7 +20,20 @@ class NailTypecheckerProbeTestMain {
   }
 
   static function inspect(boot:BootRuntime,source:String):{ok:Bool,types:Array<String>,message:String} {
-    var result=boot.invoke('tcCheckSource',Text(source));
+    return inspectResult(boot,boot.invoke('tcCheckSource',Text(source)));
+  }
+
+  /** Differential probe for already macro-expanded surface Syntax. This
+      isolates Nail's HM checker from the Haxe macro expansion oracle. */
+  static function inspectExpanded(boot:BootRuntime,source:String):{ok:Bool,types:Array<String>,message:String} {
+    var parser=new Parser(source);
+    var parsed=SyntaxEncoder.program(parser.parse());
+    var expanded=MacroExpander.syntax(parsed);
+    var rewritten=boot.invoke('modernRewrite',expanded);
+    return inspectResult(boot,boot.invoke('tcCheckSyntax',rewritten));
+  }
+
+  static function inspectResult(boot:BootRuntime,result:Value):{ok:Bool,types:Array<String>,message:String} {
     var tag=ResultValue.tag(result);
     if(tag==ResultValue.ERR)
       return switch(ResultValue.get(result,ResultValue.ERR)) {
@@ -68,6 +83,26 @@ class NailTypecheckerProbeTestMain {
     try new TypeChecker().check(source)
     catch(_:Dynamic) rejected=true;
     eq(rejected,true,'Haxe must also reject '+body);
+  }
+
+  static function checkMacroGood(boot:BootRuntime,body:String,expected:Array<String>):Void {
+    var source='nail 0.54 ; '+body;
+    var found=inspectExpanded(boot,source);
+    eq(found.ok,true,'expanded Nail macro success: '+body+' ('+found.message+')');
+    eq(found.types,expected,'expanded Nail macro types: '+body);
+    eq(new TypeChecker().check(source),expected,'Haxe hygienic macro parity: '+body);
+  }
+
+  static function checkMacroBad(boot:BootRuntime,body:String,reason:String):Void {
+    var source='nail 0.54 ; '+body;
+    var found=inspectExpanded(boot,source);
+    eq(found.ok,false,'expanded Nail macro must reject: '+body);
+    if(found.message.indexOf(reason)<0)
+      throw 'NAIL TYPECHECKER: macro expected '+reason+' got '+found.message;
+    checks++;
+    var rejected=false;
+    try new TypeChecker().check(source) catch(_:Dynamic) rejected=true;
+    eq(rejected,true,'Haxe must reject expanded macro source: '+body);
   }
 
   static function checkStructural(boot:BootRuntime,body:String,expected:Array<String>):Void {
@@ -291,6 +326,33 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,option+'def unknown = function '
       +'| None -> 0 | NotDeclared x -> x ;',
       'Unknown algebraic constructor');
+
+    // Hygienic macro expansion adds private #macro_local_ subject binders
+    // and #macro_global_ references to predicates, accessors and helpers.
+    // The Nail type checker must preserve the original global binding.
+    checkMacroGood(boot,option
+      +'macro unwrap p = quote ( match unquote p with '
+      +'| None -> 0 | Some value -> value ) ; '
+      +'expand unwrap ( Some 42 ) ;',['Int']);
+    checkMacroGood(boot,'type Color = Red | Blue ; '
+      +'macro color x = quote ( match unquote x with '
+      +'| Red -> " R " | Blue -> " B " ) ; '
+      +'expand color Blue ;',['Text']);
+    checkMacroGood(boot,option
+      +'macro unwrap x = quote ( function '
+      +'| None -> 0 | Some item -> item ) ; '
+      +'( expand unwrap ) ( Some 21 ) ;',['Int']);
+    checkMacroGood(boot,'def helper x = x ; '
+      +'macro applyHelper arg = quote ( helper ( unquote arg ) ) ; '
+      +'let helper = fun x -> true in expand applyHelper 42 ;',['Int']);
+    checkMacroBad(boot,option
+      +'macro missingCase x = quote ( match unquote x with '
+      +'| Some item -> item ) ; '
+      +'expand missingCase ( Some 1 ) ;','Non-exhaustive match');
+    checkMacroBad(boot,'type One = Only ; type Two = Other ; '
+      +'macro mixed x = quote ( match unquote x with '
+      +'| Only -> 1 | Other -> 2 ) ; '
+      +'expand mixed Only ;','Mixed constructors');
 
     var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
     checkStructural(boot,htmlContract
