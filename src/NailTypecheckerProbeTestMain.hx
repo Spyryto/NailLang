@@ -194,11 +194,45 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'Add : Int Int Int ; '
       +'def add x y : Add = x + y ; add 1.0 2.0 ;',
       'No relation instance');
-    deferredNailFeature(boot,
+    checkGood(boot,
       'Join3 : Text Text Text Text ; '
       +'def join3 a b c : Join3 = textConcat ( textConcat a b ) c ; '
-      +'join3 " A " " B " " C " ;',
-      'arity other than two',['Text']);
+      +'join3 " A " " B " " C " ;',['Text']);
+    checkGood(boot,
+      'Pick : Text Int Bool Text ; Pick : Bool Text Int Bool ; '
+      +'def pick x y z : Pick = x ; '
+      +'pick " A " 5 true ; pick false " B " 6 ;',
+      ['Text','Bool']);
+    checkGood(boot,
+      'Len : Text Int ; '
+      +'def len x : Len = textLengthInt x ; '
+      +'len " Hello " ;',['Int']);
+    checkGood(boot,
+      'Join4 : Text Text Text Text Text ; '
+      +'def join4 a b c d : Join4 = '
+      +'textConcat ( textConcat a b ) ( textConcat c d ) ; '
+      +'join4 " A " " B " " C " " D " ;',['Text']);
+    checkBad(boot,
+      'Pick : Text Int Bool Text ; Pick : Text Int Bool Bool ; '
+      +'def pick x y z : Pick = x ;',
+      'Duplicate relation input types');
+    checkBad(boot,
+      'Pick : Text Int Bool Text ; Pick : Text Int Text ; '
+      +'def pick x y z : Pick = x ;',
+      'Inconsistent relation arity');
+    checkBad(boot,
+      'Join3 : Text Text Text Text ; '
+      +'def join3 a b : Join3 = textConcat a b ;',
+      'Relation definition arity');
+    checkBad(boot,
+      'Join3 : Text Text Text Text ; '
+      +'def join3 a b c d : Join3 = textConcat a b ;',
+      'Relation definition arity');
+    checkBad(boot,
+      'Pick : Text Int Bool Text ; '
+      +'def pick x y z : Pick = x ; '
+      +'pick " A " true 5 ;',
+      'No relation instance');
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
