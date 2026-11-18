@@ -1212,6 +1212,70 @@ class NailTypecheckerProbeTestMain {
       case _: false;
     },true,'traced numeric operation points to its exact macro template AST root');
 
+    var numericReport=NailSourceAnalysis.analyzeNailMacros(
+      numericMacro,boot,null,'src/numeric-template.nail');
+    eq(numericReport.ok,false,'Nail reports generated numeric mismatch');
+    eq(numericReport.diagnostics[0].templateOrigin.sourceId,
+      'src/numeric-template.nail',
+      'numeric mismatch has original local macro source identity');
+    eq(numericReport.diagnostics[0].templateOrigin.span.start,
+      numericMacro.indexOf(' + ')+1,
+      'generated numeric mismatch identifies exact template operator');
+    eq(numericReport.diagnostics[0].span.start,
+      numericMacro.indexOf('expand'),
+      'generated numeric mismatch identifies original call site');
+
+    var nestedNumeric='nail 0.54 ; '
+      +'macro bad x = quote ( if true then ( unquote x + 1 ) else 0 ) ; '
+      +'expand bad " text " ;';
+    var nestedNumericReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedNumeric,boot,null,'src/numeric-if.nail');
+    eq(nestedNumericReport.ok,false,'Nail rejects invalid branch arithmetic');
+    eq(nestedNumericReport.diagnostics[0].templateOrigin.span.start,
+      nestedNumeric.indexOf(' + ')+1,
+      'checker path maps to numeric operation inside generated if-branch');
+
+    var repeatedOperators='nail 0.54 ; '
+      +'macro bad x = quote ( ( 1 + 2 ) + ( unquote x + 3 ) ) ; '
+      +'expand bad " text " ;';
+    var repeatedOperatorReport=NailSourceAnalysis.analyzeNailMacros(
+      repeatedOperators,boot,null,'src/three-operators.nail');
+    eq(repeatedOperatorReport.ok,false,
+      'generated repeated-operator term fails its type relation');
+    eq(repeatedOperatorReport.diagnostics[0].templateOrigin.span.start,
+      repeatedOperators.lastIndexOf(' + ')+1,
+      'AST source path differentiates repeated operator occurrences');
+
+    var badIf='nail 0.54 ; '
+      +'macro bad = quote ( if true then 1 else " text " ) ; '
+      +'expand bad ;';
+    var badIfReport=NailSourceAnalysis.analyzeNailMacros(
+      badIf,boot,null,'src/bad-if.nail');
+    eq(badIfReport.ok,false,'branch type mismatch from generated conditional');
+    eq(badIfReport.diagnostics[0].templateOrigin.span.start,
+      badIf.indexOf('if true'),
+      'generated conditional type mismatch points to if token');
+
+    var importedNumericSource='nail 0.54 ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
+    macroModules.set('numericBad',importedNumericSource);
+    var importedNumericCaller='nail 0.54 ; '
+      +'import bad from numericBad ; expand bad " text " ;';
+    var importedNumericReport=NailSourceAnalysis.analyzeNailMacros(
+      importedNumericCaller,boot,name -> macroModules.get(name),
+      'src/imported-numeric.nail');
+    eq(importedNumericReport.ok,false,
+      'imported template with incorrect numeric operand fails');
+    eq(importedNumericReport.diagnostics[0].templateOrigin.sourceId,
+      'numericBad',
+      'numeric failure preserves imported module identity');
+    eq(importedNumericReport.diagnostics[0].templateOrigin.span.start,
+      importedNumericSource.indexOf(' + ')+1,
+      'numeric failure resolves operator inside imported template');
+    eq(importedNumericReport.diagnostics[0].span.start,
+      importedNumericCaller.indexOf('expand'),
+      'imported numeric error retains caller site');
+
     // Symbolic provenance comes from Nail's own module and lexical scope
     // resolution. The diagnostic sidecar only translates the returned
     // source identity into original token offsets; no Haxe macro replay.
