@@ -1225,6 +1225,37 @@ class NailTypecheckerProbeTestMain {
       numericMacro.indexOf('expand'),
       'generated numeric mismatch identifies original call site');
 
+    // More than one macro invocation may occur in a single source form.
+    // Nail's failing trace identifies the producer; the source scanner may
+    // assign a site only if that macro name occurs once in that form.
+    var distinctCalls='nail 0.54 ; '
+      +'macro good x = quote ( unquote x ) ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; '
+      +'( expand good 7 ) + ( expand bad " text " ) ;';
+    var distinctReport=NailSourceAnalysis.analyzeNailMacros(
+      distinctCalls,boot,null,'src/distinct-calls.nail');
+    eq(distinctReport.ok,false,
+      'mixed source form contains a failing generated numeric expression');
+    eq(distinctReport.diagnostics[0].span.start,
+      distinctCalls.lastIndexOf('expand bad'),
+      'multiple distinct calls map to the responsible macro keyword');
+    eq(distinctReport.diagnostics[0].templateOrigin.sourceId,
+      'src/distinct-calls.nail',
+      'distinct macro call retains its local template identity');
+    eq(distinctReport.diagnostics[0].templateOrigin.span.start,
+      distinctCalls.indexOf(' + 1'),
+      'distinct macro call points to failing numeric operator');
+
+    var duplicateCall='nail 0.54 ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; '
+      +'( expand bad 2 ) + ( expand bad " text " ) ;';
+    var duplicateReport=NailSourceAnalysis.analyzeNailMacros(
+      duplicateCall,boot,null,'src/duplicate-calls.nail');
+    eq(duplicateReport.ok,false,
+      'duplicate macro calls in one form produce a type error');
+    eq(duplicateReport.diagnostics[0].span,null,
+      'ambiguous duplicate macro callsites receive no invented source offset');
+
     var nestedNumeric='nail 0.54 ; '
       +'macro bad x = quote ( if true then ( unquote x + 1 ) else 0 ) ; '
       +'expand bad " text " ;';
