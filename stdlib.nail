@@ -1917,7 +1917,27 @@ def tcBuiltinType name =
     tcBinding " isEmpty "
       ( tcScheme
         ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
-        [ tcVar " a " ] )
+        [ tcVar " a " ] ) ,
+    # The parser's private list-match lowering uses these exact aliases.
+    tcBinding " #head "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) ) ( tcVar " a " ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " #tail "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) )
+          ( tcList ( tcVar " a " ) ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " #isEmpty "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
+        [ tcVar " a " ] ) ,
+    # #sumFail is reachable only in the parser's lowered pattern fallback.
+    # A complete nominal match is checked before ordinary inference.
+    tcBinding " #sumFail "
+      ( tcScheme
+        ( tcFun ( tcVar " a " ) ( tcVar " b " ) )
+        [ tcVar " a " , tcVar " b " ] )
   ] ;
 
 # Core inference covers all five expression constructors (a Nil literal is
@@ -1984,13 +2004,21 @@ def tcInferExpression tree environment substitutions seed =
         ( syntaxText ( tcFirst arg ) ) environment
         ( tcResultSubs projected ) ( tcResultSeed projected )
     else if syntaxTag fn == " Lambda " then
-      let inferred = tcInferExpression arg environment substitutions seed in
-      if syntaxTag inferred == " TCFault " then inferred
-      else let scheme = tcGeneralize
-        ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
-        tcInferExpression ( tcSecond fn )
-          ( cons ( tcBinding ( syntaxText ( tcFirst fn ) ) scheme ) environment )
-          ( tcResultSubs inferred ) ( tcResultSeed inferred )
+      # Pattern provenance is encoded in the private binder emitted by the
+      # self-hosted parser. Validate coverage before inferring lowered code.
+      let subject = syntaxText ( tcFirst fn ) in
+      let matchCheck =
+        if subject == " #nail_sum_subject_0 " then
+          tcValidateSumBranches ( tcSecond fn ) subject environment tcMissing []
+        else syntaxNode " TCMatchOK " [] in
+      if syntaxTag matchCheck == " TCFault " then matchCheck
+      else let inferred = tcInferExpression arg environment substitutions seed in
+        if syntaxTag inferred == " TCFault " then inferred
+        else let scheme = tcGeneralize
+          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
+          tcInferExpression ( tcSecond fn )
+            ( cons ( tcBinding subject scheme ) environment )
+            ( tcResultSubs inferred ) ( tcResultSeed inferred )
     else
       let inferredFn = tcInferExpression fn environment substitutions seed in
       if syntaxTag inferredFn == " TCFault " then inferredFn
@@ -2983,6 +3011,20 @@ def tcSumCtorAccessors name owner types quantifiers environment index =
         ( tcBinding getter ( tcScheme ( tcFun owner field ) quantifiers ) )
         environment ) ( index + 1 ) ;
 
+# Private metadata for source pattern checking. Runtime values stay encoded
+# with the existing predicate and accessor functions; no new VM operation.
+def tcSumConstructorKey predicate =
+  textConcat " #tc_sum_constructor_ " predicate ;
+def tcSumCasesKey owner = textConcat " #tc_sum_cases_ " owner ;
+def tcSumConstructorMeta name owner types =
+  syntaxNode " TCSumConstructor "
+    [ syntaxName name , owner , syntaxNode " TCSumArgs " types ] ;
+def tcSumCases ctors reversed =
+  match ctors with
+  | [] -> syntaxNode " TCSumCases " ( reverse reversed )
+  | ctor :: rest ->
+    tcSumCases rest ( cons ( syntaxName ( sumCtorName ctor ) ) reversed ) ;
+
 def tcSumConstructors ctors owner params aliases quantifiers environment =
   match ctors with
   | [] -> syntaxNode " TCEnvironment " environment
@@ -2998,17 +3040,99 @@ def tcSumConstructors ctors owner params aliases quantifiers environment =
         if syntaxTag args == " TCFault " then args
         else let types = syntaxChildren args in
           let withCtor = cons
-            ( tcBinding name
-              ( tcScheme ( tcBuildFunction types owner ) quantifiers ) )
+            ( tcBinding ( tcSumConstructorKey predicate )
+              ( tcScheme ( tcSumConstructorMeta name owner types ) [] ) )
             ( cons
-              ( tcBinding predicate
-                ( tcScheme ( tcFun owner ( tcBase " Bool " ) ) quantifiers ) )
-              environment ) in
+              ( tcBinding name
+                ( tcScheme ( tcBuildFunction types owner ) quantifiers ) )
+              ( cons
+                ( tcBinding predicate
+                  ( tcScheme ( tcFun owner ( tcBase " Bool " ) ) quantifiers ) )
+                environment ) ) in
           let accessors = tcSumCtorAccessors name owner types
             quantifiers withCtor 0 in
           if syntaxTag accessors == " TCFault " then accessors
           else tcSumConstructors rest owner params aliases quantifiers
             ( syntaxChildren accessors ) ;
+
+# Validate exact lowered sum-pattern shapes, including coverage and binding
+# arity, before treating #sumFail as a polymorphic unreachable expression.
+# This also works for "function | ..." because it lowers to the same match.
+def tcSumPatternMeta condition subject environment =
+  if syntaxTag condition != " Apply " then
+    tcFault " Malformed algebraic match condition "
+  else let predicate = tcFirst condition in
+    let receiver = tcSecond condition in
+    if syntaxTag predicate != " Var " then
+      tcFault " Malformed algebraic match predicate "
+    else if syntaxTag receiver != " Var " then
+      tcFault " Malformed algebraic match receiver "
+    else if syntaxText receiver != subject then
+      tcFault " Malformed algebraic match subject "
+    else let meta = tcFind
+      ( tcSumConstructorKey ( syntaxText predicate ) ) environment in
+      if syntaxTag meta == " TCMissing " then
+        tcFault ( textConcat " Unknown algebraic constructor in match: "
+          ( syntaxText predicate ) )
+      else tcSchemeType meta ;
+
+def tcSumPatternBindings branch subject constructor index =
+  if syntaxTag branch != " Apply " then index
+  else let fn = tcFirst branch in
+    let getter = tcSecond branch in
+    if syntaxTag fn != " Lambda " then index
+    else if syntaxTag getter != " Apply " then index
+    else if syntaxTag ( tcFirst getter ) != " Var " then index
+    else if syntaxTag ( tcSecond getter ) != " Var " then index
+    else if syntaxText ( tcSecond getter ) != subject then index
+    else if syntaxText ( tcFirst getter ) !=
+      textConcat ( textConcat constructor " . " ) ( sumIndex index ) then index
+    else tcSumPatternBindings ( tcSecond fn ) subject constructor ( index + 1 ) ;
+
+def tcMissingSumCase cases seen =
+  match cases with
+  | [] -> tcMissing
+  | ctor :: rest ->
+    if tcContainsVar ( syntaxText ctor ) seen then
+      tcMissingSumCase rest seen
+    else ctor ;
+
+def tcValidateSumBranches branch subject environment owner seen =
+  if syntaxTag branch == " If " then
+    let meta = tcSumPatternMeta ( tcFirst branch ) subject environment in
+    if syntaxTag meta == " TCFault " then meta
+    else let name = syntaxText ( tcFirst meta ) in
+      let currentOwner = tcSecond meta in
+      if syntaxTag owner != " TCMissing " then
+        if tcNominalName owner != tcNominalName currentOwner then
+          tcFault " Mixed constructors in algebraic match "
+        else tcValidateSumCase branch subject environment owner seen meta name
+      else tcValidateSumCase branch subject environment currentOwner seen meta name
+  else if syntaxTag branch == " Apply " then
+    let fn = tcFirst branch in
+    let arg = tcSecond branch in
+    if syntaxTag fn != " Var " then tcFault " Malformed algebraic match fallback "
+    else if syntaxText fn != " #sumFail " then tcFault " Malformed algebraic match fallback "
+    else if syntaxTag arg != " Var " then tcFault " Malformed algebraic match fallback "
+    else if syntaxText arg != subject then tcFault " Malformed algebraic match fallback "
+    else if syntaxTag owner == " TCMissing " then tcFault " Empty algebraic match "
+    else let registered = tcFind ( tcSumCasesKey ( tcNominalName owner ) ) environment in
+      if syntaxTag registered == " TCMissing " then
+        tcFault " Missing algebraic match interface "
+      else let missing = tcMissingSumCase
+        ( syntaxChildren ( tcSchemeType registered ) ) seen in
+        if syntaxTag missing == " TCMissing " then syntaxNode " TCMatchOK " []
+        else tcFault ( textConcat " Non-exhaustive match: missing " ( syntaxText missing ) )
+  else tcFault " Malformed algebraic match fallback " ;
+
+def tcValidateSumCase branch subject environment owner seen meta name =
+  if tcContainsVar name seen then tcFault " Duplicate algebraic match branch "
+  else let expected = length ( syntaxChildren ( tcThird meta ) ) in
+    let actual = tcSumPatternBindings ( tcSecond branch ) subject name 0 in
+    if expected != actual then tcFault ( textConcat
+      " Constructor match binding arity mismatch: " name )
+    else tcValidateSumBranches ( tcThird branch ) subject environment owner
+      ( cons ( syntaxName name ) seen ) ;
 
 def tcBuildFunction args result =
   match args with
@@ -3033,5 +3157,9 @@ def tcCheckSumDeclaration form rest environment substitutions seed reversed alia
       else let registered = tcSumConstructors constructors owner
         parameterBindings knownAliases quantifiers environment in
         if syntaxTag registered == " TCFault " then registered
-        else tcCheckForms rest ( syntaxChildren registered )
+        else tcCheckForms rest
+          ( cons
+            ( tcBinding ( tcSumCasesKey name )
+              ( tcScheme ( tcSumCases constructors [] ) [] ) )
+            ( syntaxChildren registered ) )
           substitutions seed reversed knownAliases relations ;
