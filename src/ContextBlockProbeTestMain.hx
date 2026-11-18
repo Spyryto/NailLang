@@ -5,6 +5,7 @@ import nail.TypeChecker;
 import nail.ContextInterfaces;
 import nail.BytecodeCompiler;
 import nail.ByteVm;
+import nail.BootRuntime;
 import nail.SyntaxEncoder;
 import nail.Vm;
 
@@ -144,6 +145,46 @@ class ContextBlockProbeTestMain {
       +'def x ( html : Html ) = html { h2 " X " } ;',
       new StringMap()), 'unknown type',
       'structural alias fields use known types');
+
+    // End-to-end source-free compiler: parse the same surface language
+    // in Nail, then run its existing bytecode output on each runtime target.
+    var selfHostSource=typedHeader
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render htmlValue " Selfhost " ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostSource),
+      ['H:Selfhost'], 'self-hosted parser compiles an annotated contextual DSL');
+    var selfHostNested='type Html = { h2 : Text Text , div : Text Text } ; '
+      +'type Math = { div : Text Text } ; '
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " HTML: " x } ; '
+      +'def mathValue = { div = fun x -> textConcat " Math: " x } ; '
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { [ h2 ( math { div " Nested " } ) , '
+      +'h2 ( math { html . div " Explicit " } ) ] } ; '
+      +'render htmlValue mathValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostNested),
+      [['H:Math:Nested','H:HTML:Explicit']],
+      'self-hosted nested contexts prefer inner field; explicit outer access works');
+    var selfHostFallback='type Html = { h2 : Text Text , div : Text Text } ; '
+      +'type Math = { circle : Text Text } ; '
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def mathValue = { circle = fun x -> x } ; '
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { h2 ( math { div " Outer " } ) } ; '
+      +'render htmlValue mathValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostFallback),
+      ['H:D:Outer'],
+      'self-hosted context falls back to outer field when inner lacks name');
+    var localSelfHost=typedHeader
+      +'def htmlValue = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'def render ( html : Html ) = '
+      +'html { let h2 = fun x -> textConcat " Local: " x in h2 " X " } ; '
+      +'render htmlValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+localSelfHost),
+      ['Local:X'], 'self-hosted lexical let shadows context field');
 
     var nonRecordChecker=new TypeChecker();
     nonRecordChecker.check('def Html = 4 ;');
