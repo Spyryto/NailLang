@@ -22,7 +22,7 @@ existing VM and primitive boundary are unchanged.
 | Function / list | `syntaxNode "TCFun"/"TCList"` |
 | Closed structural record | `syntaxNode "TCStruct" fields` |
 | Open structural requirement | `syntaxNode "TCRowField" [name, type, rest]` |
-| Polymorphic scheme | `syntaxNode "TCScheme" [term, quantifiers]` |
+| Polymorphic scheme | `syntaxNode "TCScheme" [term, quantifiers, EqQuantifiers]` |
 | Substitutions / environments | Persistent association lists |
 | Inference outcome | `Ok(TCChecked)` or `Error(Text)` |
 
@@ -47,10 +47,11 @@ Unification performs an **occurs check** to reject infinite types.
 - **Finite modern arithmetic**: direct binary `+`, `-`, `*`, `/`
   with concrete `Int`, `Ratio`, `Float` operand pairs and exact
   result domains; unresolved or mixed operands fail closed
-- **Concrete structural equality** `==` and `!=`: primitive types,
+- **Qualified polymorphic equality** `==` and `!=`: a free
+  variable receives an `Eq` requirement, retained across unification,
+  generalization, and fresh scheme instantiation. Primitive types,
   homogeneous lists and closed structural records are checked recursively;
-  equality of functions or unresolved type variables is rejected until
-  qualified `Eq` type schemes are represented in Nail
+  equality involving functions is rejected
 - **Named finite relations of arity 1–16**, including `Add`, `Div`,
   `Merge : Text Text Text` and `Join3 : Text Text Text Text`. Each
   constrained function body is checked independently against **every**
@@ -116,11 +117,22 @@ constrained definition. Partially applied or higher-order use of these
 overloads is still deferred; such cases are rejected explicitly.
 
 A concrete equality expression, such as `[ 1 , 2 ] == [ 1 , 3 ]`,
-is checked to produce `Bool`. A polymorphic equality function, for
-example `def same x y = x == y ;`, currently produces a diagnostic
-from the Nail checker. Haxe can already infer its `Eq`-qualified scheme;
-implementing that qualification and preserving it through
-generalization/instantiation is the next equality milestone.
+is checked to produce `Bool`. A polymorphic equality function can now
+retain its required qualification, as illustrated by:
+
+```nail
+def same x y = x == y ;
+same 3 3 ;
+same " A " " B " ;
+same [ 1 , 2 ] [ 1 , 3 ] ;
+```
+
+Each call instantiates a fresh `Eq`-qualified type variable. Unification
+propagates the requirement to lists and structural fields; functions still
+fail static checking. Internally the requirement lives in the same
+persistent binding stream as substitutions (with a disjoint private key),
+and the scheme preserves the quantified variables that are comparable.
+The compiler does not perform runtime type-class dispatch.
 
 ## Parity and coverage gaps
 
@@ -129,9 +141,9 @@ inferencer. See `src/NailTypecheckerProbeTestMain.hx`.
 
 The following are not yet complete:
 
-- Higher-order and partially applied overloads, nonconcrete numeric operand
-  inference, polymorphic **`Eq` constraints on type variables**
-  (ordinary concrete equality is implemented)
+- Higher-order and partially applied overloaded numerical relations,
+  nonconcrete numeric operand inference and explicit `Eq` syntax in
+  user-authored signatures (inferred qualified schemes are implemented)
 - Nominal record/sum declarations and complete structural row algebra:
   open-row **reordering**, row-lacks constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
