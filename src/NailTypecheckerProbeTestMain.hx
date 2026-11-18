@@ -567,8 +567,11 @@ class NailTypecheckerProbeTestMain {
 
     var multiExpand=macroSource+'\nexpand partial ( Some 2 ) ;';
     report=NailSourceAnalysis.analyze(multiExpand,boot);
-    eq(report.diagnostics[0].span,null,
-      'ambiguous macro expansion calls are not guessed');
+    eq(report.diagnostics[0].span.start,multiExpand.indexOf('expand'),
+      'failing macro form chooses first invocation of two');
+    eq(report.diagnostics[0].span.end,
+      multiExpand.indexOf('expand')+'expand'.length,
+      'macro site points to the expand keyword, not the complete call');
 
     var unrelated='nail 0.54 ; type Option a = None | Some a ; '
       +'def partial = function | Some x -> x ; '
