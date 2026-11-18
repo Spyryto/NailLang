@@ -326,7 +326,15 @@ class NailSourceAnalysis {
         || StringTools.startsWith(message,'Mixed constructors in algebraic match')
         || StringTools.startsWith(message,
           'Constructor match binding arity mismatch:');
-      if (!pattern) return null;
+      var generatedTypeFailure = StringTools.startsWith(message,
+          'No numeric relation instance')
+        || StringTools.startsWith(message,'No relation instance:')
+        || StringTools.startsWith(message,'Numeric operands require concrete types')
+        || StringTools.startsWith(message,'Type mismatch')
+        || StringTools.startsWith(message,'Eq constraint requires')
+        || StringTools.startsWith(message,'Projection requires a record')
+        || StringTools.startsWith(message,'Missing structural field:');
+      if (!pattern && !generatedTypeFailure) return null;
       var i = ancestry.length;
       while (i > 0) {
         var origin = ancestry[--i];
