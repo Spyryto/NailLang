@@ -56,7 +56,7 @@ class NailSourceAnalysis {
   static function repeatedDefinition(tokens:Array<SourceToken>,
       keyword:String, name:String):Null<SourceSpan> {
     var entries:Array<SourceSpan> = [];
-    for (i in 0...tokens.length - 1)
+    for (i in 0...(tokens.length - 1))
       if (tokens[i].text == keyword && tokens[i + 1].text == name)
         entries.push(tokenSpan(tokens[i + 1]));
     // The Nail checker stops at the second declaration. More than two
@@ -167,12 +167,16 @@ class NailSourceAnalysis {
       case Text(s): s;
       case _: throw 'Unexpected Nail checker Error representation';
     };
-    var macroError = isMacroError(message);
+    // The Nail source language permits whitespace inside quoted Text
+    // literals; keep the exact original message while normalizing only
+    // the copy used for diagnostic classification and token lookup.
+    var lookupMessage = StringTools.trim(message);
+    var macroError = isMacroError(lookupMessage);
     var located:{span:Null<SourceSpan>,template:Null<SourceSpan>} =
       {span:null,template:null};
     // Even if scanning fails (e.g. an unterminated quote), never attach an
     // offset invented by a second parser or replace Nail's error message.
-    try located = locate(message, SourcePositions.scan(source), macroError)
+    try located = locate(lookupMessage, SourcePositions.scan(source), macroError)
     catch (_:Dynamic) {}
 
     return {ok:false,types:[],diagnostics:[{
