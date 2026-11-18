@@ -130,6 +130,13 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'( 3 / 2 ) + 1 ;',['Ratio']);
     checkBad(boot,'1 + 0.5 ;','No numeric relation instance');
     checkBad(boot,'def add x y = x + y ;','concrete types');
+    checkGood(boot,'1 == 2 ;',['Bool']);
+    checkGood(boot,'" A " != " B " ;',['Bool']);
+    checkGood(boot,'[ 1 , 2 ] == [ 1 , 3 ] ;',['Bool']);
+    checkGood(boot,'{ x = 1 , y = true } == { x = 2 , y = false } ;',['Bool']);
+    checkBad(boot,'1 == true ;','Type mismatch');
+    checkBad(boot,'( fun x -> x ) == ( fun y -> y ) ;',
+      'Eq constraints');
     checkGood(boot,'[ 1 , 2 , 3 ] ;',['[Int]']);
     checkGood(boot,'head [ 1 , 2 ] ;',['Int']);
     checkBad(boot,'[ 1 , true ] ;','Type mismatch');
