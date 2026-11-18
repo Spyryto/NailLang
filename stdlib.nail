@@ -1798,6 +1798,18 @@ def tcBuiltinType name =
         ( tcFun ( tcBase " Text " ) ( tcBase " Text " ) ) ) [] ) ,
     tcBinding " textLengthInt "
       ( tcScheme ( tcFun ( tcBase " Text " ) ( tcBase " Int " ) ) [] ) ,
+    tcBinding " #cons "
+      ( tcScheme
+        ( tcFun ( tcVar " a " )
+          ( tcFun ( tcList ( tcVar " a " ) )
+            ( tcList ( tcVar " a " ) ) ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " cons "
+      ( tcScheme
+        ( tcFun ( tcVar " a " )
+          ( tcFun ( tcList ( tcVar " a " ) )
+            ( tcList ( tcVar " a " ) ) ) )
+        [ tcVar " a " ] ) ,
     tcBinding " head "
       ( tcScheme
         ( tcFun ( tcList ( tcVar " a " ) ) ( tcVar " a " ) )
