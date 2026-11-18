@@ -321,22 +321,42 @@ template, and `templateOrigin.span` uses offsets **in that module's text**.
 To prevent accidental cross-file interpretation, `templateSpan` is
 `null` for foreign templates, and remains populated for local macros.
 
+**Typed module-aware inference (experimental).** The caller's source is now
+parsed directly by the Nail bytecode parser via `tcPrepareTypedSource`.
+This returns `TCPreparedMacros`: a Program with non-executable type metadata
+temporarily replaced by static placeholders, and the saved metadata.
+Haxe's existing hygienic Syntax expander resolves the external macros, while
+each imported module is parsed through the Nail `parseSource` function rather
+than the Haxe `Parser`. Finally Nail's
+`tcCheckExpandedTypedTraced({prepared, expanded})` (one two-child Syntax
+payload) restores aliases, relation declarations and annotated definitions,
+applies `modernRewrite`, and runs the Nail checker.
+
+Consequently, the module-aware route now preserves **structural aliases,
+explicit parameter/value annotations, contextual DSL blocks and 1–16-ary
+named type relations**. Validation also checks rejection cases, so an import
+cannot silently erase a type restriction. The no-module case continues to
+use `tcCheckSourceTraced` and remains unchanged.
+
+This adds no VM opcode, no sixth core expression constructor, and no
+Haxe type-checker delegation. Haxe is still used as an import-text
+resolver/orchestrator and for the existing *syntactic* macro transformation.
+The two syntax paths share the same Nail checker and type rules.
+
 The resolver is cached per analysis request, so the host's syntax expansion
 and the provenance replay read each module once. Nested and transitive imports
 retain the *actual producing module*, rather than the module through which it
 was re-exported. Caller subexpressions inserted using `unquote` continue
 to point to the caller's source and have no foreign-template origin.
 
-**Scope boundary:** module-aware checking currently uses the existing Haxe
-parser/macro expander for the **syntax** of imported programs, then passes
-the already-expanded `Syntax` into `tcCheckSyntaxTraced` for inference
-entirely in Nail. Unlike `tcCheckSourceTraced`, this path cannot yet
-preserve Nail-only typed metadata or structural DSL aliases through host
-syntax conversion; its verified subset is ordinary nominal forms and core
-expressions. It does not switch to the Haxe type checker. Logical module
-names are stable identifiers supplied by imports, **not inferred filesystem
-paths**. Missing imports or incompatible module dialects are reported,
-without made-up source coordinates.
+**Scope boundary:** although parsing, typed metadata preservation
+and inference all run in Nail, the hygienic macro *substitution* itself
+remains the existing Haxe-based syntax primitive. The source-position
+sidecar also uses the optional Haxe parser for diagnostic-only replay,
+which may not understand every experimental typed DSL construct. Logical
+module names are stable identifiers supplied by imports, **not inferred
+filesystem paths**. Missing imports and incompatible module dialects are
+reported without made-up source coordinates.
 
 Where a structural path cannot be mapped, locations are restricted to
 unambiguous tokens within the failing form, duplicate declarations or an
@@ -369,8 +389,9 @@ The following are not yet complete:
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
 - Full standard-library primitive signatures and typed module signatures;
-  source positions for imported macro templates are now tracked by logical
-  module name, but module-aware Nail-only typed metadata remains deferred
+  source positions for imported macro templates are tracked by logical
+  module name, and caller-side typed metadata now survives expansion, while
+  hygienic macro rewriting itself is still a host syntax primitive
 - Generated expression ancestry through macro expansion and specialized
   numeric/equality inference paths; no invented spans for unresolved origins
   or arbitrary type mismatches
