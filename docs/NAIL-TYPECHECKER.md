@@ -327,10 +327,14 @@ This returns `TCPreparedMacros`: a Program with non-executable type metadata
 temporarily replaced by static placeholders, and the saved metadata.
 Haxe's existing hygienic Syntax expander resolves the external macros, while
 each imported module is parsed through the Nail `parseSource` function rather
-than the Haxe `Parser`. Finally Nail's
-`tcCheckExpandedTypedTraced({prepared, expanded})` (one two-child Syntax
-payload) restores aliases, relation declarations and annotated definitions,
-applies `modernRewrite`, and runs the Nail checker.
+than the Haxe `Parser`. Nail applies `modernRewrite` **before** host macro expansion to both
+the prepared caller Program and parsed imported templates. This is essential:
+a host Syntax decode/encode pass must not change `1.0` (Float) into `1` (Int)
+merely because both have the same numeric value. The `Int` and `Number`
+Syntax tags preserve that distinction. Finally Nail's
+`tcCheckExpandedTypedTraced` (one two-child Syntax payload) restores aliases,
+relation declarations and annotated definitions and runs the Nail checker;
+it deliberately does **not** rewrite already-typed numeric literals twice.
 
 Consequently, the module-aware route now preserves **structural aliases,
 explicit parameter/value annotations, contextual DSL blocks and 1–16-ary
