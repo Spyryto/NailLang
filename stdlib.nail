@@ -3846,14 +3846,14 @@ def nmContainsFaultName tree name =
   if tag == " Var " then
     syntaxText tree == name
   else if tag == " Apply " then
-    nmContainsFaultName ( tcFirst tree ) name
-      || nmContainsFaultName ( tcSecond tree ) name
+    if nmContainsFaultName ( tcFirst tree ) name then true
+    else nmContainsFaultName ( tcSecond tree ) name
   else if tag == " Lambda " then
     nmContainsFaultName ( tcSecond tree ) name
   else if tag == " If " then
-    nmContainsFaultName ( tcFirst tree ) name
-      || nmContainsFaultName ( tcSecond tree ) name
-      || nmContainsFaultName ( tcThird tree ) name
+    if nmContainsFaultName ( tcFirst tree ) name then true
+    else if nmContainsFaultName ( tcSecond tree ) name then true
+    else nmContainsFaultName ( tcThird tree ) name
   else false ;
 
 def nmMacroFaultOwner definition missing depth =
