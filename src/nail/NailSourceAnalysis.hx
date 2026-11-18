@@ -2,6 +2,9 @@ package nail;
 
 import nail.BootRuntime;
 import nail.Parser;
+import nail.SyntaxEncoder;
+import haxe.ds.StringMap;
+import nail.SourceProvenance.SourceOrigin;
 import nail.Ast.Expr;
 import nail.Ast.Form;
 import nail.ResultValue;
@@ -23,6 +26,8 @@ typedef NailCheckDiagnostic = {
   final message:String;
   final span:Null<SourceSpan>;
   final templateSpan:Null<SourceSpan>;
+  /** Origin may belong to a different module; offsets refer to its source. */
+  final templateOrigin:Null<SourceOrigin>;
 }
 
 typedef NailCheckReport = {
@@ -278,13 +283,17 @@ class NailSourceAnalysis {
       form/child path. This pass never infers a type and emits no bytecode.
       For locally declared macros, both origins are taken from the parser's
       original token identities; multiple expansions are distinguished. */
-  static function macroOrigin(source:String,
-      fault:Value, message:String):Null<{span:SourceSpan,template:Null<SourceSpan>}> {
+  static function macroOrigin(source:String, fault:Value, message:String,
+      sourceId:String, ?modules:String->Null<String>):Null<{
+        span:SourceSpan,template:Null<SourceSpan>,
+        templateOrigin:Null<SourceOrigin>}> {
     var sourceTrail = trail(fault);
     if (sourceTrail == null) return null;
     try {
       var parser = new Parser(source);
-      var expanded = MacroExpander.forms(parser.parseRaw(), parser.provenance);
+      parser.provenance.sourceId = sourceId;
+      var expanded = MacroExpander.forms(parser.parseRaw(),
+        parser.provenance, modules);
       if (sourceTrail.index < 0 || sourceTrail.index >= expanded.length)
         return null;
 
@@ -323,10 +332,11 @@ class NailSourceAnalysis {
         var direct = parser.provenance.spanOfExpression(expr);
         if (call == null) {
           if (direct == null) return null;
-          return {span:direct,template:null};
+          return {span:direct,template:null,templateOrigin:null};
         }
         return {span:callKeyword(parser.tokenPositions,call),
-          template:parser.provenance.templateOfExpression(expr)};
+          template:parser.provenance.templateOfExpression(expr),
+          templateOrigin:parser.provenance.templateOriginOfExpression(expr)};
       }
 
       // Pattern failures are detected before traversing the lowered match
@@ -351,11 +361,12 @@ class NailSourceAnalysis {
         var call = parser.provenance.expansionSiteOfExpression(origin);
         if (call != null)
           return {span:callKeyword(parser.tokenPositions,call),
-            template:parser.provenance.templateOfExpression(origin)};
+            template:parser.provenance.templateOfExpression(origin),
+            templateOrigin:parser.provenance.templateOriginOfExpression(origin)};
       }
     } catch (_:Dynamic) {
-      // The Haxe parser is optional, and external macro resolvers are not
-      // provided to this source-free, typechecker-only adapter.
+      // The provenance replay is optional. A module resolver error or
+      // unsupported experimental syntax must not invent an origin.
     }
     return null;
   }
@@ -382,20 +393,46 @@ class NailSourceAnalysis {
   /** Read-only per-source report, using the same Nail bytecode image on Haxe,
       JavaScript and PHP. The optional BootRuntime lets callers reuse the
       compiled source-free image across queries without compiler mutations. */
-  public static function analyze(source:String, ?boot:BootRuntime):NailCheckReport {
+  public static function analyze(source:String, ?boot:BootRuntime,
+      ?modules:String->Null<String>, sourceId:String = '<source>'):NailCheckReport {
     var runtime = boot == null ? new BootRuntime(60000000) : boot;
     var result:Value;
-    try result = runtime.invoke('tcCheckSourceTraced', Text(source))
-    catch (error:Dynamic) {
-      return {ok:false, types:[], diagnostics:[{phase:'internal',
-        message:Std.string(error), span:null, templateSpan:null}]};
+    // One snapshot per logical module in this analysis request. The host
+    // syntax expander and provenance replay see identical module contents.
+    var loaded = new StringMap<String>();
+    var attempted = new StringMap<Bool>();
+    var cachedModules:Null<String->Null<String>> = modules == null ? null
+      : (name:String) -> {
+        if (!attempted.exists(name)) {
+          attempted.set(name,true);
+          loaded.set(name,modules(name));
+        }
+        return loaded.get(name);
+      };
+    try {
+      if (cachedModules == null)
+        result = runtime.invoke('tcCheckSourceTraced', Text(source));
+      else {
+        // Imported macro syntax is expanded by the existing host parser;
+        // the resulting Syntax is inferred ONLY by the Nail bytecode checker.
+        var parser = new Parser(source);
+        parser.provenance.sourceId = sourceId;
+        var expanded = parser.parse(cachedModules);
+        result = runtime.invoke('tcCheckSyntaxTraced',
+          SyntaxEncoder.program(expanded));
+      }
+    } catch (error:Dynamic) {
+      return {ok:false, types:[], diagnostics:[{phase:'macro',
+        message:Std.string(error), span:null, templateSpan:null,
+        templateOrigin:null}]};
     }
 
     var tag:String;
     try tag = ResultValue.tag(result)
     catch (error:Dynamic) {
       return {ok:false, types:[], diagnostics:[{phase:'internal',
-        message:Std.string(error), span:null, templateSpan:null}]};
+        message:Std.string(error), span:null, templateSpan:null,
+        templateOrigin:null}]};
     }
 
     if (tag == ResultValue.OK)
@@ -413,8 +450,9 @@ class NailSourceAnalysis {
     // the copy used for diagnostic classification and token lookup.
     var lookupMessage = StringTools.trim(message);
     var macroError = isMacroError(lookupMessage);
-    var located:{span:Null<SourceSpan>,template:Null<SourceSpan>} =
-      {span:null,template:null};
+    var located:{span:Null<SourceSpan>,template:Null<SourceSpan>,
+      templateOrigin:Null<SourceOrigin>} =
+      {span:null,template:null,templateOrigin:null};
     // Even if scanning fails (e.g. an unterminated quote), never attach an
     // offset invented by a second parser or replace Nail's error message.
     try {
@@ -423,16 +461,17 @@ class NailSourceAnalysis {
       if (!macroError) {
         var span = tracedLocation(source,lookupMessage,tokens,fault);
         if (span != null) located.span=span;
-        // Explicitly replay only when there is at least one local macro.
-        // This separates generated template nodes from caller arguments and
-        // avoids choosing among macro calls by textual occurrence counts.
-        var hasMacro = false;
+        // Replay when macros are local or when an explicit module resolver
+        // was supplied. Imported templates retain their own logical source.
+        var hasMacro = cachedModules != null;
         for (token in tokens) if (token.text == 'macro') hasMacro = true;
         if (hasMacro) {
-          var origin = macroOrigin(source,fault,lookupMessage);
+          var origin = macroOrigin(source,fault,lookupMessage,
+            sourceId,cachedModules);
           if (origin != null) {
             located.span=origin.span;
             located.template=origin.template;
+            located.templateOrigin=origin.templateOrigin;
           }
         }
       }
@@ -442,7 +481,8 @@ class NailSourceAnalysis {
 
     return {ok:false,types:[],diagnostics:[{
       phase:macroError ? 'macro' : 'type', message:message,
-      span:located.span, templateSpan:located.template
+      span:located.span, templateSpan:located.template,
+      templateOrigin:located.templateOrigin
     }]};
   }
 }
