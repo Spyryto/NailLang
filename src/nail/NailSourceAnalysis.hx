@@ -374,6 +374,75 @@ class NailSourceAnalysis {
     return null;
   }
 
+  /** Resolve Nail-owned symbolic origin against original source tokens.
+      No macro replay or host macro expansion occurs here. Only a unique
+      template name within its original declaration can receive a span. */
+  static function templateIdentifier(source:String, macroName:String,
+      missing:String):Null<SourceSpan> {
+    var tokens=SourcePositions.scan(source);
+    var found:Null<SourceSpan>=null;
+    var declarations=0;
+    for (i in 0...tokens.length-1) {
+      if (tokens[i].text != 'macro' || tokens[i+1].text != macroName)
+        continue;
+      declarations++;
+      var depth=0;
+      var matching:Null<SourceSpan>=null;
+      var duplicates=false;
+      for (j in i+2...tokens.length) {
+        var word=tokens[j].text;
+        if (word=='(' || word=='{' || word=='[') depth++;
+        if (word==')' || word=='}' || word==']') depth--;
+        if (depth == 0 && word==';') break;
+        if (word != missing) continue;
+        if (matching != null) duplicates=true;
+        matching=tokenSpan(tokens[j]);
+      }
+      if (duplicates) return null;
+      found=matching;
+    }
+    return declarations == 1 ? found : null;
+  }
+
+  /** Nail determines the lexical producer; the scanner only projects the
+      symbolic origin to original token offsets. Crucially this path never
+      re-invokes the Haxe macro expander for provenance. */
+  static function nailMacroOrigin(boot:BootRuntime, program:Value,
+      moduleTable:Value, fault:Value, source:String, sourceId:String,
+      cachedModules:Null<String->Null<String>>,
+      tokens:Array<SourceToken>):Null<{
+        span:SourceSpan,template:Null<SourceSpan>,
+        templateOrigin:Null<SourceOrigin>}> {
+    var position=trail(fault);
+    if (position == null) return null;
+    var areas=sourceForms(tokens);
+    if (position.index < 0 || position.index >= areas.length) return null;
+    var site=uniqueInForm(tokens,'expand',areas[position.index]);
+    if (site == null) return null;
+    var sourceReference=boot.invoke('nmFaultMacroOrigin',
+      SyntaxNode('NMOriginRequest',Cons(program,
+        Cons(moduleTable,Cons(fault,Nil)))));
+    return switch (sourceReference) {
+      case SyntaxNode('NMOrigin',Cons(
+          SyntaxLeaf('Name',owner),Cons(
+          SyntaxLeaf('Name',macroName),Cons(
+          SyntaxLeaf('Name',missing),Nil)))):
+        var actualId=owner == '#caller' ? sourceId : owner;
+        var actualSource=owner == '#caller' ? source
+          : cachedModules == null ? null : cachedModules(owner);
+        if (actualSource == null) null;
+        else {
+          var matching=templateIdentifier(actualSource,macroName,missing);
+          matching == null ? null : {
+            span:site,
+            template:actualId == sourceId ? matching : null,
+            templateOrigin:{sourceId:actualId,span:matching}
+          };
+        }
+      case _: null;
+    };
+  }
+
   static function pretty(boot:BootRuntime, checked:Value):Array<String> {
     var output:Array<String> = [];
     var entries:Value = switch (checked) {
@@ -408,6 +477,8 @@ class NailSourceAnalysis {
       nailMacros:Bool = false):NailCheckReport {
     var runtime = boot == null ? new BootRuntime(60000000) : boot;
     var result:Value;
+    var nailProgram:Null<Value>=null;
+    var nailModuleTable:Null<Value>=null;
     // One snapshot per logical module in this analysis request. The host
     // syntax expander and provenance replay see identical module contents.
     var loaded = new StringMap<String>();
@@ -422,14 +493,23 @@ class NailSourceAnalysis {
       };
     try {
       if (nailMacros) {
-        // Source loading is the only host responsibility. Nail parses each
-        // module and performs imports/exports, hygiene and HM inference.
-        var moduleTable = NailMacroModuleInputs.collect(
-          runtime,source,cachedModules);
-        result = runtime.invoke('tcCheckSourceNailModulesTraced',
-          SyntaxNode('NMSourceRequest',
-            Cons(SyntaxLeaf('NMSource',source),
-              Cons(moduleTable,Nil))));
+        // The Nail parser, macro expander and checker exchange only Syntax.
+        // Preserve the *actual* input to expansion for symbolic provenance;
+        // no host macro replay is needed after a checker fault.
+        var prepared=runtime.invoke('tcPrepareTypedSource',Text(source));
+        var executable:Value=switch(prepared) {
+          case SyntaxNode('TCPreparedMacros',Cons(program,_)): program;
+          case _: SyntaxLeaf('MacroError','Typed source preparation failed');
+        };
+        var moduleTable=NailMacroModuleInputs.collect(
+          runtime,source,cachedModules,executable);
+        var expanded=runtime.invoke('nailMacroExpandWithModules',
+          NailMacroModuleInputs.request(executable,moduleTable));
+        nailProgram=executable;
+        nailModuleTable=moduleTable;
+        result=runtime.invoke('tcCheckExpandedTypedTraced',
+          SyntaxNode('TCExpansionRequest',
+            Cons(prepared,Cons(expanded,Nil))));
       } else if (cachedModules == null)
         result = runtime.invoke('tcCheckSourceTraced', Text(source));
       else {
@@ -502,8 +582,13 @@ class NailSourceAnalysis {
         var hasMacro = cachedModules != null;
         for (token in tokens) if (token.text == 'macro') hasMacro = true;
         if (hasMacro) {
-          var origin = macroOrigin(source,fault,lookupMessage,
-            sourceId,cachedModules);
+          var origin=nailMacros && nailProgram != null
+              && nailModuleTable != null
+            ? nailMacroOrigin(runtime,nailProgram,nailModuleTable,
+                fault,source,sourceId,cachedModules,tokens)
+            : !nailMacros
+              ? macroOrigin(source,fault,lookupMessage,sourceId,cachedModules)
+              : null;
           if (origin != null) {
             located.span=origin.span;
             located.template=origin.template;
