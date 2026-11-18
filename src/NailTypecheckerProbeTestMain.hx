@@ -758,6 +758,24 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].message.indexOf('No numeric relation instance') >= 0,
       true,'mixed numeric types retain the checker rejection');
 
+    var floatModule='nail 0.54 ; '
+      +'macro plusFloat x = quote ( unquote x + 1.0 ) ; '
+      +'export plusFloat ;';
+    var floatResolver=(name:String) -> name == 'floatMath'
+      ? floatModule : null;
+    report=NailSourceAnalysis.analyze(
+      'nail 0.54 ; import plusFloat from floatMath ; '
+      +'expand plusFloat 2.0 ;',boot,floatResolver);
+    eq(report.ok,true,
+      'imported quoted template preserves Float literal classification');
+    eq(report.types,['Float'],
+      'Float literal inside module template remains Float after expansion');
+    report=NailSourceAnalysis.analyze(
+      'nail 0.54 ; import plusFloat from floatMath ; '
+      +'expand plusFloat 2 ;',boot,floatResolver);
+    eq(report.ok,false,
+      'mixed typed literal inside imported template must be rejected');
+
     var typedHtml='nail 0.54 ; '
       +'import identity from typedHelpers ; '
       +'type Html = { h2 : Text Text , div : Text Text } ; '
