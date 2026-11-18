@@ -89,7 +89,6 @@ class MacroExpander {
         fail('only macro declarations, imports and exports are allowed in a macro module');
       case Define(name, body):
         var normalized = Define(name, expand(body, scope));
-        if (provenance != null) provenance.transfer(form, normalized);
         output.push(normalized);
       case Evaluate(body):
         var normalized = Evaluate(expand(body, scope));
