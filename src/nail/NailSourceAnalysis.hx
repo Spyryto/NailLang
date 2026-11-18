@@ -4,7 +4,6 @@ import nail.BootRuntime;
 import nail.Parser;
 import nail.Ast.Expr;
 import nail.Ast.Form;
-import haxe.ds.StringMap;
 import nail.ResultValue;
 import nail.SourcePositions.SourceSpan;
 import nail.SourcePositions.SourceToken;
@@ -289,7 +288,7 @@ class NailSourceAnalysis {
   public static function analyze(source:String, ?boot:BootRuntime):NailCheckReport {
     var runtime = boot == null ? new BootRuntime(60000000) : boot;
     var result:Value;
-    try result = runtime.invoke('tcCheckSource', Text(source))
+    try result = runtime.invoke('tcCheckSourceTraced', Text(source))
     catch (error:Dynamic) {
       return {ok:false, types:[], diagnostics:[{phase:'internal',
         message:Std.string(error), span:null, templateSpan:null}]};
@@ -306,9 +305,11 @@ class NailSourceAnalysis {
       return {ok:true, diagnostics:[],
         types:pretty(runtime, ResultValue.get(result, ResultValue.OK))};
 
-    var message = switch (ResultValue.get(result, ResultValue.ERR)) {
-      case Text(s): s;
-      case _: throw 'Unexpected Nail checker Error representation';
+    var fault = ResultValue.get(result, ResultValue.ERR);
+    var message = switch (fault) {
+      case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)): text;
+      case Text(text): text;
+      case _: throw 'Unexpected traced Nail checker Error representation';
     };
     // The Nail source language permits whitespace inside quoted Text
     // literals; keep the exact original message while normalizing only
@@ -323,12 +324,8 @@ class NailSourceAnalysis {
       var tokens = SourcePositions.scan(source);
       located = locate(lookupMessage,tokens,macroError);
       if (!macroError) {
-        var traced = runtime.invoke('tcCheckSourceTraced',Text(source));
-        if (ResultValue.tag(traced) == ResultValue.ERR) {
-          var span = tracedLocation(source,lookupMessage,tokens,
-            ResultValue.get(traced,ResultValue.ERR));
-          if (span != null) located.span=span;
-        }
+        var span = tracedLocation(source,lookupMessage,tokens,fault);
+        if (span != null) located.span=span;
       }
     } catch (_:Dynamic) {
       // Attribution is best-effort, but the Nail checker error is authoritative.
