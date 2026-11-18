@@ -47,10 +47,12 @@ Unification performs an **occurs check** to reject infinite types.
 - **Finite modern arithmetic**: direct binary `+`, `-`, `*`, `/`
   with concrete `Int`, `Ratio`, `Float` operand pairs and exact
   result domains; unresolved or mixed operands fail closed
-- **Binary named relation constraints**, including `Add`, `Div` and
-  user-declared tables such as `Merge : Text Text Text`. Each constrained
-  function body is checked independently against **every** declared row.
-  The resulting overload can be called with two known argument types
+- **Named finite relations of arity 1–16**, including `Add`, `Div`,
+  `Merge : Text Text Text` and `Join3 : Text Text Text Text`. Each
+  constrained function body is checked independently against **every**
+  declared row, with input type constraints aligned to its exact parameter
+  count. Fully applied calls select the output type from all input types.
+  Duplicate tuples and inconsistent row arity are rejected
 - A **conservative primitive prelude** for selected text/list operations;
   deliberately not a claim of full 0.54 typing semantics
 
@@ -94,6 +96,21 @@ overloaded function must have sufficient static information to resolve
 their calls. The standard compiler still erases annotations before running
 the program on the same VM.
 
+For example, a three-parameter named relation is checked without any
+special runtime support:
+
+```nail
+Join3 : Text Text Text Text ;
+def join3 a b c : Join3 =
+  textConcat ( textConcat a b ) c ;
+join3 " A " " B " " C " ;
+```
+
+The checker handles one through sixteen parameter types (followed by
+one result type), and checks arity, input tuple uniqueness and every
+constrained definition. Partially applied or higher-order use of these
+overloads is still deferred; such cases are rejected explicitly.
+
 ## Parity and coverage gaps
 
 The Haxe checker is used **only in differential tests**, not by the Nail
@@ -101,9 +118,8 @@ inferencer. See `src/NailTypecheckerProbeTestMain.hx`.
 
 The following are not yet complete:
 
-- **N-ary named relations** (the parser preserves their metadata but the
-  checker rejects all arities except two), higher-order and partially applied
-  overloads, nonconcrete numeric operand inference, equality/`Eq` constraints
+- Higher-order and partially applied overloads, nonconcrete numeric operand
+  inference, equality/`Eq` constraints
 - Nominal record/sum declarations and complete structural row algebra:
   open-row **reordering**, row-lacks constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
