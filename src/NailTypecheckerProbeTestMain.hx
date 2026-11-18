@@ -784,6 +784,19 @@ class NailTypecheckerProbeTestMain {
       +'Add : Int Int Int ; def add x y : Add = x + y ; '
       +'expand identity ( add 1.0 2.0 ) ;';
     report=NailSourceAnalysis.analyze(rejectedRelation,boot,typedResolver);
+    if (report.ok) {
+      var preparedDebug = boot.invoke('tcPrepareTypedSource',Text(rejectedRelation));
+      trace('DEBUG_PREPARED_RELATION='+Std.string(preparedDebug).substr(0,3200));
+      var programDebug:Value = switch (preparedDebug) {
+        case SyntaxNode('TCPreparedMacros',Cons(p,_)): p;
+        case _: preparedDebug;
+      };
+      var expandedDebug=MacroExpander.syntax(programDebug,
+        name -> name == 'typedHelpers'
+          ? boot.invoke('parseSource',Text(typedIdentity)) : null);
+      trace('DEBUG_EXPANDED_RELATION='+Std.string(expandedDebug).substr(0,3200));
+      trace('DEBUG_REPORT_RELATION='+Json.stringify(report));
+    }
     eq(report.ok,false,'import must not erase relation restrictions');
     eq(report.diagnostics[0].message.indexOf('No relation instance') >= 0,
       true,'Nail rejects unsupported overload under imported macro');
