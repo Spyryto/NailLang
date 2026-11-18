@@ -580,6 +580,79 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].templateSpan,null,
       'unrelated macro template does not invent a source origin');
 
+    // Macro provenance must identify the *specific invocation*, not the
+    // first matching source token or a guessed globally unique expand call.
+    var repeatedGenerated='nail 0.54 ; macro broken x = quote ( missing ) ; '
+      +'def first = expand broken 1 ; def second = expand broken 2 ;';
+    report=NailSourceAnalysis.analyze(repeatedGenerated,boot);
+    eq(report.ok,false,'macro template unknown name rejected');
+    eq(report.diagnostics[0].span.start,repeatedGenerated.indexOf('expand'),
+      'first failing macro invocation is selected among two calls');
+    eq(report.diagnostics[0].templateSpan.start,
+      repeatedGenerated.indexOf('missing'),
+      'generated unknown name retains its original template token');
+
+    var generatedInBranches='nail 0.54 ; macro broken x = quote ( missing ) ; '
+      +'def test = if true then expand broken 1 else expand broken 2 ;';
+    report=NailSourceAnalysis.analyze(generatedInBranches,boot);
+    eq(report.diagnostics[0].span.start,generatedInBranches.indexOf('expand'),
+      'same-form repeated macro expansions distinguish the then branch');
+    eq(report.diagnostics[0].templateSpan.start,
+      generatedInBranches.indexOf('missing'),
+      'same-form generated reference retains template origin');
+
+    var holeSource='nail 0.54 ; macro identity x = quote ( unquote x ) ; '
+      +'def test = expand identity missing ;';
+    report=NailSourceAnalysis.analyze(holeSource,boot);
+    eq(report.diagnostics[0].span.start,holeSource.indexOf('missing'),
+      'unquoted caller argument retains its own location');
+    eq(report.diagnostics[0].templateSpan,null,
+      'unquoted caller argument is not falsely attributed to template');
+
+    var secondMacro='nail 0.54 ; '
+      +'macro identity x = quote ( unquote x ) ; '
+      +'macro broken x = quote ( missing ) ; '
+      +'def good = expand identity 1 ; '
+      +'def bad = expand broken 2 ;';
+    report=NailSourceAnalysis.analyze(secondMacro,boot);
+    eq(report.diagnostics[0].span.start,secondMacro.lastIndexOf('expand'),
+      'origin isolates second macro with other macro calls and prior forms');
+    eq(report.diagnostics[0].templateSpan.start,secondMacro.indexOf('missing'),
+      'template origin isolates second macro body');
+
+    var nestedMacro='nail 0.54 ; '
+      +'macro inner x = quote ( missing ) ; '
+      +'macro outer x = quote ( expand inner ( unquote x ) ) ; '
+      +'def broken = expand outer 1 ;';
+    report=NailSourceAnalysis.analyze(nestedMacro,boot);
+    eq(report.diagnostics[0].span.start,nestedMacro.lastIndexOf('expand'),
+      'nested expansion retains outermost user-authored invocation');
+    eq(report.diagnostics[0].templateSpan.start,nestedMacro.indexOf('missing'),
+      'nested expansion retains inner macro template origin');
+
+    var generatedNumeric='nail 0.54 ; '
+      +'macro addOne x = quote ( unquote x + 1 ) ; '
+      +'def good = expand addOne 2 ; '
+      +'def bad = expand addOne true ;';
+    report=NailSourceAnalysis.analyze(generatedNumeric,boot);
+    eq(report.ok,false,'invalid generated numeric operator rejected');
+    eq(report.diagnostics[0].span.start,generatedNumeric.lastIndexOf('expand'),
+      'numeric error resolves to second macro invocation after a valid first');
+    eq(report.diagnostics[0].templateSpan.start,generatedNumeric.indexOf('1 )'),
+      'numeric error retains the quoted operator expression origin');
+
+    var repeatedPattern='nail 0.54 ; type Option a = None | Some a ; '
+      +'macro partial x = quote ( match unquote x with '
+      +'| Some value -> value ) ; '
+      +'def broken = if true then expand partial ( Some 1 ) '
+      +'else expand partial ( Some 2 ) ;';
+    report=NailSourceAnalysis.analyze(repeatedPattern,boot);
+    eq(report.ok,false,'generated incomplete pattern in conditional rejected');
+    eq(report.diagnostics[0].span.start,repeatedPattern.indexOf('expand'),
+      'pattern failure selects first of two macro calls within one form');
+    eq(report.diagnostics[0].templateSpan.start,repeatedPattern.indexOf('match'),
+      'pattern failure retains exact quoted source pattern');
+
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
