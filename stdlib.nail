@@ -2080,11 +2080,27 @@ def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed
             ( cons ( tcBinding name scheme ) environment )
             final ( tcResultSeed constrained ) reversed aliases relations ;
 
-# Finite, first-order relation tables: input types determine one output.
-# Initial Nail implementation supports *binary* relations only; n-ary
-# contracts are rejected explicitly until the generic algorithm is ported.
-def tcRelationRow left right result =
-  syntaxNode " TCRelationRow " [ left , right , result ] ;
+# Finite n-ary first-order relations. Each row holds a nonempty list
+# of input types and one result type; every input tuple has one result.
+# Unlike binary-only signatures, this layout is independent of arity.
+def tcRelationInitial types =
+  match types with
+  | [] -> []
+  | first :: rest ->
+    if isEmpty rest then []
+    else cons first ( tcRelationInitial rest ) ;
+def tcRelationLast types =
+  match types with
+  | [] -> tcFault " Relation needs a result type "
+  | first :: rest ->
+    if isEmpty rest then first
+    else tcRelationLast rest ;
+def tcRelationRow types =
+  syntaxNode " TCRelationRow "
+    [ syntaxNode " TCRelationArgs " ( tcRelationInitial types ) ,
+      tcRelationLast types ] ;
+def tcRelationInputs row = syntaxChildren ( tcFirst row ) ;
+def tcRelationOutput row = tcSecond row ;
 def tcRelationRows rows = syntaxNode " TCRelationRows " rows ;
 def tcOverloaded name rows =
   syntaxNode " TCOverloaded " [ syntaxName name , rows ] ;
@@ -2098,11 +2114,11 @@ def tcDefaultRelation name =
 
 def tcBuiltinNumericRows integerResult =
   tcRelationRows [
-    tcRelationRow ( tcBase " Int " ) ( tcBase " Int " ) ( tcBase integerResult ) ,
-    tcRelationRow ( tcBase " Int " ) ( tcBase " Ratio " ) ( tcBase " Ratio " ) ,
-    tcRelationRow ( tcBase " Ratio " ) ( tcBase " Int " ) ( tcBase " Ratio " ) ,
-    tcRelationRow ( tcBase " Ratio " ) ( tcBase " Ratio " ) ( tcBase " Ratio " ) ,
-    tcRelationRow ( tcBase " Float " ) ( tcBase " Float " ) ( tcBase " Float " )
+    tcRelationRow [ tcBase " Int " , tcBase " Int " , tcBase integerResult ] ,
+    tcRelationRow [ tcBase " Int " , tcBase " Ratio " , tcBase " Ratio " ] ,
+    tcRelationRow [ tcBase " Ratio " , tcBase " Int " , tcBase " Ratio " ] ,
+    tcRelationRow [ tcBase " Ratio " , tcBase " Ratio " , tcBase " Ratio " ] ,
+    tcRelationRow [ tcBase " Float " , tcBase " Float " , tcBase " Float " ]
   ] ;
 
 def tcRelationTable name relations =
@@ -2110,14 +2126,25 @@ def tcRelationTable name relations =
   if syntaxTag table == " TCMissing " then tcDefaultRelation name
   else table ;
 
-def tcFindRelationResult left right rows =
+def tcSameRelationInputs left right =
+  match left with
+  | [] -> isEmpty right
+  | first :: rest ->
+    match right with
+    | [] -> false
+    | other :: tail ->
+      if syntaxTag first != " TCBase " then false
+      else if syntaxTag other != " TCBase " then false
+      else if syntaxText first != syntaxText other then false
+      else tcSameRelationInputs rest tail ;
+
+def tcFindRelationResult inputs rows =
   match rows with
   | [] -> tcMissing
   | row :: rest ->
-    if syntaxText ( tcFirst row ) == left then
-      if syntaxText ( tcSecond row ) == right then tcThird row
-      else tcFindRelationResult left right rest
-    else tcFindRelationResult left right rest ;
+    if tcSameRelationInputs inputs ( tcRelationInputs row ) then
+      tcRelationOutput row
+    else tcFindRelationResult inputs rest ;
 
 def tcRelationAtom ty =
   if syntaxTag ty != " TCBase " then false
