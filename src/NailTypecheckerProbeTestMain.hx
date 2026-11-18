@@ -510,6 +510,16 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].span.start,repeatedInOne.indexOf('missing'),
       'then-branch is visited before else-branch');
 
+    var numericOperands='nail 0.54 ; def bad = missing + missing ;';
+    report=NailSourceAnalysis.analyze(numericOperands,boot);
+    eq(report.diagnostics[0].span.start,numericOperands.indexOf('missing'),
+      'numeric overload traces the first operand of a lowered call');
+
+    var equalityOperands='nail 0.54 ; def bad = missing == missing ;';
+    report=NailSourceAnalysis.analyze(equalityOperands,boot);
+    eq(report.diagnostics[0].span.start,equalityOperands.indexOf('missing'),
+      'equality traces the first operand of a lowered call');
+
     var failingElse='nail 0.54 ; def bad = if true then 1 else missing ;';
     report=NailSourceAnalysis.analyze(failingElse,boot);
     eq(report.diagnostics[0].span.start,failingElse.indexOf('missing'),
