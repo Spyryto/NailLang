@@ -999,6 +999,25 @@ def resolveSyntax tree frames pending aliases globals =
           else syntaxIf condition yes no
     else tree ;
 
+# Preserve the original Syntax tree for the overwhelmingly common case
+# without an opened context. This avoids rebuilding the entire stdlib AST
+# during source-free bootstrap and macro stress tests.
+def containsContext tree =
+  let tag = syntaxTag tree in
+    if tag == " Context " then true
+    else if tag == " Lambda " then
+      containsContext ( head ( tail ( syntaxChildren tree ) ) )
+    else if tag == " Apply " then
+      let parts = syntaxChildren tree in
+        if containsContext ( head parts ) then true
+        else containsContext ( head ( tail parts ) )
+    else if tag == " If " then
+      let parts = syntaxChildren tree in
+        if containsContext ( head parts ) then true
+        else if containsContext ( head ( tail parts ) ) then true
+        else containsContext ( head ( tail ( tail parts ) ) )
+    else false ;
+
 def parseFormsScoped tokens reversed aliases globals =
   if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
   else let parsed = parseForm tokens in
@@ -1018,7 +1037,8 @@ def parseFormsScoped tokens reversed aliases globals =
         let annotations = syntaxChildren ( head ( tail parts ) ) in
         let valueType = syntaxText ( head ( tail ( tail parts ) ) ) in
         let body = head ( tail ( tail ( tail parts ) ) ) in
-        let resolved = resolveSyntax body [] annotations aliases globals in
+        let resolved = if containsContext body then
+          resolveSyntax body [] annotations aliases globals else body in
         if syntaxTag resolved == " Error " then resolved
         else let added =
           if valueType == " _ " then globals
@@ -1027,12 +1047,16 @@ def parseFormsScoped tokens reversed aliases globals =
           ( cons ( syntaxNode " Define " [ name , resolved ] ) reversed ) aliases added
       else if tag == " Define " then
         let parts = syntaxChildren form in
-        let body = resolveSyntax ( head ( tail parts ) ) [] [] aliases globals in
+        let original = head ( tail parts ) in
+        let body = if containsContext original then
+          resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
         else parseFormsScoped rest
           ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals
       else if tag == " Evaluate " then
-        let body = resolveSyntax ( head ( syntaxChildren form ) ) [] [] aliases globals in
+        let original = head ( syntaxChildren form ) in
+        let body = if containsContext original then
+          resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
         else parseFormsScoped rest
           ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals
