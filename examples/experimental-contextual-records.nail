@@ -1,0 +1,35 @@
+# EXPERIMENT ONLY — PR #28, not part of the released 0.54 language.
+# Requires the experimental parser for static checking, or the updated
+# Nail-written source-free compiler in this branch for execution.
+
+nail 0.54 ;
+
+type Html = {
+  h2 : Text Text ,
+  div : Text Text
+} ;
+
+type Math = {
+  div : Text Text
+} ;
+
+def html = {
+  h2 = fun x -> textConcat " H: " x ,
+  div = fun x -> textConcat " HTML: " x
+} ;
+
+def math = {
+  div = fun x -> textConcat " Math: " x
+} ;
+
+# A contract is required only for the context receivers.
+# title remains inferred. No implements or interface declaration.
+def render ( html : Html ) ( math : Math ) title =
+  html {
+    [
+      h2 ( math { div title } ) ,
+      h2 ( math { html . div title } )
+    ]
+  } ;
+
+render html math " Nail " ;
