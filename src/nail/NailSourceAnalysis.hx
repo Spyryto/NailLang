@@ -1,6 +1,10 @@
 package nail;
 
 import nail.BootRuntime;
+import nail.Parser;
+import nail.Ast.Expr;
+import nail.Ast.Form;
+import haxe.ds.StringMap;
 import nail.ResultValue;
 import nail.SourcePositions.SourceSpan;
 import nail.SourcePositions.SourceToken;
@@ -11,9 +15,10 @@ import nail.Value;
     already-shipped source-position scanner. No Haxe TypeChecker or host
     parser is involved in the actual type decision.
 
-    Locations are deliberately conservative: a unique source token may be
-    pinpointed, and an unambiguous macro call may be used as an expansion
-    site. Otherwise span is null; generated trees receive no fake offsets. */
+    The Nail checker emits an expression-child path and the failing form's
+    ordinal. Existing host parser provenance may resolve those coordinates
+    for original (non-generated) expression nodes; it is *never* used for
+    type decisions. Unresolvable generated nodes receive no fake offsets. */
 typedef NailCheckDiagnostic = {
   final phase:String;
   final message:String;
@@ -130,6 +135,135 @@ class NailSourceAnalysis {
     return {span:span,template:template};
   }
 
+  /** Original semicolon-delimited form spans, excluding the modern header
+      and macro directives erased by source expansion. Quoted Text tokens
+      have already been atomized by SourcePositions.scan. */
+  static function sourceForms(tokens:Array<SourceToken>):Array<SourceSpan> {
+    var result:Array<SourceSpan> = [];
+    var first = 0;
+    if (tokens.length >= 3 && tokens[0].text == 'nail'
+        && tokens[2].text == ';') first = 3;
+    var depth = 0;
+    var start = first;
+    for (i in first...tokens.length) {
+      var word = tokens[i].text;
+      if (word == '(' || word == '[' || word == '{') depth++;
+      if (word == ')' || word == ']' || word == '}') depth--;
+      if (depth < 0) return [];
+      if (word == ';' && depth == 0) {
+        if (i >= start) {
+          var head = tokens[start].text;
+          if (head != 'macro' && head != 'import' && head != 'export') {
+            var span = SourcePositions.span(tokens,start,i + 1);
+            if (span != null) result.push(span);
+          }
+        }
+        start = i + 1;
+      }
+    }
+    if (depth != 0 || start != tokens.length) return [];
+    return result;
+  }
+
+  static function trail(fault:Value):Null<{index:Int,path:Array<Int>}> {
+    return switch (fault) {
+      case SyntaxNode('TCFault',Cons(_,Cons(
+          SyntaxNode('TCPath',steps),Cons(SyntaxNode('TCFormTrail',forms),Nil)))):
+        var formIndex = -1;
+        var cursor:Value = forms;
+        while (true) switch (cursor) {
+          case Cons(_,rest): formIndex++; cursor=rest;
+          case Nil: break;
+          case _: return null;
+        }
+        var path:Array<Int> = [];
+        cursor = steps;
+        while (true) switch (cursor) {
+          case Cons(SyntaxLeaf('TCStep',label),rest):
+            var part=Std.parseInt(StringTools.trim(label));
+            if (part == null || part < 0 || part > 2) return null;
+            path.push(part);
+            cursor=rest;
+          case Nil: break;
+          case _: return null;
+        }
+        {index:formIndex,path:path};
+      case _: null;
+    };
+  }
+
+  static function uniqueInForm(tokens:Array<SourceToken>,
+      word:String,area:SourceSpan):Null<SourceSpan> {
+    var found:Null<SourceSpan> = null;
+    for (token in tokens) {
+      if (token.start < area.start || token.end > area.end
+          || token.text != word) continue;
+      if (found != null) return null;
+      found = tokenSpan(token);
+    }
+    return found;
+  }
+
+  /** Read-only provenance projection. The original Haxe parser here is
+      optional and NEVER checks the program; Nail supplies the exact failed
+      structural child path. Generated macro nodes may lack source locations. */
+  static function originalExpression(source:String,area:SourceSpan,
+      path:Array<Int>,label:String):Null<SourceSpan> {
+    try {
+      var parser = new Parser(source);
+      var forms = parser.parseRaw();
+      for (form in forms) {
+        var formSpan = parser.provenance.spanOfForm(form);
+        if (formSpan == null || formSpan.start != area.start
+            || formSpan.end != area.end) continue;
+        var expr:Expr = switch (form) {
+          case Define(_,body) | Evaluate(body): body;
+          case _: return null;
+        };
+        for (step in path) {
+          expr = switch (expr) {
+            case Lambda(_,body) if (step == 1): body;
+            case Apply(fn,arg) if (step == 0): fn;
+            case Apply(fn,arg) if (step == 1): arg;
+            case If(test,yes,no) if (step == 0): test;
+            case If(test,yes,no) if (step == 1): yes;
+            case If(test,yes,no) if (step == 2): no;
+            case _: return null;
+          };
+        }
+        return switch (expr) {
+          case Var(name) if (name == label):
+            parser.provenance.spanOfExpression(expr);
+          case _: null;
+        };
+      }
+    } catch (_:Dynamic) {
+      // This parser does not yet support every experimental typed surface
+      // form. A provenance failure must not affect a Nail type decision.
+    }
+    return null;
+  }
+
+  /** Match type-error provenance by form ordinal and AST child path.
+      Name matching is only a safety check, never a substitute for a traced
+      path when multiple tokens occur inside one original expression. */
+  static function tracedLocation(source:String,message:String,
+      tokens:Array<SourceToken>,fault:Value):Null<SourceSpan> {
+    var sourceTrail = trail(fault);
+    if (sourceTrail == null) return null;
+    var forms = sourceForms(tokens);
+    if (sourceTrail.index < 0 || sourceTrail.index >= forms.length)
+      return null;
+    var name = after(message,'Unknown name:');
+    if (name == null || StringTools.startsWith(name,'#')) return null;
+    var area = forms[sourceTrail.index];
+    var exact = originalExpression(source,area,sourceTrail.path,name);
+    if (exact != null) return exact;
+    // Even if the optional host parser cannot handle this syntax, a unique
+    // matching token *within the traced failing form* is still unambiguous.
+    return uniqueInForm(tokens,name,area);
+  }
+
   static function pretty(boot:BootRuntime, checked:Value):Array<String> {
     var output:Array<String> = [];
     var entries:Value = switch (checked) {
@@ -185,8 +319,20 @@ class NailSourceAnalysis {
       {span:null,template:null};
     // Even if scanning fails (e.g. an unterminated quote), never attach an
     // offset invented by a second parser or replace Nail's error message.
-    try located = locate(lookupMessage, SourcePositions.scan(source), macroError)
-    catch (_:Dynamic) {}
+    try {
+      var tokens = SourcePositions.scan(source);
+      located = locate(lookupMessage,tokens,macroError);
+      if (!macroError) {
+        var traced = runtime.invoke('tcCheckSourceTraced',Text(source));
+        if (ResultValue.tag(traced) == ResultValue.ERR) {
+          var span = tracedLocation(source,lookupMessage,tokens,
+            ResultValue.get(traced,ResultValue.ERR));
+          if (span != null) located.span=span;
+        }
+      }
+    } catch (_:Dynamic) {
+      // Attribution is best-effort, but the Nail checker error is authoritative.
+    }
 
     return {ok:false,types:[],diagnostics:[{
       phase:macroError ? 'macro' : 'type', message:message,
