@@ -2638,7 +2638,12 @@ def tcPrepareTypedSource source =
       " Nail typechecker currently requires versioned modern source "
   else let parsed = parseTypedForms ( stripNailHeader tokens ) in
     if syntaxTag parsed != " Program " then parsed
-    else tcPrepareTypedMacros ( syntaxChildren parsed ) " m " [] [] ;
+    else let prepared = tcPrepareTypedMacros
+      ( syntaxChildren parsed ) " m " [] [] in
+      # Normalize numeric spellings BEFORE the host syntax expander can
+      # decode/re-encode a 1.0 Float as text 1 (which would infer Int).
+      syntaxNode " TCPreparedMacros "
+        [ modernRewrite ( tcFirst prepared ) , tcSecond prepared ] ;
 
 def tcCheckExpandedTypedTraced payload =
   let prepared = tcFirst payload in
@@ -2652,9 +2657,8 @@ def tcCheckExpandedTypedTraced payload =
   else if syntaxTag expanded != " Program " then
     Error ( tcFault " Macro expansion did not produce a Program " )
   else tcCheckSyntaxTraced
-    ( modernRewrite
-      ( tcRestoreTypedMacros ( syntaxChildren expanded )
-        ( syntaxChildren ( tcSecond prepared ) ) [] ) ) ;
+    ( tcRestoreTypedMacros ( syntaxChildren expanded )
+      ( syntaxChildren ( tcSecond prepared ) ) [] ) ;
 
 # Convenience source entry point: parse, expand macros once, restore typed
 # metadata, rewrite modern numeric syntax and infer entirely in Nail. The
