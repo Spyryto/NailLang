@@ -173,11 +173,17 @@ class MacroExpander {
     loading.push(name);
     var exports = new StringMap<MacroDefinition>();
     if (resolveSource != null) {
+      #if nail_seed_only
+      // Source-free distributions receive pre-parsed module Syntax from Nail.
+      // Never link the Haxe stage-zero Parser into their reachable runtime.
+      return fail('source-only macro resolution is unavailable in the source-free runtime');
+      #else
       var text = resolveSource(name);
       if (text == null) return fail('missing macro module ' + name);
       var parser = new Parser(text);
       parser.provenance.sourceId = name;
       unit(parser.parseRaw(), exports, parser.provenance);
+      #end
     } else {
       var source = resolve(name);
       if (source == null) return fail('missing macro module ' + name);
