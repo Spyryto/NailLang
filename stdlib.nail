@@ -1897,7 +1897,9 @@ def tcInferExpression tree environment substitutions seed =
   else if tag == " Apply " then
     let fn = tcFirst tree in
     let arg = tcSecond tree in
-    if tcIsOverloadedApply tree environment then
+    if tcIsEqualityApply tree then
+      tcInferEqualityApply tree environment substitutions seed
+    else if tcIsOverloadedApply tree environment then
       tcInferOverloadedApply tree environment substitutions seed
     else if tcIsNumericApply tree then
       tcInferNumericApply tree environment substitutions seed
@@ -2563,3 +2565,57 @@ def tcInferNumericApply tree environment substitutions seed =
         ( syntaxText left ) ( syntaxText right ) in
         if syntaxTag output == " TCFault " then output
         else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg ) ;
+
+# Equality is structural for known comparable types. Free type variables
+# require Eq-qualified HM schemes (still pending); do not infer an
+# unrestricted, unsound equality function from an unknown parameter.
+def tcComparableFields fields substitutions =
+  match fields with
+  | [] -> true
+  | field :: rest ->
+    if tcComparable ( tcSecond field ) substitutions == false then false
+    else tcComparableFields rest substitutions ;
+
+def tcComparable ty substitutions =
+  let t = tcFollow ty substitutions in
+  let tag = syntaxTag t in
+  if tag == " TCBase " then
+    let name = syntaxText t in
+    if name == " Int " then true
+    else if name == " Ratio " then true
+    else if name == " Float " then true
+    else if name == " Number " then true
+    else if name == " Exact " then true
+    else if name == " Text " then true
+    else if name == " Bool " then true
+    else name == " Syntax "
+  else if tag == " TCList " then
+    tcComparable ( tcFirst t ) substitutions
+  else if tag == " TCStruct " then
+    tcComparableFields ( syntaxChildren t ) substitutions
+  else false ;
+
+def tcIsEqualityApply tree =
+  let call = tcFirst tree in
+  if syntaxTag call != " Apply " then false
+  else let operator = tcFirst call in
+    if syntaxTag operator != " Var " then false
+    else let name = syntaxText operator in
+      if name == " == " then true
+      else name == " != " ;
+
+def tcInferEqualityApply tree environment substitutions seed =
+  let call = tcFirst tree in
+  let first = tcInferExpression ( tcSecond call )
+    environment substitutions seed in
+  if syntaxTag first == " TCFault " then first
+  else let second = tcInferExpression ( tcSecond tree )
+    environment ( tcResultSubs first ) ( tcResultSeed first ) in
+    if syntaxTag second == " TCFault " then second
+    else match tcUnify ( tcResultType first ) ( tcResultType second )
+      ( tcResultSubs second ) with
+    | Error message -> tcFault message
+    | Ok updated ->
+      if tcComparable ( tcResultType first ) updated == false then
+        tcFault " Eq constraints for unresolved or function types are not supported "
+      else tcInferResult ( tcBase " Bool " ) updated ( tcResultSeed second ) ;
