@@ -109,6 +109,9 @@ class NailTypecheckerProbeTestMain {
 
   static function main():Void {
     var boot=new BootRuntime(60000000);
+    var unversioned=boot.invoke('tcCheckSource',Text('1 + 2 ;'));
+    eq(ResultValue.tag(unversioned),ResultValue.ERR,
+      'legacy numeric source is rejected until dialect-specific checking exists');
     checkGood(boot,'42 ;',['Int']);
     checkGood(boot,'true ;',['Bool']);
     checkGood(boot,'" Ciao " ;',['Text']);
