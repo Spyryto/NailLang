@@ -1599,7 +1599,29 @@ def tcRowField name ty tail =
   syntaxNode " TCRowField "
     [ syntaxLeaf " TCName " name , ty , tail ] ;
 def tcMissing = syntaxLeaf " TCMissing " " " ;
-def tcFault message = syntaxLeaf " TCFault " message ;
+# A checker fault is data, not a VM exception. Keep its original message,
+# plus a reverse-constructed expression path and enclosing-form trail.
+# This sidecar information does not change Nail's five core expression kinds.
+def tcFault message =
+  syntaxNode " TCFault "
+    [ syntaxLeaf " TCMessage " message ,
+      syntaxNode " TCPath " [] ,
+      syntaxNode " TCFormTrail " [] ] ;
+def tcFaultMessage fault = syntaxText ( tcFirst fault ) ;
+def tcTraceExpr fault child =
+  if syntaxTag fault != " TCFault " then fault
+  else syntaxNode " TCFault "
+    [ tcFirst fault ,
+      syntaxNode " TCPath "
+        ( cons ( syntaxLeaf " TCStep " child )
+          ( syntaxChildren ( tcSecond fault ) ) ) ,
+      tcThird fault ] ;
+def tcTraceForm fault =
+  if syntaxTag fault != " TCFault " then fault
+  else syntaxNode " TCFault "
+    [ tcFirst fault , tcSecond fault ,
+      syntaxNode " TCFormTrail "
+        ( cons syntaxNil ( syntaxChildren ( tcThird fault ) ) ) ] ;
 def tcFirst tree = head ( syntaxChildren tree ) ;
 def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
 def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
@@ -2012,7 +2034,7 @@ def tcInferExpression tree environment substitutions seed =
       ( tcBinding param ( tcScheme variable [] ) ) environment in
     let body = tcInferExpression
       ( tcSecond tree ) local substitutions ( tcNext seed ) in
-    if syntaxTag body == " TCFault " then body
+    if syntaxTag body == " TCFault " then tcTraceExpr body " 1 "
     else tcInferResult
       ( tcFun ( tcNormalize variable ( tcResultSubs body ) )
         ( tcResultType body ) )
@@ -2031,7 +2053,8 @@ def tcInferExpression tree environment substitutions seed =
     else if tcIsRecordGet tree then
       let projected = tcInferExpression ( tcSecond fn )
         environment substitutions seed in
-      if syntaxTag projected == " TCFault " then projected
+      if syntaxTag projected == " TCFault " then
+        tcTraceExpr ( tcTraceExpr projected " 1 " ) " 0 "
       else tcProjectField ( tcResultType projected )
         ( syntaxText ( tcFirst arg ) ) environment
         ( tcResultSubs projected ) ( tcResultSeed projected )
@@ -2045,7 +2068,7 @@ def tcInferExpression tree environment substitutions seed =
         else syntaxNode " TCMatchOK " [] in
       if syntaxTag matchCheck == " TCFault " then matchCheck
       else let inferred = tcInferExpression arg environment substitutions seed in
-        if syntaxTag inferred == " TCFault " then inferred
+        if syntaxTag inferred == " TCFault " then tcTraceExpr inferred " 1 "
         else let scheme = tcGeneralize
           ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
           # Bottom-like fallback is scoped exclusively to a validated match.
@@ -2057,15 +2080,18 @@ def tcInferExpression tree environment substitutions seed =
                 [ tcVar " a " , tcVar " b " ] )
               environment
           else environment in
-          tcInferExpression ( tcSecond fn )
-            ( cons ( tcBinding subject scheme ) scoped )
-            ( tcResultSubs inferred ) ( tcResultSeed inferred )
+          tcTraceExpr
+            ( tcTraceExpr
+              ( tcInferExpression ( tcSecond fn )
+                ( cons ( tcBinding subject scheme ) scoped )
+                ( tcResultSubs inferred ) ( tcResultSeed inferred ) )
+              " 1 " ) " 0 "
     else
       let inferredFn = tcInferExpression fn environment substitutions seed in
-      if syntaxTag inferredFn == " TCFault " then inferredFn
+      if syntaxTag inferredFn == " TCFault " then tcTraceExpr inferredFn " 0 "
       else let inferredArg = tcInferExpression arg environment
         ( tcResultSubs inferredFn ) ( tcResultSeed inferredFn ) in
-        if syntaxTag inferredArg == " TCFault " then inferredArg
+        if syntaxTag inferredArg == " TCFault " then tcTraceExpr inferredArg " 1 "
         else let output = tcVar ( tcResultSeed inferredArg ) in
           match tcUnify ( tcResultType inferredFn )
             ( tcFun ( tcResultType inferredArg ) output )
@@ -2076,7 +2102,7 @@ def tcInferExpression tree environment substitutions seed =
   else if tag == " If " then
     let cond = tcInferExpression ( tcFirst tree )
       environment substitutions seed in
-    if syntaxTag cond == " TCFault " then cond
+    if syntaxTag cond == " TCFault " then tcTraceExpr cond " 0 "
     else
       match tcUnify ( tcResultType cond ) ( tcBase " Bool " )
         ( tcResultSubs cond ) with
@@ -2084,10 +2110,10 @@ def tcInferExpression tree environment substitutions seed =
       | Ok afterCond ->
         let yes = tcInferExpression ( tcSecond tree )
           environment afterCond ( tcResultSeed cond ) in
-        if syntaxTag yes == " TCFault " then yes
+        if syntaxTag yes == " TCFault " then tcTraceExpr yes " 1 "
         else let no = tcInferExpression ( tcThird tree )
           environment ( tcResultSubs yes ) ( tcResultSeed yes ) in
-          if syntaxTag no == " TCFault " then no
+          if syntaxTag no == " TCFault " then tcTraceExpr no " 2 "
           else match tcUnify ( tcResultType yes ) ( tcResultType no )
             ( tcResultSubs no ) with
           | Error message -> tcFault message
@@ -2453,7 +2479,14 @@ def tcInferOverloadedApply tree environment substitutions seed =
       else tcInferResult output
         ( tcResultSubs inferred ) ( tcResultSeed inferred ) ;
 
+# One traversal step records which source form returned the error. Every
+# recursive call passes through this wrapper, even for type declarations.
+# The trail length minus one is the failing form's zero-based ordinal.
 def tcCheckForms forms environment substitutions seed reversed aliases relations =
+  tcTraceForm
+    ( tcCheckFormsBody forms environment substitutions seed reversed aliases relations ) ;
+
+def tcCheckFormsBody forms environment substitutions seed reversed aliases relations =
   match forms with
   | [] -> syntaxNode " TCChecked " ( reverse reversed )
   | form :: rest ->
@@ -2515,7 +2548,17 @@ def tcCheckSyntax program =
     if syntaxTag program == " Error " then Error ( syntaxText program )
     else Error " Expected parsed Nail program "
   else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] [] in
-    if syntaxTag checked == " TCFault " then Error ( syntaxText checked )
+    if syntaxTag checked == " TCFault " then Error ( tcFaultMessage checked )
+    else Ok checked ;
+
+# Opt-in structured checker error. The regular tcCheckSyntax still returns
+# Error(Text) for existing callers; this returns Error(TCFault Syntax).
+def tcCheckSyntaxTraced program =
+  if syntaxTag program != " Program " then
+    if syntaxTag program == " Error " then Error ( tcFault ( syntaxText program ) )
+    else Error ( tcFault " Expected parsed Nail program " )
+  else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] [] in
+    if syntaxTag checked == " TCFault " then Error checked
     else Ok checked ;
 
 # The macro expander works exclusively on executable Program forms.
@@ -2593,6 +2636,15 @@ def tcCheckSource source =
   if parsePeek tokens != " nail " then
     Error " Nail typechecker currently requires versioned modern source "
   else tcCheckSyntax
+    ( modernRewrite
+      ( tcExpandTypedMacros
+        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
+
+def tcCheckSourceTraced source =
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    Error ( tcFault " Nail typechecker currently requires versioned modern source " )
+  else tcCheckSyntaxTraced
     ( modernRewrite
       ( tcExpandTypedMacros
         ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
