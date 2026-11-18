@@ -287,20 +287,36 @@ name, the failing-form trail selects the earlier failing definition. Tests
 also cover errors nested in lambdas, function applications and the two operands
 of lowered numeric/equality operators.
 
-Where a structural path cannot be mapped, locations are restricted to
-unambiguous tokens within the **failing form**, the second of exactly two
-duplicate declarations, or an isolated source pattern. When a single
-macro-generated match has a clearly identifiable call site, `span`
-points to `expand` and `templateSpan` points to its template's original
-`match`/`function` token. Multiple possible expansion sites or unrelated
-macros never receive fabricated locations.
+Local macro calls now have a **two-origin read-only sidecar**:
+`SourceProvenance` attaches a precise `expand` token to generated nodes
+and independently retains each node's original quoted-template span.
+`MacroExpander.forms(input, provenance)` can replay exactly the same
+hygienic AST transformation solely for this diagnostic lookup. The runtime
+expander, bytecode, canonical Syntax representation and type inference do
+not gain new nodes or metadata. Parentheses that merely delimit the quoted
+template are stripped from the reported template span only after verifying
+a complete balanced wrapper.
 
-This is **not yet** complete expression provenance through all transforms:
-generated macro subtrees and certain specialized inference paths are not
-fully traced. Numeric/equality operand paths are covered for nested failures. Arbitrary unification failures and general pattern
-errors may lack a precise span. A future fully Nail-written positioned parser
-could replace the read-only host parser sidecar. This feature remains opt-in
-and is exercised on Haxe, Node and PHP.
+This distinguishes **multiple invocations of the same macro** in the same
+form, **different macros** in consecutive forms and **nested macro calls**:
+the generated error points at its outermost user-authored expansion site,
+while `templateSpan` points at the expression in the actual producing
+macro. A caller argument substituted via `unquote` keeps its own source
+position and has no fabricated template origin.
+
+Where a structural path cannot be mapped, locations are restricted to
+unambiguous tokens within the **failing form**, duplicate declarations or
+an isolated source pattern. Imported/external macro definitions cannot
+currently supply their own source file coordinates to this adapter. The
+opt-in host provenance replay can also decline to map experimental syntax
+which its parser does not accept. A general unification failure with no
+trustworthy generated call site still has a null span.
+
+This is **not yet** complete expression provenance through all transforms;
+some specialized inference paths and transformations need further origin
+propagation. A future positioned parser written in Nail could replace the
+read-only Haxe sidecar. The current implementation remains opt-in and is
+exercised on Haxe, Node and PHP.
 
 ## Parity and coverage gaps
 
