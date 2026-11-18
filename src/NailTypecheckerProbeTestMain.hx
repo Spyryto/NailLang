@@ -136,7 +136,7 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'{ x = 1 , y = true } == { x = 2 , y = false } ;',['Bool']);
     checkBad(boot,'1 == true ;','Type mismatch');
     checkBad(boot,'( fun x -> x ) == ( fun y -> y ) ;',
-      'Eq constraints');
+      'Eq constraint');
     checkBad(boot,'[ 1 ] == [ true ] ;','Type mismatch');
     checkGood(boot,
       'def same x y = x == y ; same 3 3 ; same true false ; '
