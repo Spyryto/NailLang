@@ -502,9 +502,13 @@ def parseContextSyntax recur name tokens =
   else parsePair ( syntaxNode " Context " [ syntaxName name , parseTree body ] )
     ( tail ( parseRest body ) ) ;
 
-def startsNamedField tokens =
+def startsOpenBrace tokens =
   if isEmpty tokens then false
-  else if parsePeek tokens != " { " then false
+  else if syntaxTag ( head tokens ) != " Token " then false
+  else parsePeek tokens == " { " ;
+
+def startsNamedField tokens =
+  if startsOpenBrace tokens == false then false
   else if isEmpty ( tail tokens ) then false
   else let field = parsePeek ( tail tokens ) in
     if isIdentifier field == false then false
@@ -563,12 +567,12 @@ def parsePrefix recur tokens =
         else parsePair ( parseLambdaWrap ( syntaxChildren ( parseTree params ) ) ( parseTree body ) ) ( parseRest body )
     else if isNumeric word then parsePair ( syntaxLiteral " Number " word ) remaining
     else if isRecordTypeName word then
-      if parsePeek remaining == " { " then
+      if startsOpenBrace remaining then
         if startsNamedField remaining then parseNamedFields recur word ( tail remaining ) []
         else parseContextSyntax recur word ( tail remaining )
       else parsePair ( syntaxVar word ) remaining
     else if isIdentifier word then
-      if parsePeek remaining == " { " then
+      if startsOpenBrace remaining then
         if startsNamedField remaining then parsePair ( syntaxVar word ) remaining
         else parseContextSyntax recur word ( tail remaining )
       else parsePair ( syntaxVar word ) remaining
