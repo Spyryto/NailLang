@@ -1,5 +1,6 @@
 -cp src
 -main ContextBlockProbeTestMain
 -resource stdlib.nail@stdlib
+-resource examples/experimental-contextual-records.nail@contextual_example
 -resource build/bootstrap/stdlib-image.json@bootstrap_image
 -js build/tests/context-block-probe.js
