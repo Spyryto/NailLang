@@ -28,6 +28,7 @@ class MacroExpander {
   var serial = 0;
   var visited = 0;
   final resolve:Null<String->Value>;
+  final provenance:Null<SourceProvenance>;
   final loaded = new StringMap<StringMap<MacroDefinition>>();
   final loading:Array<String> = [];
 
@@ -35,8 +36,9 @@ class MacroExpander {
     return StringTools.startsWith(name, GLOBAL) ? name.substr(GLOBAL.length) : name;
   }
 
-  public static function forms(input:Array<Form>):Array<Form> {
-    return new MacroExpander(null).unit(input, null);
+  public static function forms(input:Array<Form>,
+      ?provenance:SourceProvenance):Array<Form> {
+    return new MacroExpander(null, provenance).unit(input, null);
   }
 
   function unit(input:Array<Form>, exports:Null<StringMap<MacroDefinition>>):Array<Form> {
@@ -86,9 +88,13 @@ class MacroExpander {
       case _ if (exports != null):
         fail('only macro declarations, imports and exports are allowed in a macro module');
       case Define(name, body):
-        output.push(Define(name, expand(body, scope)));
+        var normalized = Define(name, expand(body, scope));
+        if (provenance != null) provenance.transfer(form, normalized);
+        output.push(normalized);
       case Evaluate(body):
-        output.push(Evaluate(expand(body, scope)));
+        var normalized = Evaluate(expand(body, scope));
+        if (provenance != null) provenance.transfer(form, normalized);
+        output.push(normalized);
       case _:
         output.push(form);
     }
@@ -172,7 +178,14 @@ class MacroExpander {
 
   static function fail(message:String):Dynamic throw new MacroExpansionError(message);
 
-  function new(resolve:Null<String->Value>) this.resolve = resolve;
+  function new(resolve:Null<String->Value>, ?provenance:SourceProvenance) {
+    this.resolve = resolve;
+    this.provenance = provenance;
+  }
+
+  function generated(result:Expr, template:Expr,
+      site:Null<nail.SourcePositions.SourceSpan>):Expr
+    return provenance == null ? result : provenance.generated(result, template, site);
 
   function tick(depth:Int):Void {
     if (depth > MAX_DEPTH) fail('expansion nesting limit exceeded');
@@ -211,13 +224,14 @@ class MacroExpander {
   }
 
   function expand(expr:Expr, scope:StringMap<MacroDefinition>):Expr {
-    return hasMarkers(expr) ? walk(expr, scope, null, null, 0) : expr;
+    return hasMarkers(expr) ? walk(expr, scope, null, null, 0, null) : expr;
   }
 
   /** Template and caller subtrees are walked in their own scopes. The caller
       arguments are fully expanded before insertion and are never renamed. */
   function walk(expr:Expr, scope:StringMap<MacroDefinition>, holes:Null<StringMap<Expr>>,
-      locals:Null<StringMap<String>>, depth:Int):Expr {
+      locals:Null<StringMap<String>>, depth:Int,
+      site:Null<nail.SourcePositions.SourceSpan>):Expr {
     tick(depth);
     switch (expr) {
       case Apply(Var(UNQUOTE), Var(name)) if (holes != null):
@@ -232,28 +246,38 @@ class MacroExpander {
             + definition.params.length + ' arguments, got ' + call.args.length);
           var bindings = new StringMap<Expr>();
           for (i in 0...definition.params.length)
-            bindings.set(definition.params[i], walk(call.args[i], scope, holes, locals, depth + 1));
-          var result = walk(definition.template, definition.scope, bindings, new StringMap<String>(), depth + 1);
-          for (i in definition.params.length...call.args.length)
-            result = Apply(result, walk(call.args[i], scope, holes, locals, depth + 1));
+            bindings.set(definition.params[i],
+              walk(call.args[i], scope, holes, locals, depth + 1, site));
+          var origin = provenance == null ? null : provenance.invocationSite(expr, site);
+          var result = walk(definition.template, definition.scope,
+            bindings, new StringMap<String>(), depth + 1, origin);
+          for (i in definition.params.length...call.args.length) {
+            var extra = walk(call.args[i], scope, holes, locals, depth + 1, site);
+            result = generated(Apply(result, extra), definition.template, origin);
+          }
           return result;
         }
         switch (expr) {
           case Apply(fn, arg):
-            return Apply(walk(fn, scope, holes, locals, depth + 1), walk(arg, scope, holes, locals, depth + 1));
+            return generated(Apply(
+              walk(fn, scope, holes, locals, depth + 1, site),
+              walk(arg, scope, holes, locals, depth + 1, site)), expr, site);
           case _: return fail('invalid application');
         }
       case Lambda(name, body):
-        if (locals == null) return Lambda(name, walk(body, scope, holes, null, depth + 1));
+        if (locals == null) return generated(
+          Lambda(name, walk(body, scope, holes, null, depth + 1, site)), expr, site);
         var fresh = FRESH + serial++ + '_' + name;
         var previous = locals.get(name);
         locals.set(name, fresh);
-        var expanded = walk(body, scope, holes, locals, depth + 1);
+        var expanded = walk(body, scope, holes, locals, depth + 1, site);
         if (previous == null) locals.remove(name); else locals.set(name, previous);
-        return Lambda(fresh, expanded);
+        return generated(Lambda(fresh, expanded), expr, site);
       case If(test, yes, no):
-        return If(walk(test, scope, holes, locals, depth + 1), walk(yes, scope, holes, locals, depth + 1),
-          walk(no, scope, holes, locals, depth + 1));
+        return generated(If(
+          walk(test, scope, holes, locals, depth + 1, site),
+          walk(yes, scope, holes, locals, depth + 1, site),
+          walk(no, scope, holes, locals, depth + 1, site)), expr, site);
       case Var(name):
         if (marker(name)) return fail(switch (name) {
           case QUOTE: 'quote belongs at the start of a macro body';
@@ -262,8 +286,9 @@ class MacroExpander {
         });
         if (locals == null) return expr;
         var binding = locals.get(name);
-        return Var(binding != null ? binding : GLOBAL + name);
-      case Literal(_): return expr;
+        return generated(Var(binding != null ? binding : GLOBAL + name), expr, site);
+      case Literal(value):
+        return site == null ? expr : generated(Literal(value), expr, site);
     }
   }
 
