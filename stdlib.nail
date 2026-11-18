@@ -2879,10 +2879,11 @@ def tcInferNumericApply tree environment substitutions seed =
   let op = syntaxText ( tcFirst call ) in
   let firstArg = tcInferExpression ( tcSecond call )
     environment substitutions seed in
-  if syntaxTag firstArg == " TCFault " then firstArg
+  if syntaxTag firstArg == " TCFault " then
+    tcTraceExpr ( tcTraceExpr firstArg " 1 " ) " 0 "
   else let secondArg = tcInferExpression ( tcSecond tree )
     environment ( tcResultSubs firstArg ) ( tcResultSeed firstArg ) in
-    if syntaxTag secondArg == " TCFault " then secondArg
+    if syntaxTag secondArg == " TCFault " then tcTraceExpr secondArg " 1 "
     else let left = tcFollow ( tcResultType firstArg ) ( tcResultSubs secondArg ) in
       let right = tcFollow ( tcResultType secondArg ) ( tcResultSubs secondArg ) in
       if syntaxTag left != " TCBase " then
@@ -3024,10 +3025,11 @@ def tcInferEqualityApply tree environment substitutions seed =
   let call = tcFirst tree in
   let first = tcInferExpression ( tcSecond call )
     environment substitutions seed in
-  if syntaxTag first == " TCFault " then first
+  if syntaxTag first == " TCFault " then
+    tcTraceExpr ( tcTraceExpr first " 1 " ) " 0 "
   else let second = tcInferExpression ( tcSecond tree )
     environment ( tcResultSubs first ) ( tcResultSeed first ) in
-    if syntaxTag second == " TCFault " then second
+    if syntaxTag second == " TCFault " then tcTraceExpr second " 1 "
     else match tcUnify ( tcResultType first ) ( tcResultType second )
       ( tcResultSubs second ) with
     | Error message -> tcFault message
