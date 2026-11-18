@@ -531,7 +531,7 @@ class NailSourceAnalysis {
       tokens:Array<SourceToken>,area:SourceSpan,
       program:Value,index:Int,callPath:String):Null<SourceSpan> {
     var request=SyntaxNode('NMFormCallsRequest',
-      Cons(program,Cons(Number(index),Nil)));
+      Cons(program,Cons(IntNumber(numeric.FastNumber.exact(Std.string(index))),Nil)));
     var calls=nailOriginTokens(boot,'nmSourceCallsInForm',request);
     var keywords:Array<{name:String,span:SourceSpan}>=[];
     for (i in 0...tokens.length-1) {

@@ -1328,10 +1328,10 @@ class NailTypecheckerProbeTestMain {
     };
     var firstFormCalls=boot.invoke('nmSourceCallsInForm',
       SyntaxNode('NMFormCallsRequest',
-        Cons(formOrderProgram,Cons(Number(1),Nil))));
+        Cons(formOrderProgram,Cons(IntNumber(numeric.FastNumber.exact('1')),Nil))));
     var secondFormCalls=boot.invoke('nmSourceCallsInForm',
       SyntaxNode('NMFormCallsRequest',
-        Cons(formOrderProgram,Cons(Number(2),Nil))));
+        Cons(formOrderProgram,Cons(IntNumber(numeric.FastNumber.exact('2')),Nil))));
     var isSingleIdentityCall=(mapped:Value) -> switch(mapped) {
       case SyntaxNode('NMTokenMap',Cons(
           SyntaxNode('NMTokenOrigin',Cons(
@@ -1346,7 +1346,7 @@ class NailTypecheckerProbeTestMain {
       'Nail form selection identifies second original source definition');
     eq(switch(boot.invoke('nmSourceCallsInForm',
         SyntaxNode('NMFormCallsRequest',
-          Cons(formOrderProgram,Cons(Number(99),Nil))))) {
+          Cons(formOrderProgram,Cons(IntNumber(numeric.FastNumber.exact('99')),Nil))))) {
       case SyntaxNode('NMTokenMap',_): false;
       case _: true;
     },true,'Nail source form index fails closed when out of bounds');
