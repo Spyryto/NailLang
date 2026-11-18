@@ -3393,22 +3393,22 @@ def nmNoBindings = syntaxLeaf " NMNoBindings " " " ;
 def nmBindings entries = syntaxNode " NMBindings " entries ;
 def nmChild seed suffix = textConcat seed suffix ;
 
-def nmDefinition name params template captured =
+def nmDefinition name params template captured owner =
   syntaxNode " NMDefinition "
     [ syntaxName name , syntaxNode " NMParams " params ,
-      template , syntaxNode " NMScope " captured ] ;
+      template , syntaxNode " NMScope " captured , syntaxName owner ] ;
 
 # Module table entries are ordinary TCBinding(name, Program) nodes.
 # A resolution contains original captured definitions, not re-expanded text.
 # External source acquisition remains a capability of the host.
-def nmDeclare label source scope =
+def nmDeclare label source scope owner =
   let parts = nmParameters source [] in
   if nmIsError parts then parts
   else let params = syntaxChildren ( tcFirst parts ) in
     let template = tcSecond parts in
     let valid = nmValidate template params label 0 in
     if nmIsError valid then valid
-    else nmDefinition label params template scope ;
+    else nmDefinition label params template scope owner ;
 
 # An imported module's export table is immutable and computed exactly
 # once per analysis request. NMResolved carries (value, updatedCache);
@@ -3498,7 +3498,7 @@ def nmModuleFormsCached forms scope own exports modules active cache =
           ( textLength " #macro_decl_ " ) " " in
         if syntaxTag ( tcFind label scope ) != " TCMissing " then
           nmError ( textConcat " duplicate macro " label )
-        else let definition = nmDeclare label ( tcSecond form ) scope in
+        else let definition = nmDeclare label ( tcSecond form ) scope ( syntaxText ( head active ) ) in
           if nmIsError definition then definition
           else nmModuleFormsCached rest
             ( cons ( tcBinding label definition ) scope )
@@ -3769,7 +3769,7 @@ def nmExpandFormsIn forms scope reversed seed modules fuel =
           ( textLength " #macro_decl_ " ) " " in
         if syntaxTag ( tcFind label scope ) != " TCMissing " then
           nmPack ( nmError ( textConcat " duplicate macro " label ) ) available
-        else let definition = nmDeclare label ( tcSecond form ) scope in
+        else let definition = nmDeclare label ( tcSecond form ) scope " #caller " in
           if nmIsError definition then nmPack definition available
           else nmExpandFormsIn rest
             ( cons ( tcBinding label definition ) scope )
@@ -3803,6 +3803,147 @@ def nmExpandFormsIn forms scope reversed seed modules fuel =
         ( nmRemaining body )
     else nmExpandFormsIn rest scope ( cons form reversed )
       ( nmChild seed " _form " ) modules available ;
+
+# --------------------------------------------------------------------------
+# Nail-owned symbolic macro provenance. A traced checker error references
+# an output form; Nail resolves its source macro and innermost template owner
+# from immutable lexical macro definitions. This stage attributes only
+# unambiguous unknown-name errors: no fabricated spans for ambiguous calls,
+# nested generated type errors or callers inserted via unquote.
+# Source-coordinate projection remains a read-only token scanner.
+# --------------------------------------------------------------------------
+
+def nmNoOrigin = syntaxLeaf " NMNoOrigin " " " ;
+def nmNoCall = syntaxLeaf " NMNoCall " " " ;
+def nmAmbiguousCall = syntaxLeaf " NMAmbiguousCall " " " ;
+
+def nmUniqueCall first second =
+  if syntaxTag first == " NMAmbiguousCall " then first
+  else if syntaxTag second == " NMAmbiguousCall " then second
+  else if syntaxTag first == " NMNoCall " then second
+  else if syntaxTag second == " NMNoCall " then first
+  else nmAmbiguousCall ;
+
+def nmFindUniqueCall tree =
+  let tag = syntaxTag tree in
+  if tag == " Apply " then
+    let call = nmInvocation tree [] in
+    if syntaxTag call == " NMCall " then call
+    else nmUniqueCall
+      ( nmFindUniqueCall ( tcFirst tree ) )
+      ( nmFindUniqueCall ( tcSecond tree ) )
+  else if tag == " Lambda " then
+    nmFindUniqueCall ( tcSecond tree )
+  else if tag == " If " then
+    nmUniqueCall ( nmFindUniqueCall ( tcFirst tree ) )
+      ( nmUniqueCall
+        ( nmFindUniqueCall ( tcSecond tree ) )
+        ( nmFindUniqueCall ( tcThird tree ) ) )
+  else nmNoCall ;
+
+def nmContainsFaultName tree name =
+  let tag = syntaxTag tree in
+  if tag == " Var " then
+    syntaxText tree == name
+  else if tag == " Apply " then
+    nmContainsFaultName ( tcFirst tree ) name
+      || nmContainsFaultName ( tcSecond tree ) name
+  else if tag == " Lambda " then
+    nmContainsFaultName ( tcSecond tree ) name
+  else if tag == " If " then
+    nmContainsFaultName ( tcFirst tree ) name
+      || nmContainsFaultName ( tcSecond tree ) name
+      || nmContainsFaultName ( tcThird tree ) name
+  else false ;
+
+def nmMacroFaultOwner definition missing depth =
+  if depth > 128 then nmNoOrigin
+  else let template = tcThird definition in
+    if nmContainsFaultName template missing then
+      syntaxNode " NMOrigin "
+        [ tcFifth definition , tcFirst definition ,
+          syntaxName missing ]
+    else let nested = nmFindUniqueCall template in
+      if syntaxTag nested != " NMCall " then nmNoOrigin
+      else let scope = cons
+        ( tcBinding ( syntaxText ( tcFirst definition ) ) definition )
+        ( syntaxChildren ( tcFourth definition ) ) in
+        let child = tcFind ( syntaxText ( tcFirst nested ) ) scope in
+        if syntaxTag child == " TCMissing " then nmNoOrigin
+        else nmMacroFaultOwner child missing ( depth + 1 ) ;
+
+def nmOriginalFormAt forms index =
+  match forms with
+  | [] -> nmNoOrigin
+  | form :: rest ->
+    if syntaxTag form == " Define " then
+      let name = syntaxText ( tcFirst form ) in
+      if tcStartsWith name " #macro_decl_ " then
+        nmOriginalFormAt rest index
+      else if tcStartsWith name " #macro_import_ " then
+        nmOriginalFormAt rest index
+      else if tcStartsWith name " #macro_export_ " then
+        nmOriginalFormAt rest index
+      else if index == 0 then form
+      else nmOriginalFormAt rest ( index - 1 )
+    else if index == 0 then form
+    else nmOriginalFormAt rest ( index - 1 ) ;
+
+def nmOriginScopeBefore forms target scope modules =
+  match forms with
+  | [] -> syntaxNode " NMScope " scope
+  | form :: rest ->
+    if form == target then syntaxNode " NMScope " scope
+    else if syntaxTag form != " Define " then
+      nmOriginScopeBefore rest target scope modules
+    else let name = syntaxText ( tcFirst form ) in
+      if tcStartsWith name " #macro_decl_ " then
+        let label = tcDropPrefix name
+          ( textLength " #macro_decl_ " ) " " in
+        let declared = nmDeclare label ( tcSecond form ) scope " #caller " in
+        if nmIsError declared then nmNoOrigin
+        else nmOriginScopeBefore rest target
+          ( cons ( tcBinding label declared ) scope ) modules
+      else if tcStartsWith name " #macro_import_ " then
+        let imported = nmImportCached form scope modules in
+        if nmIsError imported then nmNoOrigin
+        else nmOriginScopeBefore rest target
+          ( cons ( tcBinding ( syntaxText ( tcFirst imported ) )
+            ( tcSecond imported ) ) scope ) modules
+      else nmOriginScopeBefore rest target scope modules ;
+
+# Return a symbolic origin only for an unambiguously generated identifier.
+# A source scanner turns this logical origin into concrete module-local spans.
+def nmFaultMacroOrigin request =
+  if syntaxTag request != " NMOriginRequest " then nmNoOrigin
+  else let program = tcFirst request in
+    let modules = tcSecond request in
+    let fault = tcThird request in
+    if syntaxTag program != " Program " then nmNoOrigin
+    else if syntaxTag fault != " TCFault " then nmNoOrigin
+    else let message = syntaxText ( tcFirst fault ) in
+      if tcStartsWith message " Unknown name:" == false then nmNoOrigin
+      else let missing = tcDropPrefix message
+        ( textLength " Unknown name:" ) " " in
+        let formIndex = length ( syntaxChildren ( tcThird fault ) ) - 1 in
+        let form = nmOriginalFormAt ( syntaxChildren program ) formIndex in
+        if syntaxTag form == " NMNoOrigin " then nmNoOrigin
+        else let body =
+          if syntaxTag form == " Define " then tcSecond form
+          else if syntaxTag form == " Evaluate " then tcFirst form
+          else nmNoOrigin in
+          let call = nmFindUniqueCall body in
+          if syntaxTag call != " NMCall " then nmNoOrigin
+          else let prepared = nmPrepareModules modules in
+            if nmIsError prepared then nmNoOrigin
+            else let scope = nmOriginScopeBefore
+              ( syntaxChildren program ) form []
+              prepared in
+              if syntaxTag scope != " NMScope " then nmNoOrigin
+              else let definition = tcFind ( syntaxText ( tcFirst call ) )
+                ( syntaxChildren scope ) in
+                if syntaxTag definition == " TCMissing " then nmNoOrigin
+                else nmMacroFaultOwner definition missing 0 ;
 
 # A conservative upfront charge accounts for parsing/validation of
 # all input forms and imported templates. Executable visits then consume
