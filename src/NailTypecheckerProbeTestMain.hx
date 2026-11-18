@@ -1045,6 +1045,27 @@ class NailTypecheckerProbeTestMain {
       +'expand id ( render html " Hello " ) ;',
       macroModules,['Text']);
 
+    var importedApi = 'nail 0.54 ; '
+      +'import publicScore from lesson ; '
+      +'let tmp = 22 in expand publicScore tmp ;';
+    report=NailSourceAnalysis.analyzeNailMacros(importedApi,boot,
+      name -> macroModules.get(name),'src/imported-api.nail');
+    eq(report.ok,true,'public opt-in Nail module checker accepts transitive macros');
+    eq(report.types,['Int'],'public opt-in Nail module checker infers Int');
+
+    var importedBroken='nail 0.54 ; '
+      +'macro broken x = quote ( missing ) ; export broken ;';
+    macroModules.set('brokenLib',importedBroken);
+    var brokenCall='nail 0.54 ; import broken from brokenLib ; '
+      +'expand broken 1 ; expand broken 2 ;';
+    report=NailSourceAnalysis.analyzeNailMacros(brokenCall,boot,
+      name -> macroModules.get(name),'src/with-broken.nail');
+    eq(report.ok,false,'Nail macro analyzer rejects imported unknown identifier');
+    eq(report.diagnostics[0].templateOrigin.sourceId,'brokenLib',
+      'Nail imported failure still maps to the defining source module');
+    eq(report.diagnostics[0].span.start,brokenCall.indexOf('expand'),
+      'Nail imported failure uses first call site');
+
     macroModules.set('hidden','nail 0.54 ; '
       +'macro private x = quote ( unquote x ) ; export private ; '
       +'macro notExported x = quote ( unquote x ) ;');
