@@ -377,6 +377,192 @@ class NailSourceAnalysis {
   /** Resolve Nail-owned symbolic origin against original source tokens.
       No macro replay or host macro expansion occurs here. Only a unique
       template name within its original declaration can receive a span. */
+  /** Read-only projections of Nail's *already parsed* Syntax. There is
+      no second source parser, no macro substitution and no type decision. */
+  static function syntaxChildren(value:Value):Array<Value> {
+    var output:Array<Value>=[];
+    var rest:Value=switch(value) {
+      case SyntaxNode(_,items): items;
+      case _: return output;
+    };
+    while (true) switch(rest) {
+      case Nil: return output;
+      case Cons(item,tail): output.push(item);rest=tail;
+      case _: return [];
+    }
+    return output;
+  }
+
+  static function findModuleProgram(modules:Value,name:String):Null<Value> {
+    for (entry in syntaxChildren(modules)) switch(entry) {
+      case SyntaxNode('TCBinding',Cons(SyntaxLeaf('TCName',owner),
+          Cons(program,Nil))) if (owner==name): return program;
+      case _:
+    }
+    return null;
+  }
+
+  static function templateSyntax(program:Value,macroName:String):Null<Value> {
+    for (form in syntaxChildren(program)) switch(form) {
+      case SyntaxNode('Define',Cons(
+          SyntaxLeaf('Name',label),Cons(body,Nil)))
+          if (label=='#macro_decl_'+macroName):
+        var cur=body;
+        while (true) switch(cur) {
+          case SyntaxNode('Lambda',Cons(_,Cons(rest,Nil))):
+            cur=rest;
+          case SyntaxNode('Apply',Cons(
+              SyntaxLeaf('Var','#macro_quote'),Cons(template,Nil))):
+            return template;
+          case _: return null;
+        }
+      case _:
+    }
+    return null;
+  }
+
+  static function templateAtPath(template:Value,path:String):Null<Value> {
+    var node:Value=template;
+    for (i in 0...path.length) {
+      var digit=path.charCodeAt(i)-'0'.code;
+      var parts=syntaxChildren(node);
+      if (digit<0 || digit>=parts.length) return null;
+      node=parts[digit];
+    }
+    return node;
+  }
+
+  static function numericSymbol(name:String):Null<String> return switch(name) {
+    case '#modern+' | '+': '+';
+    case '#modern-' | '-': '-';
+    case '#modern*' | '*': '*';
+    case '#modern/' | '/': '/';
+    case _: null;
+  };
+
+  static function nodeTokenHint(node:Value):Null<String> {
+    return switch(node) {
+      case SyntaxNode('Apply',Cons(
+          SyntaxNode('Apply',Cons(SyntaxLeaf('Var',name),_)),_)):
+        numericSymbol(name);
+      case SyntaxNode('If',_): 'if';
+      case SyntaxLeaf('Var',name):
+        if (StringTools.startsWith(name,'#macro_global_'))
+          name.substr('#macro_global_'.length)
+        else if (StringTools.startsWith(name,'#macro_local_')) null
+        else name;
+      case _: null;
+    }
+  }
+
+  /** AST-based *infix order*, used only to disambiguate repeated numeric
+      tokens in one macro declaration. A mismatch with actual source token
+      counts fails closed rather than assigning a speculative position. */
+  static function syntaxOperatorOrder(node:Value,path:String,
+      out:Array<{path:String,token:String}>):Void {
+    switch(node) {
+      case SyntaxNode('Apply',Cons(
+          SyntaxNode('Apply',Cons(
+            SyntaxLeaf('Var',name),Cons(left,Nil))),
+          Cons(right,Nil))) if (numericSymbol(name)!=null):
+        syntaxOperatorOrder(left,path+'01',out);
+        out.push({path:path,token:numericSymbol(name)});
+        syntaxOperatorOrder(right,path+'1',out);
+      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
+        syntaxOperatorOrder(fn,path+'0',out);
+        syntaxOperatorOrder(arg,path+'1',out);
+      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
+        syntaxOperatorOrder(body,path+'1',out);
+      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
+        out.push({path:path,token:'if'});
+        syntaxOperatorOrder(test,path+'0',out);
+        syntaxOperatorOrder(yes,path+'1',out);
+        syntaxOperatorOrder(no,path+'2',out);
+      case _:
+    }
+  }
+
+  /** Only look inside the selected macro declaration, keeping tokens from
+      other macros, string contents and module headers out of attribution. */
+  static function templateTokenSpan(source:String,macroName:String,
+      template:Value,path:String,selected:Value):Null<SourceSpan> {
+    var hint=nodeTokenHint(selected);
+    if (hint==null || hint.length==0) return null;
+    var tokens=SourcePositions.scan(source);
+    var matches:Array<SourceSpan>=[];
+    var declarations=0;
+    for (i in 0...tokens.length-1) {
+      if (tokens[i].text!='macro' || tokens[i+1].text!=macroName)
+        continue;
+      declarations++;
+      var nesting=0;
+      for (j in i+2...tokens.length) {
+        var word=tokens[j].text;
+        if (word=='(' || word=='[' || word=='{') nesting++;
+        if (word==')' || word==']' || word=='}') nesting--;
+        if (nesting==0 && word==';') break;
+        if (word==hint) matches.push(tokenSpan(tokens[j]));
+      }
+    }
+    if (declarations!=1 || matches.length==0) return null;
+    if (matches.length==1) return matches[0];
+    var order:Array<{path:String,token:String}>=[];
+    syntaxOperatorOrder(template,'',order);
+    var same=[for (item in order) if (item.token==hint) item];
+    if (same.length!=matches.length) return null;
+    for (i in 0...same.length)
+      if (same[i].path==path) return matches[i];
+    return null;
+  }
+
+  /** Convert a single-pass Nail source-path into a real template token.
+      The source map itself comes from Nail's NMTrace sidecar. */
+  static function tracedMacroNodeOrigin(boot:BootRuntime,traces:Value,
+      fault:Value,callerProgram:Value,moduleTable:Value,source:String,
+      sourceId:String,modules:Null<String->Null<String>>,
+      tokens:Array<SourceToken>):Null<{
+        span:SourceSpan,template:Null<SourceSpan>,
+        templateOrigin:Null<SourceOrigin>}> {
+    var cursor=trail(fault);
+    if (cursor==null) return null;
+    var areas=sourceForms(tokens);
+    if (cursor.index<0 || cursor.index>=areas.length) return null;
+    var site=uniqueInForm(tokens,'expand',areas[cursor.index]);
+    if (site==null) return null;
+    var ref=boot.invoke('nmFaultNodeOrigin',SyntaxNode('NMTraceRequest',
+      Cons(traces,Cons(fault,Nil))));
+    return switch(ref) {
+      case SyntaxNode('NMSource',Cons(
+          SyntaxLeaf('Name',owner),Cons(
+          SyntaxLeaf('Name',macroName),Cons(
+          SyntaxLeaf('Name',path),Nil)))) if (macroName!='#caller'):
+        var templateProgram=owner=='#caller' ? callerProgram
+          : findModuleProgram(moduleTable,owner);
+        var templateSource=owner=='#caller' ? source
+          : modules==null ? null : modules(owner);
+        if (templateProgram==null || templateSource==null) null;
+        else {
+          var template=templateSyntax(templateProgram,macroName);
+          if (template==null) null;
+          else {
+            var selected=templateAtPath(template,path);
+            var matching=selected==null ? null
+              : templateTokenSpan(templateSource,macroName,template,path,selected);
+            if (matching==null) null;
+            else {
+              var ownerId=owner=='#caller' ? sourceId : owner;
+              {
+                span:site,
+                template:ownerId==sourceId ? matching : null,
+                templateOrigin:{sourceId:ownerId,span:matching}
+              };
+            }
+          }
+        }
+      case _: null;
+    };
+  }
+
   static function templateIdentifier(source:String, macroName:String,
       missing:String):Null<SourceSpan> {
     var tokens=SourcePositions.scan(source);
@@ -479,6 +665,7 @@ class NailSourceAnalysis {
     var result:Value;
     var nailProgram:Null<Value>=null;
     var nailModuleTable:Null<Value>=null;
+    var nailTraces:Null<Value>=null;
     // One snapshot per logical module in this analysis request. The host
     // syntax expander and provenance replay see identical module contents.
     var loaded = new StringMap<String>();
@@ -503,8 +690,14 @@ class NailSourceAnalysis {
         };
         var moduleTable=NailMacroModuleInputs.collect(
           runtime,source,cachedModules,executable);
-        var expanded=runtime.invoke('nailMacroExpandWithModules',
+        var expandedWithOrigins=runtime.invoke('nailMacroExpandWithModulesTraced',
           NailMacroModuleInputs.request(executable,moduleTable));
+        var expanded:Value=switch(expandedWithOrigins) {
+          case SyntaxNode('NMExpansionTraced',Cons(result,Cons(traces,Nil))):
+            nailTraces=traces;
+            result;
+          case _: throw 'Unexpected Nail traced macro expansion result';
+        };
         nailProgram=executable;
         nailModuleTable=moduleTable;
         result=runtime.invoke('tcCheckExpandedTypedTraced',
@@ -583,12 +776,16 @@ class NailSourceAnalysis {
         for (token in tokens) if (token.text == 'macro') hasMacro = true;
         if (hasMacro) {
           var origin=nailMacros && nailProgram != null
-              && nailModuleTable != null
-            ? nailMacroOrigin(runtime,nailProgram,nailModuleTable,
-                fault,source,sourceId,cachedModules,tokens)
-            : !nailMacros
-              ? macroOrigin(source,fault,lookupMessage,sourceId,cachedModules)
-              : null;
+              && nailModuleTable != null && nailTraces != null
+            ? tracedMacroNodeOrigin(runtime,nailTraces,fault,nailProgram,
+                nailModuleTable,source,sourceId,cachedModules,tokens)
+            : null;
+          if (origin==null && nailMacros && nailProgram!=null
+              && nailModuleTable!=null)
+            origin=nailMacroOrigin(runtime,nailProgram,nailModuleTable,
+              fault,source,sourceId,cachedModules,tokens);
+          if (origin==null && !nailMacros)
+            origin=macroOrigin(source,fault,lookupMessage,sourceId,cachedModules);
           if (origin != null) {
             located.span=origin.span;
             located.template=origin.template;
