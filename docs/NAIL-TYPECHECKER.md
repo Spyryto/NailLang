@@ -47,6 +47,10 @@ Unification performs an **occurs check** to reject infinite types.
 - **Finite modern arithmetic**: direct binary `+`, `-`, `*`, `/`
   with concrete `Int`, `Ratio`, `Float` operand pairs and exact
   result domains; unresolved or mixed operands fail closed
+- **Concrete structural equality** `==` and `!=`: primitive types,
+  homogeneous lists and closed structural records are checked recursively;
+  equality of functions or unresolved type variables is rejected until
+  qualified `Eq` type schemes are represented in Nail
 - **Named finite relations of arity 1–16**, including `Add`, `Div`,
   `Merge : Text Text Text` and `Join3 : Text Text Text Text`. Each
   constrained function body is checked independently against **every**
@@ -111,6 +115,13 @@ one result type), and checks arity, input tuple uniqueness and every
 constrained definition. Partially applied or higher-order use of these
 overloads is still deferred; such cases are rejected explicitly.
 
+A concrete equality expression, such as `[ 1 , 2 ] == [ 1 , 3 ]`,
+is checked to produce `Bool`. A polymorphic equality function, for
+example `def same x y = x == y ;`, currently produces a diagnostic
+from the Nail checker. Haxe can already infer its `Eq`-qualified scheme;
+implementing that qualification and preserving it through
+generalization/instantiation is the next equality milestone.
+
 ## Parity and coverage gaps
 
 The Haxe checker is used **only in differential tests**, not by the Nail
@@ -119,7 +130,8 @@ inferencer. See `src/NailTypecheckerProbeTestMain.hx`.
 The following are not yet complete:
 
 - Higher-order and partially applied overloads, nonconcrete numeric operand
-  inference, equality/`Eq` constraints
+  inference, polymorphic **`Eq` constraints on type variables**
+  (ordinary concrete equality is implemented)
 - Nominal record/sum declarations and complete structural row algebra:
   open-row **reordering**, row-lacks constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
