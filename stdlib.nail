@@ -2066,7 +2066,11 @@ def tcInferExpression tree environment substitutions seed =
         if tcIsSumMatchSubject subject then
           tcValidateSumBranches ( tcSecond fn ) subject environment tcMissing []
         else syntaxNode " TCMatchOK " [] in
-      if syntaxTag matchCheck == " TCFault " then matchCheck
+      if syntaxTag matchCheck == " TCFault " then
+        # A branch fault has a path relative to the lowered Lambda body.
+        # Coverage remains at the whole match node (empty local path).
+        if isEmpty ( syntaxChildren ( tcSecond matchCheck ) ) then matchCheck
+        else tcTraceExpr ( tcTraceExpr matchCheck " 1 " ) " 0 "
       else let inferred = tcInferExpression arg environment substitutions seed in
         if syntaxTag inferred == " TCFault " then tcTraceExpr inferred " 1 "
         else let scheme = tcGeneralize
@@ -3299,15 +3303,24 @@ def tcMissingSumCase cases seen =
       tcMissingSumCase rest seen
     else ctor ;
 
+# A lowered branch is If(Apply(Var(Ctor?),Var(subject)), yes, no).
+# Mark its constructor predicate at child [0,0], not the whole match.
+def tcTraceSumCtor fault =
+  tcTraceExpr ( tcTraceExpr fault " 0 " ) " 0 " ;
+def tcTraceSumNext fault =
+  if syntaxTag fault != " TCFault " then fault
+  else if tcStartsWith ( tcFaultMessage fault ) " Non-exhaustive match: " then fault
+  else tcTraceExpr fault " 2 " ;
+
 def tcValidateSumBranches branch subject environment owner seen =
   if syntaxTag branch == " If " then
     let meta = tcSumPatternMeta ( tcFirst branch ) subject environment in
-    if syntaxTag meta == " TCFault " then meta
+    if syntaxTag meta == " TCFault " then tcTraceSumCtor meta
     else let name = syntaxText ( tcFirst meta ) in
       let currentOwner = tcSecond meta in
       if syntaxTag owner != " TCMissing " then
         if tcNominalName owner != tcNominalName currentOwner then
-          tcFault " Mixed constructors in algebraic match "
+          tcTraceSumCtor ( tcFault " Mixed constructors in algebraic match " )
         else tcValidateSumCase branch subject environment owner seen meta name
       else tcValidateSumCase branch subject environment currentOwner seen meta name
   else if syntaxTag branch == " Apply " then
@@ -3328,13 +3341,15 @@ def tcValidateSumBranches branch subject environment owner seen =
   else tcFault " Malformed algebraic match fallback " ;
 
 def tcValidateSumCase branch subject environment owner seen meta name =
-  if tcContainsVar name seen then tcFault " Duplicate algebraic match branch "
+  if tcContainsVar name seen then
+    tcTraceSumCtor ( tcFault " Duplicate algebraic match branch " )
   else let expected = length ( syntaxChildren ( tcThird meta ) ) in
     let actual = tcSumPatternBindings ( tcSecond branch ) subject name 0 in
-    if expected != actual then tcFault ( textConcat
-      " Constructor match binding arity mismatch: " name )
-    else tcValidateSumBranches ( tcThird branch ) subject environment owner
-      ( cons ( syntaxName name ) seen ) ;
+    if expected != actual then tcTraceSumCtor ( tcFault ( textConcat
+      " Constructor match binding arity mismatch: " name ) )
+    else tcTraceSumNext
+      ( tcValidateSumBranches ( tcThird branch ) subject environment owner
+        ( cons ( syntaxName name ) seen ) ) ;
 
 def tcBuildFunction args result =
   match args with

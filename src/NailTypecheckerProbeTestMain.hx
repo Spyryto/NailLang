@@ -1376,6 +1376,44 @@ class NailTypecheckerProbeTestMain {
       generatedFunction.indexOf('function'),
       'generated function-pattern failure maps to its function keyword');
 
+
+    // Nail emits constructor-specific paths before inferring lowered match.
+    var mixedCase='nail 0.54 ; '
+      +'type First = One ; type Second = Other ; '
+      +'macro mixed x = quote ( match unquote x with '
+      +'| One -> 1 | Other -> 2 ) ; expand mixed One ;';
+    var mixedReport=NailSourceAnalysis.analyzeNailMacros(
+      mixedCase,boot,null,'src/mixed-branch.nail');
+    eq(mixedReport.ok,false,'mixed sum owners rejected');
+    eq(mixedReport.diagnostics[0].templateOrigin.span.start,
+      mixedCase.indexOf('| Other')+2,
+      'mixed owner failure points to the offending constructor');
+    eq(mixedReport.diagnostics[0].span.start,
+      mixedCase.indexOf('expand mixed'),
+      'mixed owner failure keeps original call site');
+
+    var unknownCase='nail 0.54 ; type Option a = None | Some a ; '
+      +'macro broken x = quote ( match unquote x with '
+      +'| None -> 0 | Ghost item -> item ) ; expand broken None ;';
+    var unknownReport=NailSourceAnalysis.analyzeNailMacros(
+      unknownCase,boot,null,'src/unknown-branch.nail');
+    eq(unknownReport.ok,false,'unknown sum constructor rejected');
+    eq(unknownReport.diagnostics[0].templateOrigin.span.start,
+      unknownCase.indexOf('Ghost'),
+      'unknown constructor selects actual offending branch');
+
+    var repeatedCases='nail 0.54 ; type Option a = None | Some a ; '
+      +'macro secondArity x y = quote ( '
+      +'( match unquote x with | None -> 0 | Some value -> value ) + '
+      +'( match unquote y with | None -> 0 | Some -> 1 ) ) ; '
+      +'expand secondArity ( Some 1 ) ( Some 2 ) ;';
+    var repeatedCaseReport=NailSourceAnalysis.analyzeNailMacros(
+      repeatedCases,boot,null,'src/repeated-constructors.nail');
+    eq(repeatedCaseReport.ok,false,'incorrect constructor binder arity rejected');
+    eq(repeatedCaseReport.diagnostics[0].templateOrigin.span.start,
+      repeatedCases.indexOf('| Some ->')+2,
+      'repeated Some case identifies the second occurrence');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

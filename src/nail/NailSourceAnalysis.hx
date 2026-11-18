@@ -542,6 +542,50 @@ class NailSourceAnalysis {
     return found;
   }
 
+  /** Resolve private lowered sum-pattern case constructors read-only. */
+  static function sumPatternCtor(name:String):Null<String> {
+    var canonical=StringTools.startsWith(name,'#macro_global_')
+      ? name.substr('#macro_global_'.length) : name;
+    if (canonical.length<2 || !StringTools.endsWith(canonical,'?')) return null;
+    return canonical.substr(0,canonical.length-1);
+  }
+
+  static function syntaxPatternConstructorOrder(node:Value,path:String,
+      out:Array<{path:String,token:String}>):Void {
+    switch(node) {
+      case SyntaxNode('If',Cons(
+          SyntaxNode('Apply',Cons(SyntaxLeaf('Var',predicate),
+            Cons(SyntaxLeaf('Var',receiver),Nil))),
+          Cons(yes,Cons(no,Nil))))
+          if (loweredBinder(receiver,'#nail_sum_subject_0')
+            && sumPatternCtor(predicate)!=null):
+        out.push({path:path+'00',token:sumPatternCtor(predicate)});
+        syntaxPatternConstructorOrder(yes,path+'1',out);
+        syntaxPatternConstructorOrder(no,path+'2',out);
+      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
+        syntaxPatternConstructorOrder(fn,path+'0',out);
+        syntaxPatternConstructorOrder(arg,path+'1',out);
+      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
+        syntaxPatternConstructorOrder(body,path+'1',out);
+      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
+        syntaxPatternConstructorOrder(test,path+'0',out);
+        syntaxPatternConstructorOrder(yes,path+'1',out);
+        syntaxPatternConstructorOrder(no,path+'2',out);
+      case _:
+    }
+  }
+
+  static function patternConstructorAtPath(template:Value,path:String):Null<String> {
+    var ctors:Array<{path:String,token:String}>=[];
+    syntaxPatternConstructorOrder(template,'',ctors);
+    var found:Null<String>=null;
+    for (entry in ctors) if (entry.path==path) {
+      if (found!=null) return null;
+      found=entry.token;
+    }
+    return found;
+  }
+
   /** Only look inside the selected macro declaration, keeping tokens from
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
@@ -570,6 +614,8 @@ class NailSourceAnalysis {
     var order:Array<{path:String,token:String}>=[];
     if (hint=='match' || hint=='function')
       syntaxPatternOrder(template,'',order);
+    else if (patternConstructorAtPath(template,path)==hint)
+      syntaxPatternConstructorOrder(template,'',order);
     else syntaxOperatorOrder(template,'',order);
     var same=[for (item in order) if (item.token==hint) item];
     if (same.length!=matches.length) return null;
@@ -730,17 +776,24 @@ class NailSourceAnalysis {
                 StringTools.trim(text);
               case _: '';
             };
-            var pattern=StringTools.startsWith(message,'Non-exhaustive match:')
-              || StringTools.startsWith(message,'Mixed constructors in algebraic match')
+            var coverage=StringTools.startsWith(message,'Non-exhaustive match:');
+            var caseFault=StringTools.startsWith(message,
+                'Mixed constructors in algebraic match')
               || StringTools.startsWith(message,
-                'Constructor match binding arity mismatch:');
-            var patternToken=pattern ? patternKeywordAtPath(template,path) : null;
-            // Preserve earlier unique-match projection if a complex private
-            // lowering does not yet expose a one-to-one structural path.
-            if (pattern && patternToken==null) patternToken='match';
-            var matching=selected==null ? null
+                'Constructor match binding arity mismatch:')
+              || StringTools.startsWith(message,
+                'Unknown algebraic constructor in match:')
+              || StringTools.startsWith(message,
+                'Duplicate algebraic match branch');
+            var preferred=coverage ? patternKeywordAtPath(template,path)
+              : caseFault ? patternConstructorAtPath(template,path) : null;
+            // Missing-coverage is attached to its containing match.
+            // A constructor fault must NEVER borrow another nearby case.
+            if (coverage && preferred==null) preferred='match';
+            var matching=selected==null || (caseFault && preferred==null)
+              ? null
               : templateTokenSpan(templateSource,macroName,template,path,
-                  selected,patternToken);
+                  selected,preferred);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;
