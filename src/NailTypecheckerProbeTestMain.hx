@@ -536,6 +536,16 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].span,null,
       'ambiguous macro expansion calls are not guessed');
 
+    var unrelated='nail 0.54 ; type Option a = None | Some a ; '
+      +'def partial = function | Some x -> x ; '
+      +'macro identity x = quote ( unquote x ) ; '
+      +'expand identity ( Some 3 ) ;';
+    report=NailSourceAnalysis.analyze(unrelated,boot);
+    eq(report.diagnostics[0].span,null,
+      'unrelated macro call is never blamed for a source match');
+    eq(report.diagnostics[0].templateSpan,null,
+      'unrelated macro template does not invent a source origin');
+
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
