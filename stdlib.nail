@@ -1865,7 +1865,16 @@ def tcInferExpression tree environment substitutions seed =
   else if tag == " Apply " then
     let fn = tcFirst tree in
     let arg = tcSecond tree in
-    if syntaxTag fn == " Lambda " then
+    if tcIsStructuralMake tree then
+      tcInferStructuralMake tree environment substitutions seed
+    else if tcIsRecordGet tree then
+      let projected = tcInferExpression ( tcSecond fn )
+        environment substitutions seed in
+      if syntaxTag projected == " TCFault " then projected
+      else tcProjectField ( tcResultType projected )
+        ( syntaxText ( tcFirst arg ) )
+        ( tcResultSubs projected ) ( tcResultSeed projected )
+    else if syntaxTag fn == " Lambda " then
       let inferred = tcInferExpression arg environment substitutions seed in
       if syntaxTag inferred == " TCFault " then inferred
       else let scheme = tcGeneralize
@@ -2006,3 +2015,95 @@ def tcUnifyOpenStruct row record substitutions =
   | Ok updated ->
     tcUnify ( tcThird row )
       ( tcStruct ( tcWithoutField name fields ) ) updated ;
+
+# Recognize the existing, lowered #recordMake/#recordGet primitive calls
+# *before* generic application typing, exactly as the host checker does.
+def tcIsRecordGet tree =
+  let fn = tcFirst tree in
+  let arg = tcSecond tree in
+  if syntaxTag fn != " Apply " then false
+  else if syntaxTag arg != " Literal " then false
+  else if syntaxTag ( tcFirst arg ) != " Text " then false
+  else let callee = tcFirst fn in
+    if syntaxTag callee != " Var " then false
+    else syntaxText callee == " #recordGet " ;
+
+def tcIsStructuralMake tree =
+  let fn = tcFirst tree in
+  if syntaxTag fn != " Apply " then false
+  else let ownerCall = tcFirst fn in
+    if syntaxTag ownerCall != " Apply " then false
+    else let callee = tcFirst ownerCall in
+      if syntaxTag callee != " Var " then false
+      else syntaxText callee == " #recordMake " ;
+
+# A parser-generated list of field names or expressions is an application
+# chain of #cons ending in Nil. No native reflection is needed.
+def tcLiteralConsItems expression =
+  let tag = syntaxTag expression in
+  if tag == " Literal " then
+    if syntaxTag ( tcFirst expression ) == " Nil " then [] else []
+  else if tag == " Apply " then
+    let call = tcFirst expression in
+    if syntaxTag call != " Apply " then []
+    else let callee = tcFirst call in
+      if syntaxTag callee != " Var " then []
+      else if syntaxText callee != " #cons " then []
+      else cons ( tcSecond call )
+        ( tcLiteralConsItems ( tcSecond expression ) )
+  else [] ;
+
+def tcInferStructuralFields names values environment substitutions seed reversed =
+  match names with
+  | [] ->
+    if isEmpty values then
+      tcInferResult ( tcStruct ( reverse reversed ) ) substitutions seed
+    else tcFault " Record values exceed field names "
+  | nameExpr :: rest ->
+    match values with
+    | [] -> tcFault " Missing structural record value "
+    | valueExpr :: restValues ->
+      if syntaxTag nameExpr != " Literal " then
+        tcFault " Malformed structural record field "
+      else let fieldName = syntaxText ( tcFirst nameExpr ) in
+        if syntaxTag ( tcFindField fieldName reversed ) != " TCMissing " then
+          tcFault ( textConcat " Duplicate structural field: " fieldName )
+        else let inferred = tcInferExpression valueExpr environment
+          substitutions seed in
+          if syntaxTag inferred == " TCFault " then inferred
+          else tcInferStructuralFields rest restValues environment
+            ( tcResultSubs inferred ) ( tcResultSeed inferred )
+            ( cons ( tcField fieldName ( tcResultType inferred ) ) reversed ) ;
+
+def tcInferStructuralMake tree environment substitutions seed =
+  let fn = tcFirst tree in
+  let ownerCall = tcFirst fn in
+  let owner = tcSecond ownerCall in
+  if syntaxTag owner != " Literal " then
+    tcFault " Malformed structural record owner "
+  else if syntaxText ( tcFirst owner ) != " #struct " then
+    tcFault " Nominal record inference is not yet implemented "
+  else tcInferStructuralFields
+    ( tcLiteralConsItems ( tcSecond fn ) )
+    ( tcLiteralConsItems ( tcSecond tree ) )
+    environment substitutions seed [] ;
+
+def tcProjectField receiver field substitutions seed =
+  let ty = tcFollow receiver substitutions in
+  let tag = syntaxTag ty in
+  if tag == " TCStruct " then
+    let found = tcFindField field ( syntaxChildren ty ) in
+    if syntaxTag found == " TCMissing " then
+      tcFault ( textConcat " Missing structural field: " field )
+    else tcInferResult found substitutions seed
+  else if tag == " TCRowField " then
+    if syntaxText ( tcFirst ty ) == field then
+      tcInferResult ( tcSecond ty ) substitutions seed
+    else tcProjectField ( tcThird ty ) field substitutions seed
+  else if tag == " TCVar " then
+    let member = tcVar seed in
+    let tail = tcVar ( tcNext seed ) in
+    match tcUnify ty ( tcRowField field member tail ) substitutions with
+    | Error message -> tcFault message
+    | Ok updated -> tcInferResult member updated ( tcNext ( tcNext seed ) )
+  else tcFault " Projection requires a record " ;
