@@ -159,6 +159,22 @@ class NailTypecheckerProbeTestMain {
       'def same x y = x == y ; '
       +'same { x = 1 , y = true } { x = 1 , y = false } ;',
       ['Bool']);
+    checkGood(boot,
+      'def reflexive x = x == x ; '
+      +'reflexive 11 ; reflexive " Echo " ;',
+      ['Bool','Bool']);
+    checkGood(boot,
+      'def makeEq x = fun y -> x == y ; '
+      +'makeEq 1 2 ; makeEq " Yes " " No " ;',
+      ['Bool','Bool']);
+    checkGood(boot,
+      'def listEq xs ys = xs == ys ; '
+      +'listEq [ { x = 1 } ] [ { x = 2 } ] ;',
+      ['Bool']);
+    checkBad(boot,
+      'def makeEq x = fun y -> x == y ; '
+      +'makeEq ( fun x -> x ) ( fun y -> y ) ;',
+      'Eq constraint');
     checkBad(boot,
       'def same x y = x == y ; same 1 " Mismatch " ;',
       'Type mismatch');
