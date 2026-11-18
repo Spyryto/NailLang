@@ -226,6 +226,26 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'type A { value Int } ; type B { value Int } ; '
       +'if true then A 1 else B 2 ;','Type mismatch');
 
+    var option='type Option a = None | Some a ; ';
+    checkGood(boot,'type Color = Red | Blue ; Red ; Blue ;',
+      ['Color','Color']);
+    checkGood(boot,'type Color = Red | Blue ; '
+      +'if true then Red else Blue ;',['Color']);
+    checkGood(boot,option+'Some 42 ; Some true ;',
+      ['Option[Int]','Option[Bool]']);
+    checkGood(boot,option+'Some 3 == Some 4 ;',['Bool']);
+    checkGood(boot,'type Tree = Leaf Int | Branch Tree Tree ; '
+      +'Branch ( Leaf 1 ) ( Leaf 2 ) ;',['Tree']);
+    checkGood(boot,'type Result a e = Ok a | Error e ; '
+      +'def result x = if true then Ok x else Error " Fail " ; '
+      +'result 4 ;',['Result[Int, Text]']);
+    checkBad(boot,option+'Some 4 true ;','Type mismatch');
+    checkBad(boot,option+'Some true == Some 3 ;','Type mismatch');
+    checkBad(boot,'type First = A | B ; type Second = C | D ; '
+      +'if true then A else C ;','Type mismatch');
+    checkBad(boot,option+'type Other a = Some a ;',
+      'Duplicate sum constructor');
+
     var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
     checkStructural(boot,htmlContract
       +'def html = { h2 = fun x -> textConcat " H: " x , '
