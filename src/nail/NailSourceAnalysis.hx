@@ -4,6 +4,7 @@ import nail.BootRuntime;
 import nail.Parser;
 import nail.MacroExpander;
 import nail.MacroModuleDialect;
+import nail.NailMacroModuleInputs;
 import haxe.ds.StringMap;
 import nail.SourceProvenance.SourceOrigin;
 import nail.Ast.Expr;
@@ -392,11 +393,19 @@ class NailSourceAnalysis {
     return output;
   }
 
+  /** Experimental opt-in entry point for the Nail-written hygienic macro
+      expander, including source modules. The regular analyze() continues to
+      use the production macro expander unless explicitly requested. */
+  public static function analyzeNailMacros(source:String, ?boot:BootRuntime,
+      ?modules:String->Null<String>, sourceId:String = '<source>'):NailCheckReport
+    return analyze(source,boot,modules,sourceId,true);
+
   /** Read-only per-source report, using the same Nail bytecode image on Haxe,
       JavaScript and PHP. The optional BootRuntime lets callers reuse the
       compiled source-free image across queries without compiler mutations. */
   public static function analyze(source:String, ?boot:BootRuntime,
-      ?modules:String->Null<String>, sourceId:String = '<source>'):NailCheckReport {
+      ?modules:String->Null<String>, sourceId:String = '<source>',
+      nailMacros:Bool = false):NailCheckReport {
     var runtime = boot == null ? new BootRuntime(60000000) : boot;
     var result:Value;
     // One snapshot per logical module in this analysis request. The host
@@ -412,7 +421,16 @@ class NailSourceAnalysis {
         return loaded.get(name);
       };
     try {
-      if (cachedModules == null)
+      if (nailMacros) {
+        // Source loading is the only host responsibility. Nail parses each
+        // module and performs imports/exports, hygiene and HM inference.
+        var moduleTable = NailMacroModuleInputs.collect(
+          runtime,source,cachedModules);
+        result = runtime.invoke('tcCheckSourceNailModulesTraced',
+          SyntaxNode('NMSourceRequest',
+            Cons(SyntaxLeaf('NMSource',source),
+              Cons(moduleTable,Nil))));
+      } else if (cachedModules == null)
         result = runtime.invoke('tcCheckSourceTraced', Text(source));
       else {
         // Preserve typed aliases, relations, annotated definitions and
