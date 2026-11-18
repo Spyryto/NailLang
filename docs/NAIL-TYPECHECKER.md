@@ -441,10 +441,20 @@ dialect compatibility and bounds module discovery to 256 entries.
 Use `NailSourceAnalysis.analyzeNailMacros(source, boot, resolver, sourceId)`
 to opt into this path, or call `tcCheckSourceNailModulesTraced` with the
 corresponding prepared `NMSourceRequest` Syntax directly. Diagnostic
-origin mapping remains a separate optional Haxe read-only sidecar, which
-can replay the production expander for source positions but **never**
-controls the Nail type verdict. Neither existing `analyze` nor the
-production compiler switches expansion strategies.
+origin mapping is **different in the Nail-only opt-in path**: Nail's
+`nmFaultMacroOrigin` uses the traced type-checker failure, the original
+parsed Syntax, and imported macro definitions' lexical scopes to resolve
+which module and macro own an unambiguous unknown identifier. Its result
+is an immutable symbolic `NMOrigin` (defining source, macro and name).
+The host only uses `SourcePositions.scan` to map that identity to the
+original source token span; it does **not replay the Haxe macro expander**.
+An argument inserted through `unquote` retains its caller location.
+Failures with ambiguous call sites or ambiguous same-name template tokens
+are intentionally left without a template origin.
+
+The default `analyze` path still uses its existing optional Haxe
+macro-provenance replay, and neither `analyze` nor the production compiler
+switches expansion strategies.
 
 The tests compare the Nail-expanded program with the Haxe oracle up to
 bound-variable alpha-equivalence, including transitive imports, lexical
@@ -469,12 +479,14 @@ also check Nail's type verdict independently on both expanded programs,
 and validate rejection of malformed macro declarations and calls.
 
 **Known gaps before substitution in the public compiler:** full
-equivalence of error messages, pure Nail provenance through all generated
-nodes, measured throughput on large recursive templates, allocation/byte
-budgets in addition to the deterministic work budget, and differential
-parity over the full macro corpus. Module-export memoization and a
-cumulative Nail-side traversal budget are now implemented. The existing
-production compiler remains authoritative.
+equivalence of error messages and complete Nail provenance *through every
+generated node*. The current Nail symbolic provenance resolves **unique
+unknown-name errors**, including nested imports and caller-owned `unquote`
+arguments; richer expression-path provenance and generated numeric/pattern
+failure attribution remain incomplete. Measured throughput on large
+recursive templates, allocation/byte budgets beyond the work limit, and
+differential parity over the full macro corpus also remain open. The
+existing production compiler remains authoritative.
 
 ## Parity and coverage gaps
 
