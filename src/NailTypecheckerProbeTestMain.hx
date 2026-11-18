@@ -177,14 +177,6 @@ class NailTypecheckerProbeTestMain {
     rejectsStructural(boot,'type Html = { h2 : UnknownType Text } ; '
       +'def render ( html : Html ) = html { h2 " X " } ;',
       'Unknown type');
-    trace('TC DIAG relation 1');
-    inspect(boot,'nail 0.54 ; Add : Int Int Int ;');
-    trace('TC DIAG relation 2');
-    inspect(boot,'nail 0.54 ; Add : Int Int Int ; Add : Float Float Float ;');
-    trace('TC DIAG relation definition');
-    inspect(boot,'nail 0.54 ; Add : Int Int Int ; Add : Float Float Float ; '
-      +'def add x y : Add = x + y ;');
-    trace('TC DIAG relation calls');
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
       ['Int','Float']);
@@ -241,6 +233,13 @@ class NailTypecheckerProbeTestMain {
       +'def pick x y z : Pick = x ; '
       +'pick " A " true 5 ;',
       'No relation instance');
+    var params=[for(i in 1...17) 'p'+i];
+    var signature=[for(i in 0...17) 'Text'].join(' ');
+    var values=[for(i in 0...16) '" T "'].join(' ');
+    checkGood(boot,
+      'Wide : '+signature+' ; '
+      +'def wide '+params.join(' ')+' : Wide = p1 ; '
+      +'wide '+values+' ;',['Text']);
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
