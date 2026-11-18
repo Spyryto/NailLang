@@ -1414,6 +1414,34 @@ class NailTypecheckerProbeTestMain {
       repeatedCases.indexOf('| Some ->')+2,
       'repeated Some case identifies the second occurrence');
 
+
+    // These patterns require source-order recovery from nested lowered
+    // expressions; the ordering is now computed in Nail, not in Haxe.
+    var nestedSecond='nail 0.54 ; type Choice = A | B ; '
+      +'macro nested x = quote ( match unquote x with '
+      +'| A -> ( match A with | A -> 1 ) | B -> 2 ) ; '
+      +'expand nested A ;';
+    var nestedSecondReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedSecond,boot,null,'src/nested-pattern-branch.nail');
+    eq(nestedSecondReport.ok,false,
+      'nested incomplete pattern in a generated constructor branch rejected');
+    eq(nestedSecondReport.diagnostics[0].templateOrigin.span.start,
+      nestedSecond.lastIndexOf('match'),
+      'Nail-authored token map identifies the inner branch match');
+
+    var nestedScrutinee='nail 0.54 ; type Choice = A | B ; '
+      +'macro nestedSubject x = quote ( '
+      +'match ( match unquote x with | A -> A ) with '
+      +'| A -> 1 | B -> 2 ) ; '
+      +'expand nestedSubject A ;';
+    var nestedScrutineeReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedScrutinee,boot,null,'src/nested-pattern-subject.nail');
+    eq(nestedScrutineeReport.ok,false,
+      'nested incomplete pattern inside outer scrutinee rejected');
+    eq(nestedScrutineeReport.diagnostics[0].templateOrigin.span.start,
+      nestedScrutinee.lastIndexOf('match'),
+      'Nail-authored token map identifies scrutinee match in source order');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

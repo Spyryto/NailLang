@@ -485,11 +485,16 @@ keyword count fails closed instead of guessing an origin.
 The same mapping recognizes generated `function | ...` expressions,
 which lower internally to a match but point back to the `function` token.
 For branch-specific errors (unknown/mixed sum constructors, duplicate
-branches, or incorrect binding arity), the Nail checker now carries the
-specific failing constructor predicate path. The read-only source
-projector maps this to its exact surface constructor token, including
-repeated names in separate matches; coverage errors remain attached to
-the enclosing `match`/`function`. Ambiguous token order fails closed. No Haxe macro replay occurs
+branches, or incorrect binding arity), the Nail checker carries the
+specific failing constructor predicate path. **Nail functions
+`nmSourcePatternTokens` and `nmSourceConstructorTokens`** now recover
+the ordered, path-labeled `match`, `function`, and constructor tokens
+from the Nail-lowered Syntax, including patterns nested in scrutinees and
+branches. Haxe no longer reimplements these pattern AST traversals:
+it scans the original template, checks complete token-count agreement
+and projects the Nail-generated token identity to its UTF-16 span.
+Coverage errors remain attached to the enclosing `match`/`function`.
+Ambiguous token order fails closed. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.

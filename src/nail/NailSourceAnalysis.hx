@@ -485,103 +485,34 @@ class NailSourceAnalysis {
     }
   }
 
-  /** Match and function are surface constructs erased by the Nail parser.
-      Recognize only its private lowered binders (including hygienic names). */
-  static function loweredBinder(name:String,privateName:String):Bool
-    return name==privateName
-      || (StringTools.startsWith(name,'#macro_local_')
-        && StringTools.endsWith(name,'_'+privateName));
-
-  static function loweredMatch(name:String):Bool
-    return loweredBinder(name,'#nail_sum_subject_0')
-      || loweredBinder(name,'#nail_list_0');
-
-  /** Recover lexical pattern-keyword order from the immutable Nail-parsed AST.
-      The path identifies the checker-visible node that starts a lowered match.
-      A 'function |' wraps an internal sum match, which is not a second token.
-      Traverse a match's scrutinee before its branches to reflect source order,
-      including patterns nested in either position. */
-  static function syntaxPatternOrder(node:Value,path:String,
-      out:Array<{path:String,token:String}>,skipMatch:Bool=false):Void {
-    switch(node) {
-      case SyntaxNode('Lambda',Cons(SyntaxLeaf('Name',binder),
-          Cons(body,Nil))) if (loweredBinder(binder,'#nail_function_subject_0')):
-        out.push({path:path+'1',token:'function'});
-        syntaxPatternOrder(body,path+'1',out,true);
-      case SyntaxNode('Apply',Cons(
-          SyntaxNode('Lambda',Cons(SyntaxLeaf('Name',binder),
-            Cons(branch,Nil))),Cons(scrutinee,Nil)))
-          if (loweredMatch(binder)):
-        if (!skipMatch) out.push({path:path,token:'match'});
-        syntaxPatternOrder(scrutinee,path+'1',out);
-        syntaxPatternOrder(branch,path+'01',out);
-      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
-        syntaxPatternOrder(fn,path+'0',out);
-        syntaxPatternOrder(arg,path+'1',out);
-      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
-        syntaxPatternOrder(body,path+'1',out);
-      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
-        syntaxPatternOrder(test,path+'0',out);
-        syntaxPatternOrder(yes,path+'1',out);
-        syntaxPatternOrder(no,path+'2',out);
+  /** Pattern matching and constructor recognition are now computed by
+      Nail itself. Haxe only projects their ordered lexical token identities
+      onto original source coordinates; it does not inspect the lowering. */
+  static function nailOriginTokens(boot:BootRuntime,entry:String,
+      template:Value):Array<{path:String,token:String}> {
+    var out:Array<{path:String,token:String}>=[];
+    var mapped=boot.invoke(entry,template);
+    switch(mapped) {
+      case SyntaxNode('NMTokenMap',_):
+        for (item in syntaxChildren(mapped)) switch(item) {
+          case SyntaxNode('NMTokenOrigin',Cons(
+              SyntaxLeaf('Name',path),Cons(SyntaxLeaf('Name',token),Nil))):
+            out.push({path:path,token:token});
+          case _:
+            return [];
+        }
       case _:
+        return [];
     }
+    return out;
   }
 
-  /** Sum-pattern checking reports the lowered match node. A function
-      expression has the same lowering, but maps back to 'function', not
-      to a nonexistent 'match' token in the caller's template. */
-  static function patternKeywordAtPath(template:Value,path:String):Null<String> {
-    var patterns:Array<{path:String,token:String}>=[];
-    syntaxPatternOrder(template,'',patterns);
+  static function tokenAtPath(ordered:Array<{path:String,token:String}>,
+      path:String):Null<String> {
     var found:Null<String>=null;
-    for (pattern in patterns) if (pattern.path==path) {
+    for (item in ordered) if (item.path==path) {
       if (found!=null) return null;
-      found=pattern.token;
-    }
-    return found;
-  }
-
-  /** Resolve private lowered sum-pattern case constructors read-only. */
-  static function sumPatternCtor(name:String):Null<String> {
-    var canonical=StringTools.startsWith(name,'#macro_global_')
-      ? name.substr('#macro_global_'.length) : name;
-    if (canonical.length<2 || !StringTools.endsWith(canonical,'?')) return null;
-    return canonical.substr(0,canonical.length-1);
-  }
-
-  static function syntaxPatternConstructorOrder(node:Value,path:String,
-      out:Array<{path:String,token:String}>):Void {
-    switch(node) {
-      case SyntaxNode('If',Cons(
-          SyntaxNode('Apply',Cons(SyntaxLeaf('Var',predicate),
-            Cons(SyntaxLeaf('Var',receiver),Nil))),
-          Cons(yes,Cons(no,Nil))))
-          if (loweredBinder(receiver,'#nail_sum_subject_0')
-            && sumPatternCtor(predicate)!=null):
-        out.push({path:path+'00',token:sumPatternCtor(predicate)});
-        syntaxPatternConstructorOrder(yes,path+'1',out);
-        syntaxPatternConstructorOrder(no,path+'2',out);
-      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
-        syntaxPatternConstructorOrder(fn,path+'0',out);
-        syntaxPatternConstructorOrder(arg,path+'1',out);
-      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
-        syntaxPatternConstructorOrder(body,path+'1',out);
-      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
-        syntaxPatternConstructorOrder(test,path+'0',out);
-        syntaxPatternConstructorOrder(yes,path+'1',out);
-        syntaxPatternConstructorOrder(no,path+'2',out);
-      case _:
-    }
-  }
-
-  static function patternConstructorAtPath(template:Value,path:String):Null<String> {
-    var ctors:Array<{path:String,token:String}>=[];
-    syntaxPatternConstructorOrder(template,'',ctors);
-    var found:Null<String>=null;
-    for (entry in ctors) if (entry.path==path) {
-      if (found!=null) return null;
-      found=entry.token;
+      found=item.token;
     }
     return found;
   }
@@ -590,7 +521,8 @@ class NailSourceAnalysis {
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
       template:Value,path:String,selected:Value,
-      ?preferred:String):Null<SourceSpan> {
+      ?preferred:String,
+      ?ordered:Array<{path:String,token:String}>):Null<SourceSpan> {
     var hint=preferred==null ? nodeTokenHint(selected) : preferred;
     if (hint==null || hint.length==0) return null;
     var tokens=SourcePositions.scan(source);
@@ -610,13 +542,15 @@ class NailSourceAnalysis {
       }
     }
     if (declarations!=1 || matches.length==0) return null;
-    if (matches.length==1) return matches[0];
+    // Nail owns semantic pattern ordering. Require the full pattern-token
+    // cardinality to match the scanner before selecting any occurrence.
+    // Non-pattern hints keep their pre-existing numeric/operator mapping.
     var order:Array<{path:String,token:String}>=[];
-    if (hint=='match' || hint=='function')
-      syntaxPatternOrder(template,'',order);
-    else if (patternConstructorAtPath(template,path)==hint)
-      syntaxPatternConstructorOrder(template,'',order);
-    else syntaxOperatorOrder(template,'',order);
+    if (ordered!=null) order=ordered;
+    else {
+      if (matches.length==1) return matches[0];
+      syntaxOperatorOrder(template,'',order);
+    }
     var same=[for (item in order) if (item.token==hint) item];
     if (same.length!=matches.length) return null;
     for (i in 0...same.length)
@@ -785,15 +719,22 @@ class NailSourceAnalysis {
                 'Unknown algebraic constructor in match:')
               || StringTools.startsWith(message,
                 'Duplicate algebraic match branch');
-            var preferred=coverage ? patternKeywordAtPath(template,path)
-              : caseFault ? patternConstructorAtPath(template,path) : null;
-            // Missing-coverage is attached to its containing match.
-            // A constructor fault must NEVER borrow another nearby case.
-            if (coverage && preferred==null) preferred='match';
+            var ordered:Null<Array<{path:String,token:String}>>=null;
+            if (coverage)
+              ordered=nailOriginTokens(boot,'nmSourcePatternTokens',template);
+            else if (caseFault)
+              ordered=nailOriginTokens(boot,'nmSourceConstructorTokens',template);
+            var preferred=ordered==null ? null : tokenAtPath(ordered,path);
+            // The old unique-match fallback still handles unsupported
+            // private lowerings conservatively, without picking a repeat.
+            if (coverage && preferred==null) {
+              preferred='match';
+              ordered=null;
+            }
             var matching=selected==null || (caseFault && preferred==null)
               ? null
               : templateTokenSpan(templateSource,macroName,template,path,
-                  selected,preferred);
+                  selected,preferred,ordered);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;
