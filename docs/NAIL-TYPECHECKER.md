@@ -91,6 +91,27 @@ The runtime does **not** automatically run `tcCheckSource` before
 `compileSource`. Checking remains opt-in, so the incomplete checker cannot
 silently reject or reinterpret supported programs.
 
+### Macro-aware source checking (experimental)
+
+`tcCheckSource` now keeps structural aliases, relation rows and annotated
+definitions in a private Nail-side metadata table while the existing
+`macroExpandSyntax` primitive expands **local template macro declarations**
+exactly once. The checker then restores static metadata, rewrites numeric
+syntax and infers the expanded program in Nail. The macro-expansion primitive
+is still implemented in Haxe; it performs no type inference and never calls
+the Haxe `TypeChecker`.
+
+Template-generated free references (`#macro_global_...`) are looked up through
+private *global-only* environment entries, so local variables introduced at
+a call site cannot capture them. The checker also recognizes the expander's
+hygienically renamed match subjects (`#macro_local_...`) and validates
+their sum patterns and accessor calls. This does not require new VM opcodes,
+a sixth core expression or public syntax for private names.
+
+Macro imports requiring an external module resolver, macro-aware error
+provenance, full compiler pipeline integration and the final typed module ABI
+are still outside this experiment.
+
 ## Example: explicit contracts and numeric relations
 
 ```nail
@@ -175,10 +196,31 @@ in the Nail-written type checker.
 The generic constructor and pattern tests compare Nail's output with
 the separate Haxe checker. Exhaustiveness and destructuring are validated
 for the exact private sum-match lowering shape produced by the normal
-self-hosted parser. These checks remain opt-in and do not yet cover
-macro-renamed subjects or general source provenance. Nominal public-interface
-ABI validation remains future work.
+self-hosted parser, including hygienically renamed macro-generated subjects.
+These checks remain opt-in; they do not yet retain full source provenance.
+Nominal public-interface ABI validation remains future work.
 
+
+## Hygienic macro example
+
+```nail
+nail 0.54 ;
+type Option a = None | Some a ;
+
+macro unwrap x = quote (
+  match unquote x with
+  | None -> 0
+  | Some value -> value
+) ;
+
+expand unwrap ( Some 42 ) ;
+```
+
+The macro's internal subject is alpha-renamed, and its constructor predicate
+and accessor names remain bound to global declarations. The Nail checker
+recognizes this lowered pattern and infers `Int`. A missing `None` branch
+is reported as a non-exhaustive match. A local variable shadowing a referenced
+global function must not capture that function in the generated expression.
 
 ## Pattern inference examples
 
@@ -215,16 +257,16 @@ The following are not yet complete:
 - Higher-order and partially applied overloaded numerical relations,
   nonconcrete numeric operand inference and explicit `Eq` syntax in
   user-authored signatures (inferred qualified schemes are implemented)
-- Macro-hygiene-renamed sum-pattern subjects and full source-pattern
-  provenance/locations; the checker currently recognizes the parser's
-  standard private lowering, including constructor ownership, binding arity,
-  exhaustiveness and type inference. Generic recursion edges remain deferred
+- Full source-pattern provenance/locations and richer pattern syntax;
+  ordinary and hygienically macro-renamed sum subjects are recognized,
+  including constructor ownership, binding arity and exhaustiveness.
+  Generic recursion edges remain deferred
 - Complete structural row algebra: open-row **reordering**, row-lacks
   constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
-- Full standard-library primitive signatures, macro-aware typed expansion,
-  import and module signatures, precise source-span diagnostics
+- Full standard-library primitive signatures, externally imported macro
+  modules, typed module signatures and precise source-span diagnostics
 - Performance and bounded-resource policies for adversarial/large terms
 
 Unsupported cases must return a diagnostic rather than being accepted with
