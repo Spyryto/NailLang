@@ -137,6 +137,17 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'1 == true ;','Type mismatch');
     checkBad(boot,'( fun x -> x ) == ( fun y -> y ) ;',
       'Eq constraints');
+    checkBad(boot,'[ 1 ] == [ true ] ;','Type mismatch');
+    var qualifiedEqSource='nail 0.54 ; '
+      +'def same x y = x == y ; same 3 3 ;';
+    var qualifiedEq=inspect(boot,qualifiedEqSource);
+    eq(qualifiedEq.ok,false,
+      'generic equality must be rejected until qualified HM schemes exist');
+    if(qualifiedEq.message.indexOf('Eq constraints')<0)
+      throw 'NAIL TYPECHECKER: unexpected qualified Eq diagnostic '+qualifiedEq.message;
+    checks++;
+    eq(new TypeChecker().check(qualifiedEqSource),['Bool'],
+      'reference checker already supports polymorphic Eq constraints');
     checkGood(boot,'[ 1 , 2 , 3 ] ;',['[Int]']);
     checkGood(boot,'head [ 1 , 2 ] ;',['Int']);
     checkBad(boot,'[ 1 , true ] ;','Type mismatch');
