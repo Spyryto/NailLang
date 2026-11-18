@@ -481,7 +481,8 @@ class NailTypecheckerProbeTestMain {
     eq(report.ok,false,'Nail report rejects unknown identifier');
     eq(report.diagnostics[0].phase,'type','Nail diagnostic phase');
     eq(report.diagnostics[0].span != null,true,
-      'unique unknown identifier receives original location');
+      'unique unknown identifier receives original location: '
+        +Json.stringify(report));
     eq(report.diagnostics[0].span.start,missingSource.indexOf('missing'),
       'unknown identifier original UTF-16 offset');
     eq(report.diagnostics[0].span.line,2,'unknown identifier line');
