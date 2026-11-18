@@ -263,6 +263,16 @@ class NailSourceAnalysis {
     return uniqueInForm(tokens,name,area);
   }
 
+  /** SourceProvenance may carry the whole original invocation as a
+      recovery span. Narrow a verified expansion origin to its actual keyword,
+      never to another occurrence with the same spelling. */
+  static function callKeyword(tokens:Array<SourceToken>,site:SourceSpan):SourceSpan {
+    for (token in tokens)
+      if (token.text == 'expand' && token.start == site.start)
+        return tokenSpan(token);
+    return site;
+  }
+
   /** Replay only the already-defined hygienic macro AST rewrite with a
       read-only provenance sidecar. Nail's error contains the actual failed
       form/child path. This pass never infers a type and emits no bytecode.
@@ -315,7 +325,7 @@ class NailSourceAnalysis {
           if (direct == null) return null;
           return {span:direct,template:null};
         }
-        return {span:call,
+        return {span:callKeyword(parser.tokenPositions,call),
           template:parser.provenance.templateOfExpression(expr)};
       }
 
@@ -340,7 +350,7 @@ class NailSourceAnalysis {
         var origin = ancestry[--i];
         var call = parser.provenance.expansionSiteOfExpression(origin);
         if (call != null)
-          return {span:call,
+          return {span:callKeyword(parser.tokenPositions,call),
             template:parser.provenance.templateOfExpression(origin)};
       }
     } catch (_:Dynamic) {
