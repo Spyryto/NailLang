@@ -20,6 +20,53 @@ class NailTypecheckerProbeTestMain {
     checks++;
   }
 
+  /** Alpha-normalize generated Lambda binders; the two implementations
+      intentionally use different fresh-name allocators. Free globals must
+      still match byte-for-byte, so hygiene cannot be faked by renaming all
+      private identifiers during comparison. */
+  static function normalizedMacro(tree:Value,
+      bindings:StringMap<String>,depth:Int):String {
+    return switch (tree) {
+      case SyntaxLeaf('Var',name):
+        'Var('+(bindings.exists(name) ? bindings.get(name) : name)+')';
+      case SyntaxNode('Lambda',
+          Cons(SyntaxLeaf('Name',name),Cons(body,Nil))):
+        var inner=bindings.copy();
+        inner.set(name,'bound'+depth);
+        'Lambda(bound'+depth+','+normalizedMacro(body,inner,depth+1)+')';
+      case SyntaxLeaf(tag,text): tag+'('+Json.stringify(text)+')';
+      case SyntaxNode(tag,items):
+        tag+'('+normalizedMacro(items,bindings,depth)+')';
+      case Cons(item,rest):
+        normalizedMacro(item,bindings,depth)+','
+          +normalizedMacro(rest,bindings,depth);
+      case Nil: '[]';
+      case _: 'Unexpected '+Std.string(tree);
+    };
+  }
+
+  static function compareMacroExpansion(boot:BootRuntime,body:String):Void {
+    var source='nail 0.54 ; '+body;
+    var parsed=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text(source)));
+    var original=MacroExpander.syntax(parsed);
+    var nail=boot.invoke('nailMacroExpandSyntax',parsed);
+    eq(switch(nail) { case SyntaxNode(tag,_): tag; case _: ''; },
+      'Program','Nail expansion should be a Program');
+    eq(normalizedMacro(nail,new StringMap<String>(),0),
+      normalizedMacro(original,new StringMap<String>(),0),
+      'Nail/Haxe hygienic macro AST alpha-equivalence: '+body);
+    var hostChecked=boot.invoke('tcCheckSyntaxTraced',original);
+    var nailChecked=boot.invoke('tcCheckSyntaxTraced',nail);
+    eq(ResultValue.tag(nailChecked),ResultValue.tag(hostChecked),
+      'Nail/Haxe macro type verdict parity: '+body);
+    eq(ResultValue.tag(nailChecked),ResultValue.OK,
+      'Nail hygienic macro expanded program typechecks: '+body);
+    var fromSource=boot.invoke('tcCheckSourceNailMacrosTraced',Text(source));
+    eq(ResultValue.tag(fromSource),ResultValue.OK,
+      'self-hosted parsing, macro expansion and type inference: '+body);
+  }
+
   static function inspect(boot:BootRuntime,source:String):{ok:Bool,types:Array<String>,message:String} {
     return inspectResult(boot,boot.invoke('tcCheckSource',Text(source)));
   }
@@ -842,6 +889,47 @@ class NailTypecheckerProbeTestMain {
       'optional unused resolver does not change typed program acceptance');
     eq(moduleReport.types,localReport.types,
       'optional unused resolver does not change inferred types');
+
+    // Compare the canonical Syntax trees (up to alpha-renaming) produced
+    // by the Nail-only expansion and the production Haxe oracle. The
+    // comparison preserves free globals, so accidental capture is visible.
+    for (body in [
+      'macro identity x = quote ( unquote x ) ; expand identity 42 ;',
+      'macro addOne x = quote ( unquote x + 1 ) ; expand addOne 41 ;',
+      'macro append y = quote ( fun tmp -> tmp + unquote y ) ; '
+        +'def tmp = 40 ; ( expand append tmp ) 2 ;',
+      'macro inner x = quote ( unquote x + 1 ) ; '
+        +'macro outer y = quote ( expand inner ( unquote y ) ) ; '
+        +'expand outer 41 ;',
+      'macro choose x = quote ( if true then unquote x else 0 ) ; '
+        +'expand choose 7 ; expand choose 8 ;',
+      'macro constant = quote ( fun arg -> arg ) ; '
+        +'( expand constant ) 9 ;',
+      'macro applied x = quote ( fun p -> p ) ; '
+        +'expand applied 3 4 ;',
+      'macro globalRef x = quote ( fun x -> textLength " A " ) ; '
+        +'( expand globalRef 1 ) 2 ;'
+    ]) compareMacroExpansion(boot,body);
+
+    for (bad in [
+      'expand undefined 4 ;',
+      'macro invalid x = quote ( unquote unknown ) ; 1 ;',
+      'macro named x = quote ( unquote x ) ; '
+        +'macro named y = quote ( unquote y ) ; 1 ;',
+      'macro bad x = quote ( quote 1 ) ; 1 ;'
+    ]) {
+      var input='nail 0.54 ; '+bad;
+      var parsed=boot.invoke('modernRewrite',
+        boot.invoke('parseSource',Text(input)));
+      var hostError=MacroExpander.syntax(parsed);
+      var nailError=boot.invoke('nailMacroExpandSyntax',parsed);
+      eq(switch(hostError) {
+        case SyntaxLeaf(tag,_): tag; case _: '';
+      },'MacroError','host macro expansion rejects: '+bad);
+      eq(switch(nailError) {
+        case SyntaxLeaf(tag,_): tag; case _: '';
+      },'MacroError','Nail macro expansion rejects: '+bad);
+    }
 
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
