@@ -1066,6 +1066,42 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].span.start,brokenCall.indexOf('expand'),
       'Nail imported failure uses first call site');
 
+    // A diamond import graph forces repeated requests for the same module.
+    // The Nail resolution cache must contain each completed export table once.
+    macroModules.set('base','nail 0.54 ; '
+      +'macro identity x = quote ( unquote x ) ; export identity ;');
+    macroModules.set('left','nail 0.54 ; '
+      +'import identity from base ; '
+      +'macro fromLeft x = quote ( expand identity ( unquote x ) ) ; '
+      +'export fromLeft ;');
+    macroModules.set('right','nail 0.54 ; '
+      +'import identity from base ; '
+      +'macro fromRight x = quote ( expand identity ( unquote x ) ) ; '
+      +'export fromRight ;');
+    var diamond='nail 0.54 ; import fromLeft from left ; '
+      +'import fromRight from right ; '
+      +'expand fromLeft 41 ; expand fromRight 42 ;';
+    compareImportedMacro(boot,diamond,macroModules,['Int','Int']);
+    var diamondModules=NailMacroModuleInputs.collect(boot,diamond,
+      name -> macroModules.get(name));
+    var preparedCache=boot.invoke('nmPrepareModules',diamondModules);
+    eq(switch(preparedCache) {
+      case SyntaxNode('NMCachedModules',items):
+        var count=0;
+        var rest=items;
+        while (true) switch(rest) {
+          case Cons(_,tail): count++; rest=tail;
+          case Nil: break;
+          case _: throw 'Malformed Nail macro cache';
+        }
+        count;
+      case _: -1;
+    },3,'diamond import yields one cached export table per source module');
+    var duplicateExports=boot.invoke('nmPrepareModules',diamondModules);
+    eq(normalizedMacro(preparedCache,new StringMap<String>(),0),
+      normalizedMacro(duplicateExports,new StringMap<String>(),0),
+      'Nail export resolution remains deterministic across repeated requests');
+
     macroModules.set('hidden','nail 0.54 ; '
       +'macro private x = quote ( unquote x ) ; export private ; '
       +'macro notExported x = quote ( unquote x ) ;');
