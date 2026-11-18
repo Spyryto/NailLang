@@ -1243,7 +1243,7 @@ class NailTypecheckerProbeTestMain {
       'src/distinct-calls.nail',
       'distinct macro call retains its local template identity');
     eq(distinctReport.diagnostics[0].templateOrigin.span.start,
-      distinctCalls.indexOf(' + 1'),
+      distinctCalls.indexOf(' + 1')+1,
       'distinct macro call points to failing numeric operator');
 
     var duplicateCall='nail 0.54 ; '
