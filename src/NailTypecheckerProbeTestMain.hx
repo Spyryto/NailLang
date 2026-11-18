@@ -107,6 +107,14 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'def f x = if x then f false else true ; f true ;',['Bool']);
     checkGood(boot,'textConcat " A " " B " ;',['Text']);
     checkGood(boot,'7 + 5 ;',['Int']);
+    checkGood(boot,'7 - 5 ;',['Int']);
+    checkGood(boot,'7 * 5 ;',['Int']);
+    checkGood(boot,'7 / 5 ;',['Ratio']);
+    checkGood(boot,'1.25 + 0.5 ;',['Float']);
+    checkGood(boot,'1.25 / 0.5 ;',['Float']);
+    checkGood(boot,'( 3 / 2 ) + 1 ;',['Ratio']);
+    checkBad(boot,'1 + 0.5 ;','No numeric relation instance');
+    checkBad(boot,'def add x y = x + y ;','concrete types');
     checkGood(boot,'[ 1 , 2 , 3 ] ;',['[Int]']);
     checkGood(boot,'head [ 1 , 2 ] ;',['Int']);
     checkBad(boot,'[ 1 , true ] ;','Type mismatch');
