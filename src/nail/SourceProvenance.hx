@@ -60,8 +60,39 @@ class SourceProvenance {
     return expr;
   }
 
-  public function templateOfExpression(expr:Expr):Null<SourceSpan>
-    return templateOrigins.get(expr);
+  /** Parenthesized quote arguments are source wrappers, not part of the
+      actual macro template. Keep the original token identities and remove
+      only complete, balanced outer pairs. */
+  function templateCore(span:SourceSpan):SourceSpan {
+    var first = -1;
+    var last = -1;
+    for (i in 0...tokens.length) {
+      if (tokens[i].start == span.start) first = i;
+      if (tokens[i].end == span.end) last = i;
+    }
+    if (first < 0 || last < first) return span;
+    while (last > first + 1 && tokens[first].text == '('
+        && tokens[last].text == ')') {
+      var depth = 0;
+      var closesAtLast = true;
+      for (i in first...last + 1) {
+        if (tokens[i].text == '(') depth++;
+        if (tokens[i].text == ')') depth--;
+        if (depth == 0 && i < last) closesAtLast = false;
+        if (depth < 0) closesAtLast = false;
+      }
+      if (!closesAtLast || depth != 0) break;
+      first++;
+      last--;
+    }
+    var core = SourcePositions.span(tokens,first,last + 1);
+    return core == null ? span : core;
+  }
+
+  public function templateOfExpression(expr:Expr):Null<SourceSpan> {
+    var source = templateOrigins.get(expr);
+    return source == null ? null : templateCore(source);
+  }
 
   /** Carry call-site provenance to a normalized form. Generated children
       have no invented locations; their source-origin arguments keep their own. */
