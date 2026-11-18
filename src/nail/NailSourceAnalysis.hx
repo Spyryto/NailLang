@@ -531,10 +531,20 @@ class NailSourceAnalysis {
     if (cursor==null) return null;
     var areas=sourceForms(tokens);
     if (cursor.index<0 || cursor.index>=areas.length) return null;
-    var site=uniqueInForm(tokens,'expand',areas[cursor.index]);
-    if (site==null) return null;
+    var area=areas[cursor.index];
+    var site=uniqueInForm(tokens,'expand',area);
     var ref=boot.invoke('nmFaultNodeOrigin',SyntaxNode('NMTraceRequest',
       Cons(traces,Cons(fault,Nil))));
+    // The trace identifies the failing macro even when two different
+    // expand calls occur in the same expression. Match the unique source
+    // invocation by name, never by a guessed token order.
+    if (site==null) switch(ref) {
+      case SyntaxNode('NMSource',Cons(_,Cons(
+          SyntaxLeaf('Name',macroName),_))) if (macroName!='#caller'):
+        site=uniqueNamedExpandInForm(tokens,macroName,area);
+      case _:
+    }
+    if (site==null) return null;
     return switch(ref) {
       case SyntaxNode('NMSource',Cons(
           SyntaxLeaf('Name',owner),Cons(
@@ -575,6 +585,22 @@ class NailSourceAnalysis {
         }
       case _: null;
     };
+  }
+
+  /** Resolve distinct macros inside one source form by their surface
+      invocation names. Duplicate calls to the same macro remain ambiguous. */
+  static function uniqueNamedExpandInForm(tokens:Array<SourceToken>,
+      macroName:String,area:SourceSpan):Null<SourceSpan> {
+    var found:Null<SourceSpan>=null;
+    for (i in 0...tokens.length-1) {
+      var keyword=tokens[i];
+      var name=tokens[i+1];
+      if (keyword.start<area.start || name.end>area.end
+          || keyword.text!='expand' || name.text!=macroName) continue;
+      if (found!=null) return null;
+      found=tokenSpan(keyword);
+    }
+    return found;
   }
 
   static function templateIdentifier(source:String, macroName:String,
