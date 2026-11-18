@@ -876,14 +876,165 @@ def parseForm tokens =
     else if parsePeek ( parseRest expression ) != " ; " then parseError " Expected ; "
     else parsePair ( syntaxNode " Evaluate " [ parseTree expression ] ) ( tail ( parseRest expression ) ) ;
 
-def parseForms tokens reversed =
-  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
-  else let form = parseForm tokens in
+# Lexically resolve contextual receiver fields after all surface
+# annotations and structural aliases are parsed. The marker Context is
+# lowered to ordinary Lambda/Apply/recordGet before core compilation.
+# Context imports shadow outer imports; local lambda binders shadow imports
+# created *before* the binder. No runtime namespace operations are added.
 
-    if parseFailed form then parseTree form
-    else if syntaxTag ( parseTree form ) == " RelationDecl " then
-      parseForms ( parseRest form ) reversed
-    else parseForms ( parseRest form ) ( cons ( parseTree form ) reversed ) ;
+def aliasName alias = syntaxText ( head ( syntaxChildren alias ) ) ;
+def aliasFind aliases name =
+  match aliases with
+  | [] -> syntaxNode " MissingAlias " []
+  | alias :: rest ->
+    if aliasName alias == name then head ( tail ( syntaxChildren alias ) )
+    else aliasFind rest name ;
+
+def annotationName ann = syntaxText ( head ( syntaxChildren ann ) ) ;
+def annotationType ann = syntaxText ( head ( tail ( syntaxChildren ann ) ) ) ;
+def annotationFind entries name =
+  match entries with
+  | [] -> " _ "
+  | ann :: rest ->
+    if annotationName ann == name then annotationType ann
+    else annotationFind rest name ;
+def annotationDrop entries name =
+  match entries with
+  | [] -> []
+  | ann :: rest ->
+    if annotationName ann == name then rest
+    else cons ann ( annotationDrop rest name ) ;
+
+def bindingFrame name ty =
+  syntaxNode " BindingFrame " [ syntaxName name , syntaxName ty ] ;
+def contextFrame hidden fields =
+  syntaxNode " ContextFrame " [ syntaxName hidden , fields ] ;
+
+# Hidden variables cannot be written in source. More lexical frames mean
+# longer hidden names; no fixed nesting limit or integer-to-text primitive.
+def contextHidden frames =
+  match frames with
+  | [] -> " #nail_context_self_ "
+  | _ :: rest -> textConcat " x " ( contextHidden rest ) ;
+
+def resolveField name frames =
+  match frames with
+  | [] -> syntaxVar name
+  | frame :: rest ->
+    let tag = syntaxTag frame in
+    let parts = syntaxChildren frame in
+    let owner = syntaxText ( head parts ) in
+    if tag == " BindingFrame " then
+      if owner == name then syntaxVar name
+      else resolveField name rest
+    else if tag == " ContextFrame " then
+      if hasParam ( syntaxChildren ( head ( tail parts ) ) ) name then
+        syntaxApply
+          ( syntaxApply ( syntaxVar " #recordGet " ) ( syntaxVar owner ) )
+          ( syntaxLiteral " Text " name )
+      else resolveField name rest
+    else syntaxVar name ;
+
+def contextReceiverType name frames globals =
+  match frames with
+  | [] -> annotationFind globals name
+  | frame :: rest ->
+    let tag = syntaxTag frame in
+    let parts = syntaxChildren frame in
+    let owner = syntaxText ( head parts ) in
+    if tag == " BindingFrame " then
+      if owner == name then syntaxText ( head ( tail parts ) )
+      else contextReceiverType name rest globals
+    else if tag == " ContextFrame " then
+      if hasParam ( syntaxChildren ( head ( tail parts ) ) ) name then " _ "
+      else contextReceiverType name rest globals
+    else " _ " ;
+
+def resolveSyntax tree frames pending aliases globals =
+  let tag = syntaxTag tree in
+    if tag == " Var " then resolveField ( syntaxText tree ) frames
+    else if tag == " Context " then
+      let children = syntaxChildren tree in
+      let receiverName = syntaxText ( head children ) in
+      let contract = contextReceiverType receiverName frames globals in
+      if contract == " _ " then
+        syntaxLeaf " Error " ( textConcat " Unknown context contract: " receiverName )
+      else let fields = aliasFind aliases contract in
+        if syntaxTag fields == " MissingAlias " then
+          syntaxLeaf " Error " ( textConcat " Unknown structural alias: " contract )
+        else let receiver = resolveField receiverName frames in
+          let hidden = contextHidden frames in
+          let body = resolveSyntax ( head ( tail children ) )
+            ( cons ( contextFrame hidden fields ) frames ) pending aliases globals in
+            if syntaxTag body == " Error " then body
+            else syntaxApply ( syntaxLambda hidden body ) receiver
+    else if tag == " Lambda " then
+      let children = syntaxChildren tree in
+      let name = syntaxText ( head children ) in
+      let alias = annotationFind pending name in
+      let inner = resolveSyntax ( head ( tail children ) )
+        ( cons ( bindingFrame name alias ) frames )
+        ( annotationDrop pending name ) aliases globals in
+      if syntaxTag inner == " Error " then inner
+      else syntaxLambda name inner
+    else if tag == " Apply " then
+      let children = syntaxChildren tree in
+      let left = resolveSyntax ( head children ) frames pending aliases globals in
+      if syntaxTag left == " Error " then left
+      else let right = resolveSyntax ( head ( tail children ) ) frames pending aliases globals in
+        if syntaxTag right == " Error " then right
+        else syntaxApply left right
+    else if tag == " If " then
+      let children = syntaxChildren tree in
+      let condition = resolveSyntax ( head children ) frames pending aliases globals in
+      if syntaxTag condition == " Error " then condition
+      else let yes = resolveSyntax ( head ( tail children ) ) frames pending aliases globals in
+        if syntaxTag yes == " Error " then yes
+        else let no = resolveSyntax ( head ( tail ( tail children ) ) ) frames pending aliases globals in
+          if syntaxTag no == " Error " then no
+          else syntaxIf condition yes no
+    else tree ;
+
+def parseFormsScoped tokens reversed aliases globals =
+  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
+  else let parsed = parseForm tokens in
+    if parseFailed parsed then parseTree parsed
+    else let form = parseTree parsed in
+      let rest = parseRest parsed in
+      let tag = syntaxTag form in
+      if tag == " RelationDecl " then
+        parseFormsScoped rest reversed aliases globals
+      else if tag == " TypeAliasDecl " then
+        if syntaxTag ( aliasFind aliases ( aliasName form ) ) != " MissingAlias " then
+          syntaxLeaf " Error " " Duplicate structural alias "
+        else parseFormsScoped rest reversed ( cons form aliases ) globals
+      else if tag == " AnnotatedDefine " then
+        let parts = syntaxChildren form in
+        let name = head parts in
+        let annotations = syntaxChildren ( head ( tail parts ) ) in
+        let valueType = syntaxText ( head ( tail ( tail parts ) ) ) in
+        let body = head ( tail ( tail ( tail parts ) ) ) in
+        let resolved = resolveSyntax body [] annotations aliases globals in
+        if syntaxTag resolved == " Error " then resolved
+        else let added =
+          if valueType == " _ " then globals
+          else cons ( syntaxNode " Annotation " [ name , syntaxName valueType ] ) globals in
+        parseFormsScoped rest
+          ( cons ( syntaxNode " Define " [ name , resolved ] ) reversed ) aliases added
+      else if tag == " Define " then
+        let parts = syntaxChildren form in
+        let body = resolveSyntax ( head ( tail parts ) ) [] [] aliases globals in
+        if syntaxTag body == " Error " then body
+        else parseFormsScoped rest
+          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals
+      else if tag == " Evaluate " then
+        let body = resolveSyntax ( head ( syntaxChildren form ) ) [] [] aliases globals in
+        if syntaxTag body == " Error " then body
+        else parseFormsScoped rest
+          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals
+      else parseFormsScoped rest ( cons form reversed ) aliases globals ;
+
+def parseForms tokens reversed = parseFormsScoped tokens reversed [] [] ;
 
 
 # v0.9: Self-hosted tokenizer for code. It preserves text literals as
