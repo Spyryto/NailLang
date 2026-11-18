@@ -255,6 +255,43 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,option+'type Other a = Some a ;',
       'Duplicate sum constructor');
 
+    // Lowered list patterns retain ordinary HM types; generated helpers are
+    // typed by Nail, not delegated to the Haxe reference checker.
+    checkGood(boot,'def firstOr fallback = function '
+      +'| [] -> fallback | item :: rest -> item ; '
+      +'firstOr 3 [ 4 , 5 ] ; firstOr 3 [] ;',['Int','Int']);
+    checkGood(boot,'match [ 9 , 8 ] with '
+      +'| [] -> 0 | first :: rest -> first ;',['Int']);
+    checkBad(boot,'def broken = function '
+      +'| [] -> 0 | first :: rest -> true ;',
+      'Type mismatch');
+
+    // Nominal patterns: coverage, binding arity and constructor ownership
+    // are checked before the private #sumFail fallback is inferred.
+    checkGood(boot,'type Color = Red | Blue ; '
+      +'match Red with | Red -> 1 | Blue -> 2 ;',['Int']);
+    checkGood(boot,option+'def unwrap = function '
+      +'| None -> 0 | Some value -> value ; '
+      +'unwrap ( Some 42 ) ;',['Int']);
+    checkGood(boot,'type Status = Rest | Played Int ; '
+      +'def tempo = function | Rest -> 0 | Played bpm -> bpm ; '
+      +'tempo ( Played 116 ) ;',['Int']);
+    checkGood(boot,option+'def classify = function '
+      +'| None -> false | Some xs -> '
+      +'( function | [] -> false | first :: rest -> true ) xs ; '
+      +'classify ( Some [ 3 ] ) ;',['Bool']);
+    checkBad(boot,option+'def partial = function '
+      +'| Some value -> true ;','Non-exhaustive match');
+    checkBad(boot,option+'def wrongArity = function '
+      +'| None -> false | Some -> true ;',
+      'Constructor match binding arity mismatch');
+    checkBad(boot,'type First = One ; type Second = Two ; '
+      +'def mixed = function | One -> 1 | Two -> 2 ;',
+      'Mixed constructors');
+    checkBad(boot,option+'def unknown = function '
+      +'| None -> 0 | NotDeclared x -> x ;',
+      'Unknown algebraic constructor');
+
     var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
     checkStructural(boot,htmlContract
       +'def html = { h2 = fun x -> textConcat " H: " x , '
