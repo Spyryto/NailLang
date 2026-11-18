@@ -37,12 +37,8 @@ class OfficialBootstrapTestMain {
     var image=BootstrapImage.decode(seed);
     ok(image!=null,'modern image decodes');
     var vm=new BootRuntime(35000000);
-    trace('SELFHOST_PARSE: '+Std.string(vm.invoke('parseSource',nail.Value.Text(modern('1 / 3 + 1 / 6 ;')))));
-    trace('SELFHOST_COMPILE: '+Std.string(vm.compile(modern('1 / 3 + 1 / 6 ;'))));
     same(vm.runPlain(modern('1 / 3 + 1 / 6 ;')),
       ['R:1/2'],'exact rational arithmetic in published image');
-    trace('SELFHOST_RELATION_PARSE: '+Std.string(new BootRuntime(35000000).invoke('parseSource',nail.Value.Text(modern('def add x y : Add = x + y ; add 1 41 ;')))));
-    trace('SELFHOST_RELATION_COMPILE: '+Std.string(new BootRuntime(35000000).compile(modern('def add x y : Add = x + y ; add 1 41 ;'))));
     same(new BootRuntime(35000000).runPlain(
       modern('def add x y : Add = x + y ; add 1 41 ;')),
       ['I:42/1'],'v0.47 closed relation annotation source compilation');
