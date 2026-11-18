@@ -149,8 +149,8 @@ class NailTypecheckerProbeTestMain {
       ['Bool','Bool']);
     checkGood(boot,
       'def same x y = x == y ; '
-      +'let compare = same in compare 1 2 ; compare " A " " B " ;',
-      ['Bool','Bool']);
+      +'let compare = same in [ compare 1 2 , compare " A " " B " ] ;',
+      ['[Bool]']);
     checkGood(boot,
       'def same x y = x == y ; def eqList xs ys = same xs ys ; '
       +'eqList [ 1 ] [ 2 ] ; eqList [ true ] [ false ] ;',
