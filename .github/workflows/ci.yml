@@ -1,7 +1,7 @@
 name: NailLang current compiler and capability regressions
 on:
   push:
-    branches: [main]
+    branches: [main, experiment/nail-provenance-callsite]
   pull_request:
   workflow_dispatch:
 permissions:
