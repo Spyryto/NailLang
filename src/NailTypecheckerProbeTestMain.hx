@@ -95,18 +95,6 @@ class NailTypecheckerProbeTestMain {
     eq(rejected,true,'Haxe must reject same structural failure: '+body);
   }
 
-  static function deferredNailFeature(boot:BootRuntime,body:String,reason:String,
-      expectedHaxe:Array<String>):Void {
-    var source='nail 0.54 ; '+body;
-    var found=inspect(boot,source);
-    eq(found.ok,false,'unsupported feature must not appear successfully checked');
-    if(found.message.indexOf(reason)<0)
-      throw 'NAIL TYPECHECKER: deferred '+reason+' got '+found.message;
-    checks++;
-    eq(new TypeChecker().check(source),expectedHaxe,
-      'reference checker can handle the explicitly deferred feature');
-  }
-
   static function main():Void {
     var boot=new BootRuntime(60000000);
     var unversioned=boot.invoke('tcCheckSource',Text('1 + 2 ;'));
