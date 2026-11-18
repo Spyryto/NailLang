@@ -90,7 +90,8 @@ class NailSourceAnalysis {
       || message.indexOf('macro import') >= 0;
 
   static function locate(message:String, tokens:Array<SourceToken>,
-      macroError:Bool):{span:Null<SourceSpan>,template:Null<SourceSpan>} {
+      macroError:Bool):{span:Null<SourceSpan>,template:Null<SourceSpan>,
+      templateOrigin:Null<SourceOrigin>} {
     var span:Null<SourceSpan> = null;
     var template:Null<SourceSpan> = null;
     var label:Null<String> = null;
@@ -112,7 +113,7 @@ class NailSourceAnalysis {
       if (label != null) span = unique(tokens, label);
       label = after(message, 'duplicate macro ');
       if (label != null) span = repeatedDefinition(tokens, 'macro', label);
-      return {span:span, template:null};
+      return {span:span, template:null,templateOrigin:null};
     }
 
     if (StringTools.startsWith(message, 'Non-exhaustive match:')
@@ -136,7 +137,7 @@ class NailSourceAnalysis {
         template = pattern;
       } else if (!hasMacro) span = pattern;
     }
-    return {span:span,template:template};
+    return {span:span,template:template,templateOrigin:null};
   }
 
   /** Original semicolon-delimited form spans, excluding the modern header
