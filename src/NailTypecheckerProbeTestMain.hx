@@ -118,12 +118,14 @@ class NailTypecheckerProbeTestMain {
     checkStructural(boot,'def getX r = r . x ; getX { x = 5 , y = true } ;',['Int']);
     checkStructural(boot,'def getX r = r . x ; getX { x = 5 } ;',['Int']);
     checkStructural(boot,
-      'def sum r = ( r . x ) + ( r . y ) ; sum { x = 2 , y = 3 } ;',
-      ['Int']);
+      'def sum r = textConcat ( r . x ) ( r . y ) ; '
+      +'sum { x = " Left " , y = " Right " } ;',
+      ['Text']);
     rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
       'Missing structural field');
     rejectsStructural(boot,
-      'def getX r = r . x + 1 ; getX { x = true } ;',
+      'def getX r = textConcat ( r . x ) " S " ; '
+      +'getX { x = true } ;',
       'Type mismatch');
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
