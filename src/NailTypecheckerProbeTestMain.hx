@@ -1168,6 +1168,50 @@ class NailTypecheckerProbeTestMain {
       case _: false;
     },true,'preflight work charge includes imported module declarations');
 
+    // Single-pass per-node source maps are parallel to the canonical
+    // expanded Program. The checker uses the original AST, never NMTrace.
+    var numericMacro='nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'expand add " text " ;';
+    var numericPrepared=boot.invoke('tcPrepareTypedSource',
+      Text(numericMacro));
+    var numericProgram=switch(numericPrepared) {
+      case SyntaxNode('TCPreparedMacros',Cons(p,_)): p;
+      case _: throw 'Could not parse numeric provenance test';
+    };
+    var numericRequest=NailMacroModuleInputs.request(numericProgram,
+      SyntaxNode('NMModules',Nil));
+    var tracedExpansion=boot.invoke('nailMacroExpandWithModulesTraced',
+      numericRequest);
+    var tracedProgram=switch(tracedExpansion) {
+      case SyntaxNode('NMExpansionTraced',Cons(program,_)): program;
+      case _: throw 'Expected Nail expansion+provenance pair';
+    };
+    var tracedOrigins=switch(tracedExpansion) {
+      case SyntaxNode('NMExpansionTraced',Cons(_,Cons(traces,Nil))): traces;
+      case _: throw 'Expected Nail parallel origin sidecar';
+    };
+    eq(normalizedMacro(tracedProgram,new StringMap<String>(),0),
+      normalizedMacro(boot.invoke('nailMacroExpandWithModules',
+        numericRequest),new StringMap<String>(),0),
+      'trace-enabled and untraced Nail macro expansion have identical AST');
+    var numericChecked=boot.invoke('tcCheckExpandedTypedTraced',
+      SyntaxNode('TCExpansionRequest',
+        Cons(numericPrepared,Cons(tracedProgram,Nil))));
+    eq(ResultValue.tag(numericChecked),ResultValue.ERR,
+      'generated numeric type mismatch is rejected by Nail');
+    var numericOrigin=boot.invoke('nmFaultNodeOrigin',
+      SyntaxNode('NMTraceRequest',Cons(tracedOrigins,
+        Cons(ResultValue.get(numericChecked,ResultValue.ERR),Nil))));
+    eq(switch(numericOrigin) {
+      case SyntaxNode('NMSource',Cons(
+          SyntaxLeaf('Name',owner),Cons(
+          SyntaxLeaf('Name',macroName),Cons(
+          SyntaxLeaf('Name',path),Nil)))):
+        owner == '#caller' && macroName == 'add' && path == '';
+      case _: false;
+    },true,'traced numeric operation points to its exact macro template AST root');
+
     // Symbolic provenance comes from Nail's own module and lexical scope
     // resolution. The diagnostic sidecar only translates the returned
     // source identity into original token offsets; no Haxe macro replay.
