@@ -449,8 +449,42 @@ is an immutable symbolic `NMOrigin` (defining source, macro and name).
 The host only uses `SourcePositions.scan` to map that identity to the
 original source token span; it does **not replay the Haxe macro expander**.
 An argument inserted through `unquote` retains its caller location.
-Failures with ambiguous call sites or ambiguous same-name template tokens
-are intentionally left without a template origin.
+
+### Per-node provenance, captured during Nail macro expansion
+
+The `NMExpansionStep` record additionally carries a parallel `trace`
+tree. Every generated `Apply`, `Lambda`, `If`, variable and literal
+has an `NMTrace` pointing to its origin:
+`NMSource(definingModule, macroName, structuralChildPath)`.
+Arguments that pass through `unquote` retain **their caller-owned trace**
+rather than inheriting the macro template's trace. The shape of the
+ordinary `Program` and its five core expression constructors remains
+unchanged.
+
+`nailMacroExpandWithModulesTraced(request)` performs **one** expansion
+and returns `NMExpansionTraced(Program, NMTraceProgram)`. Its ordinary
+untraced sibling discards the sidecar and returns the same `Program`.
+On errors, the Nail function `nmFaultNodeOrigin` combines the HM
+checker's traced form ordinal and expression-child path with this sidecar
+to select the **actual failing generated node**, not a matching source
+name or an unrelated macro invocation.
+
+`NailSourceAnalysis.analyzeNailMacros` converts the symbolic node origin
+into source coordinates by scanning only the owning macro declaration.
+Numeric infix operators can be disambiguated by their in-order AST
+position, even when the same operator appears more than once; generated
+conditionals, straightforward function applications and unambiguous
+lowered `match` sites are also supported. No Haxe macro replay occurs
+on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
+as a compatibility fallback for unknown-name errors whose new projection
+cannot yet find an exact original token.
+
+**Conservative limits:** multiple source-authored `expand` invocations
+in *the same* source form are not yet individually assigned a call site
+by the token projector; source-token disambiguation must be proven before
+emitting a span. Other unsupported lowerings, duplicated symbolic tokens,
+and missing exact source positions leave the related template span
+unset. We never fabricate locations.
 
 The default `analyze` path still uses its existing optional Haxe
 macro-provenance replay, and neither `analyze` nor the production compiler
@@ -479,14 +513,17 @@ also check Nail's type verdict independently on both expanded programs,
 and validate rejection of malformed macro declarations and calls.
 
 **Known gaps before substitution in the public compiler:** full
-equivalence of error messages and complete Nail provenance *through every
-generated node*. The current Nail symbolic provenance resolves **unique
-unknown-name errors**, including nested imports and caller-owned `unquote`
-arguments; richer expression-path provenance and generated numeric/pattern
-failure attribution remain incomplete. Measured throughput on large
-recursive templates, allocation/byte budgets beyond the work limit, and
-differential parity over the full macro corpus also remain open. The
-existing production compiler remains authoritative.
+equivalence of error messages and fully precise **source-token projection**
+for every supported expression lowering. The Nail macro transformer now
+records each output node's structural source path and the checker can
+select the exact faulty node; imported/local numeric and conditional
+failures and unambiguous pattern sites can be mapped to original tokens.
+Multiple expansion sites within the same source expression, complex match
+lowerings and arbitrary AST/source transformations still require safer
+projection rules. Measured throughput on large recursive templates,
+allocation/byte budgets beyond the work limit, and differential parity over
+the full macro corpus also remain open. The existing production compiler
+remains authoritative.
 
 ## Parity and coverage gaps
 
