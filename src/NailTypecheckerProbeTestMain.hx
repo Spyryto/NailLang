@@ -29,8 +29,9 @@ class NailTypecheckerProbeTestMain {
     var parser=new Parser(source);
     var parsed=SyntaxEncoder.program(parser.parse());
     var expanded=MacroExpander.syntax(parsed);
-    var rewritten=boot.invoke('modernRewrite',expanded);
-    return inspectResult(boot,boot.invoke('tcCheckSyntax',rewritten));
+    // The Haxe modern parser already emits Int/Ratio/Float literal Syntax:
+    // rewriting a second time would visit typed literal leaves incorrectly.
+    return inspectResult(boot,boot.invoke('tcCheckSyntax',expanded));
   }
 
   static function inspectResult(boot:BootRuntime,result:Value):{ok:Bool,types:Array<String>,message:String} {
