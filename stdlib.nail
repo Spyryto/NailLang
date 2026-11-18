@@ -1861,6 +1861,8 @@ def tcInferExpression tree environment substitutions seed =
       tcBuiltinType name else local in
     if syntaxTag scheme == " TCMissing " then
       tcFault ( textConcat " Unknown name: " name )
+    else if syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " then
+      tcFault " Overloaded functions must be fully applied "
     else tcInstantiate scheme substitutions seed
   else if tag == " Literal " then
     let literal = tcFirst tree in
@@ -1895,7 +1897,9 @@ def tcInferExpression tree environment substitutions seed =
   else if tag == " Apply " then
     let fn = tcFirst tree in
     let arg = tcSecond tree in
-    if tcIsNumericApply tree then
+    if tcIsOverloadedApply tree environment then
+      tcInferOverloadedApply tree environment substitutions seed
+    else if tcIsNumericApply tree then
       tcInferNumericApply tree environment substitutions seed
     else if tcIsStructuralMake tree then
       tcInferStructuralMake tree environment substitutions seed
@@ -2074,6 +2078,161 @@ def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed
           tcCheckForms rest
             ( cons ( tcBinding name scheme ) environment )
             final ( tcResultSeed constrained ) reversed aliases relations ;
+
+# Finite, first-order relation tables: input types determine one output.
+# Initial Nail implementation supports *binary* relations only; n-ary
+# contracts are rejected explicitly until the generic algorithm is ported.
+def tcRelationRow left right result =
+  syntaxNode " TCRelationRow " [ left , right , result ] ;
+def tcRelationRows rows = syntaxNode " TCRelationRows " rows ;
+def tcOverloaded name rows =
+  syntaxNode " TCOverloaded " [ syntaxName name , rows ] ;
+
+def tcDefaultRelation name =
+  if name == " Add " then tcBuiltinNumericRows " Int "
+  else if name == " Sub " then tcBuiltinNumericRows " Int "
+  else if name == " Mul " then tcBuiltinNumericRows " Int "
+  else if name == " Div " then tcBuiltinNumericRows " Ratio "
+  else tcFault ( textConcat " Unknown relation: " name ) ;
+
+def tcBuiltinNumericRows integerResult =
+  tcRelationRows [
+    tcRelationRow ( tcBase " Int " ) ( tcBase " Int " ) ( tcBase integerResult ) ,
+    tcRelationRow ( tcBase " Int " ) ( tcBase " Ratio " ) ( tcBase " Ratio " ) ,
+    tcRelationRow ( tcBase " Ratio " ) ( tcBase " Int " ) ( tcBase " Ratio " ) ,
+    tcRelationRow ( tcBase " Ratio " ) ( tcBase " Ratio " ) ( tcBase " Ratio " ) ,
+    tcRelationRow ( tcBase " Float " ) ( tcBase " Float " ) ( tcBase " Float " )
+  ] ;
+
+def tcRelationTable name relations =
+  let table = tcFind name relations in
+  if syntaxTag table == " TCMissing " then tcDefaultRelation name
+  else table ;
+
+def tcFindRelationResult left right rows =
+  match rows with
+  | [] -> tcMissing
+  | row :: rest ->
+    if syntaxText ( tcFirst row ) == left then
+      if syntaxText ( tcSecond row ) == right then tcThird row
+      else tcFindRelationResult left right rest
+    else tcFindRelationResult left right rest ;
+
+def tcDeclareRelation name fieldTypes aliases relations =
+  if length fieldTypes != 3 then
+    tcFault " Named relations with arity other than two are not implemented "
+  else let first = tcSurfaceType ( syntaxText ( head fieldTypes ) ) aliases in
+    let second = tcSurfaceType
+      ( syntaxText ( head ( tail fieldTypes ) ) ) aliases in
+    let result = tcSurfaceType
+      ( syntaxText ( head ( tail ( tail fieldTypes ) ) ) ) aliases in
+    if syntaxTag first == " TCFault " then first
+    else if syntaxTag second == " TCFault " then second
+    else if syntaxTag result == " TCFault " then result
+    else if syntaxTag first != " TCBase " then
+      tcFault " A finite relation must use atomic types "
+    else if syntaxTag second != " TCBase " then
+      tcFault " A finite relation must use atomic types "
+    else if syntaxTag result != " TCBase " then
+      tcFault " A finite relation must use atomic types "
+    else let existing = tcFind name relations in
+      let previous =
+        if syntaxTag existing == " TCMissing " then []
+        else syntaxChildren existing in
+      let prior = tcFindRelationResult
+        ( syntaxText first ) ( syntaxText second ) previous in
+      if syntaxTag prior != " TCMissing " then
+        tcFault " Duplicate relation input types "
+      else tcRelationRows
+        ( cons ( tcRelationRow first second result ) previous ) ;
+
+def tcCollectRelation form rest environment substitutions seed reversed aliases relations =
+  let name = syntaxText ( tcFirst form ) in
+  let row = tcDeclareRelation name
+    ( syntaxChildren ( tcSecond form ) ) aliases relations in
+  if syntaxTag row == " TCFault " then row
+  else tcCheckForms rest environment substitutions seed reversed aliases
+    ( cons ( tcBinding name row ) relations ) ;
+
+# A relation-constrained function is checked separately for every row,
+# with the parameters bound to *concrete* types. This supports overloads
+# without inventing dynamic dispatch or a generic numeric supertype.
+def tcValidateRelationRows name source rows relation substitutions seed environment =
+  match rows with
+  | [] -> tcInferResult ( tcBase " Bool " ) substitutions seed
+  | row :: rest ->
+    let x = syntaxText ( tcFirst source ) in
+    let secondLambda = tcSecond source in
+    let y = syntaxText ( tcFirst secondLambda ) in
+    let body = tcSecond secondLambda in
+    let local = cons ( tcBinding x ( tcScheme ( tcFirst row ) [] ) )
+      ( cons ( tcBinding y ( tcScheme ( tcSecond row ) [] ) )
+        ( cons ( tcBinding name ( tcScheme ( tcOverloaded name relation ) [] ) )
+          environment ) ) in
+    let inferred = tcInferExpression body local substitutions seed in
+    if syntaxTag inferred == " TCFault " then inferred
+    else match tcUnify ( tcResultType inferred ) ( tcThird row )
+      ( tcResultSubs inferred ) with
+    | Error message -> tcFault message
+    | Ok updated ->
+      tcValidateRelationRows name source rest relation
+        updated ( tcNext ( tcResultSeed inferred ) ) environment ;
+
+def tcCheckRelationDefinition name relationName source annotations
+  rest environment substitutions seed reversed aliases relations =
+  if syntaxTag ( tcFind name environment ) != " TCMissing " then
+    tcFault ( textConcat " Duplicate definition: " name )
+  else if isEmpty annotations == false then
+    tcFault " Mixed parameter annotations and named relations are not implemented "
+  else if syntaxTag source != " Lambda " then
+    tcFault " Binary relation requires exactly two parameters "
+  else if syntaxTag ( tcSecond source ) != " Lambda " then
+    tcFault " Binary relation requires exactly two parameters "
+  else if syntaxTag ( tcSecond ( tcSecond source ) ) == " Lambda " then
+    tcFault " Binary relation requires exactly two parameters "
+  else let table = tcRelationTable relationName relations in
+    if syntaxTag table == " TCFault " then table
+    else let rows = syntaxChildren table in
+      let checked = tcValidateRelationRows name source rows table
+        substitutions seed environment in
+      if syntaxTag checked == " TCFault " then checked
+      else tcCheckForms rest
+        ( cons ( tcBinding name ( tcScheme ( tcOverloaded name table ) [] ) )
+          environment )
+        ( tcResultSubs checked ) ( tcResultSeed checked ) reversed aliases relations ;
+
+def tcIsOverloadedApply tree environment =
+  let call = tcFirst tree in
+  if syntaxTag call != " Apply " then false
+  else let target = tcFirst call in
+    if syntaxTag target != " Var " then false
+    else let scheme = tcFind ( syntaxText target ) environment in
+      if syntaxTag scheme == " TCMissing " then false
+      else syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " ;
+
+def tcInferOverloadedApply tree environment substitutions seed =
+  let call = tcFirst tree in
+  let label = syntaxText ( tcFirst call ) in
+  let scheme = tcFind label environment in
+  let descriptor = tcSchemeType scheme in
+  let rows = tcSecond descriptor in
+  let first = tcInferExpression ( tcSecond call )
+    environment substitutions seed in
+  if syntaxTag first == " TCFault " then first
+  else let second = tcInferExpression ( tcSecond tree )
+    environment ( tcResultSubs first ) ( tcResultSeed first ) in
+    if syntaxTag second == " TCFault " then second
+    else let left = tcFollow ( tcResultType first ) ( tcResultSubs second ) in
+      let right = tcFollow ( tcResultType second ) ( tcResultSubs second ) in
+      if syntaxTag left != " TCBase " then
+        tcFault " Overloaded arguments require concrete types "
+      else if syntaxTag right != " TCBase " then
+        tcFault " Overloaded arguments require concrete types "
+      else let output = tcFindRelationResult
+        ( syntaxText left ) ( syntaxText right ) ( syntaxChildren rows ) in
+        if syntaxTag output == " TCMissing " then
+          tcFault ( textConcat " No relation instance: " label )
+        else tcInferResult output ( tcResultSubs second ) ( tcResultSeed second ) ;
 
 def tcCheckForms forms environment substitutions seed reversed aliases relations =
   match forms with
