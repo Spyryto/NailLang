@@ -3371,8 +3371,8 @@ def tcCheckSumDeclaration form rest environment substitutions seed reversed alia
 # The Haxe expander remains the differential oracle and production path.
 # All macro state is ordinary immutable Syntax and persistent bindings;
 # path-derived private names need neither a VM opcode nor mutable counters.
-# This first stage supports local declarations (imports are intentionally
-# rejected until a Nail-defined module environment is supplied).
+# The optional module environment is also immutable Syntax. No Haxe macro
+# substitution is needed in the module-aware experimental entry point.
 # --------------------------------------------------------------------------
 
 def nmError message = syntaxLeaf " MacroError " message ;
@@ -3386,6 +3386,90 @@ def nmDefinition name params template captured =
   syntaxNode " NMDefinition "
     [ syntaxName name , syntaxNode " NMParams " params ,
       template , syntaxNode " NMScope " captured ] ;
+
+# Module table entries are ordinary TCBinding(name, Program) nodes.
+# A resolution contains original captured definitions, not re-expanded text.
+# External source acquisition remains a capability of the host.
+def nmDeclare label source scope =
+  let parts = nmParameters source [] in
+  if nmIsError parts then parts
+  else let params = syntaxChildren ( tcFirst parts ) in
+    let template = tcSecond parts in
+    let valid = nmValidate template params label 0 in
+    if nmIsError valid then valid
+    else nmDefinition label params template scope ;
+
+def nmImport form scope modules active =
+  let name = syntaxText ( tcFirst form ) in
+  let label = tcDropPrefix name
+    ( textLength " #macro_import_ " ) " " in
+  if syntaxTag ( tcFind label scope ) != " TCMissing " then
+    nmError ( textConcat " duplicate macro " label )
+  else let source = tcSecond form in
+    if syntaxTag source != " Var " then
+      nmError ( textConcat " invalid macro import " label )
+    else let moduleName = syntaxText source in
+      let exports = nmModuleExports moduleName modules active in
+      if nmIsError exports then exports
+      else let definition = tcFind label ( syntaxChildren exports ) in
+        if syntaxTag definition == " TCMissing " then
+          nmError ( textConcat ( textConcat " macro " label )
+            ( textConcat " is not exported by " moduleName ) )
+        else syntaxNode " NMImport " [ syntaxName label , definition ] ;
+
+def nmModuleExports name modules active =
+  if length active > 128 then
+    nmError " macro import nesting limit exceeded "
+  else if nmContainsParam name active then
+    nmError ( textConcat " cyclic macro imports: " name )
+  else if syntaxTag modules != " NMModules " then
+    nmError ( textConcat " macro module requires a module resolver: " name )
+  else let source = tcFind name ( syntaxChildren modules ) in
+    if syntaxTag source == " TCMissing " then
+      nmError ( textConcat " missing macro module " name )
+    else if syntaxTag source != " Program " then
+      nmError ( textConcat " invalid macro module " name )
+    else nmModuleForms ( syntaxChildren source )
+      [] [] [] modules ( cons ( syntaxName name ) active ) ;
+
+# Modules have their own lexical scope and may export only declarations made
+# in that module. An imported macro never becomes an implicit re-export.
+def nmModuleForms forms scope own exports modules active =
+  match forms with
+  | [] -> syntaxNode " NMExports " exports
+  | form :: rest ->
+    if syntaxTag form != " Define " then
+      nmError " only macro declarations, imports and exports are allowed in a macro module "
+    else let name = syntaxText ( tcFirst form ) in
+      if tcStartsWith name " #macro_import_ " then
+        let imported = nmImport form scope modules active in
+        if nmIsError imported then imported
+        else nmModuleForms rest
+          ( cons ( tcBinding ( syntaxText ( tcFirst imported ) )
+            ( tcSecond imported ) ) scope )
+          own exports modules active
+      else if tcStartsWith name " #macro_export_ " then
+        let label = tcDropPrefix name
+          ( textLength " #macro_export_ " ) " " in
+        if syntaxTag ( tcFind label own ) == " TCMissing " then
+          nmError ( textConcat " export requires a local macro already declared: " label )
+        else if syntaxTag ( tcFind label exports ) != " TCMissing " then
+          nmError ( textConcat " duplicate export " label )
+        else nmModuleForms rest scope own
+          ( cons ( tcBinding label ( tcFind label scope ) ) exports )
+          modules active
+      else if tcStartsWith name " #macro_decl_ " then
+        let label = tcDropPrefix name
+          ( textLength " #macro_decl_ " ) " " in
+        if syntaxTag ( tcFind label scope ) != " TCMissing " then
+          nmError ( textConcat " duplicate macro " label )
+        else let definition = nmDeclare label ( tcSecond form ) scope in
+          if nmIsError definition then definition
+          else nmModuleForms rest
+            ( cons ( tcBinding label definition ) scope )
+            ( cons ( tcBinding label nmOk ) own )
+            exports modules active
+      else nmError " only macro declarations, imports and exports are allowed in a macro module " ;
 
 def nmParameters expr reversed =
   if syntaxTag expr == " Lambda " then
@@ -3594,7 +3678,7 @@ def nmWalkApplication tree fn arg scope holes locals seed depth =
       if nmIsError right then right
       else syntaxApply left right ;
 
-def nmExpandForms forms scope reversed seed =
+def nmExpandFormsIn forms scope reversed seed modules =
   match forms with
   | [] -> syntaxNode " Program " ( reverse reversed )
   | form :: rest ->
@@ -3606,39 +3690,64 @@ def nmExpandForms forms scope reversed seed =
           ( textLength " #macro_decl_ " ) " " in
         if syntaxTag ( tcFind label scope ) != " TCMissing " then
           nmError ( textConcat " duplicate macro " label )
-        else let parts = nmParameters ( tcSecond form ) [] in
-          if nmIsError parts then parts
-          else let params = syntaxChildren ( tcFirst parts ) in
-            let template = tcSecond parts in
-            let validity = nmValidate template params label 0 in
-            if nmIsError validity then validity
-            else let definition = nmDefinition label params template scope in
-              nmExpandForms rest
-                ( cons ( tcBinding label definition ) scope )
-                reversed ( nmChild seed " _form " )
+        else let definition = nmDeclare label ( tcSecond form ) scope in
+          if nmIsError definition then definition
+          else nmExpandFormsIn rest
+            ( cons ( tcBinding label definition ) scope )
+            reversed ( nmChild seed " _form " ) modules
       else if tcStartsWith name " #macro_import_ " then
-        nmError " macro import requires a module environment "
+        if syntaxTag modules != " NMModules " then
+          nmError " macro import requires a module environment "
+        else let imported = nmImport form scope modules [] in
+          if nmIsError imported then imported
+          else nmExpandFormsIn rest
+            ( cons ( tcBinding ( syntaxText ( tcFirst imported ) )
+              ( tcSecond imported ) ) scope )
+            reversed ( nmChild seed " _form " ) modules
       else if tcStartsWith name " #macro_export_ " then
         nmError " export is only allowed in a macro module "
       else let body = nmWalk ( tcSecond form ) scope
         nmNoBindings nmNoBindings seed 0 in
         if nmIsError body then body
-        else nmExpandForms rest scope
+        else nmExpandFormsIn rest scope
           ( cons ( syntaxDefine name body ) reversed )
-          ( nmChild seed " _form " )
+          ( nmChild seed " _form " ) modules
     else if tag == " Evaluate " then
       let body = nmWalk ( tcFirst form ) scope
         nmNoBindings nmNoBindings seed 0 in
       if nmIsError body then body
-      else nmExpandForms rest scope
+      else nmExpandFormsIn rest scope
         ( cons ( syntaxNode " Evaluate " [ body ] ) reversed )
-        ( nmChild seed " _form " )
-    else nmExpandForms rest scope ( cons form reversed )
-      ( nmChild seed " _form " ) ;
+        ( nmChild seed " _form " ) modules
+    else nmExpandFormsIn rest scope ( cons form reversed )
+      ( nmChild seed " _form " ) modules ;
 
 def nailMacroExpandSyntax program =
   if syntaxTag program != " Program " then program
-  else nmExpandForms ( syntaxChildren program ) [] [] " m " ;
+  else nmExpandFormsIn ( syntaxChildren program ) [] [] " m " nmNoBindings ;
+
+# Modules are pre-parsed Syntax; no host macro expansion takes place.
+# The resolver populates NMModules with TCBinding(moduleName, Program).
+def nailMacroExpandWithModules request =
+  if syntaxTag request != " NMRequest " then
+    nmError " expected macro expansion request "
+  else let program = tcFirst request in
+    let modules = tcSecond request in
+    if syntaxTag program != " Program " then
+      nmError " expected parsed Nail program "
+    else if syntaxTag modules != " NMModules " then
+      nmError " expected parsed macro modules "
+    else nmExpandFormsIn ( syntaxChildren program ) [] [] " m " modules ;
+
+def tcCheckSourceNailModulesTraced request =
+  let source = syntaxText ( tcFirst request ) in
+  let prepared = tcPrepareTypedSource source in
+  if syntaxTag prepared != " TCPreparedMacros " then
+    Error ( tcFault " Invalid prepared typed source " )
+  else let expanded = nailMacroExpandWithModules
+    ( syntaxNode " NMRequest " [ tcFirst prepared , tcSecond request ] ) in
+    tcCheckExpandedTypedTraced
+      ( syntaxNode " TCExpansionRequest " [ prepared , expanded ] ) ;
 
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
