@@ -656,6 +656,83 @@ class NailTypecheckerProbeTestMain {
     eq(report.diagnostics[0].templateSpan.start,repeatedPattern.indexOf('match'),
       'pattern failure retains exact quoted source pattern');
 
+    // Imported macro diagnostics now own two separate source files. The
+    // module's logical import key is the source identity of its template.
+    var badModule='nail 0.54 ; macro broken x = quote ( missing ) ; export broken ;';
+    var importedSource='nail 0.54 ; import broken from brokenLib ; '
+      +'def first = expand broken 1 ; def second = expand broken 2 ;';
+    var moduleReads=0;
+    var importedResolver=(name:String) -> {
+      if (name != 'brokenLib') return null;
+      moduleReads++;
+      return badModule;
+    };
+    report=NailSourceAnalysis.analyze(importedSource,boot,importedResolver,
+      'src/main.nail');
+    eq(report.ok,false,'imported macro type error rejected by Nail bytecode');
+    eq(report.diagnostics[0].span.start,importedSource.indexOf('expand'),
+      'imported macro selects first failing invocation in caller file');
+    eq(report.diagnostics[0].templateSpan,null,
+      'foreign macro span must not be mistaken for main source offset');
+    eq(report.diagnostics[0].templateOrigin.sourceId,'brokenLib',
+      'imported template uses logical module identity');
+    eq(report.diagnostics[0].templateOrigin.span.start,
+      badModule.indexOf('missing'),'foreign template offset is module-local');
+    eq(moduleReads,1,'module source is fetched once across checking and provenance');
+
+    var identityModule='nail 0.54 ; '
+      +'macro identity x = quote ( unquote x ) ; export identity ;';
+    var importedHole='nail 0.54 ; import identity from identityLib ; '
+      +'def bad = expand identity missing ;';
+    report=NailSourceAnalysis.analyze(importedHole,boot,
+      name -> name == 'identityLib' ? identityModule : null);
+    eq(report.ok,false,'bad caller argument still rejected through imported macro');
+    eq(report.diagnostics[0].span.start,importedHole.indexOf('missing'),
+      'unquote preserves source identity of importing caller');
+    eq(report.diagnostics[0].templateOrigin,null,
+      'unquoted caller node does not inherit imported template origin');
+
+    var innerModule='nail 0.54 ; macro broken x = quote ( missing ) ; '
+      +'export broken ;';
+    var outerModule='nail 0.54 ; import broken from innerLib ; '
+      +'macro wrapper x = quote ( expand broken ( unquote x ) ) ; '
+      +'export wrapper ;';
+    var nestedSource='nail 0.54 ; import wrapper from outerLib ; '
+      +'def bad = expand wrapper 7 ;';
+    var readsInner=0;
+    var readsOuter=0;
+    report=NailSourceAnalysis.analyze(nestedSource,boot,name -> {
+      if (name == 'innerLib') { readsInner++; return innerModule; }
+      if (name == 'outerLib') { readsOuter++; return outerModule; }
+      return null;
+    });
+    eq(report.ok,false,'nested imported macro error rejected');
+    eq(report.diagnostics[0].span.start,nestedSource.indexOf('expand'),
+      'nested imported macro preserves outermost user call');
+    eq(report.diagnostics[0].templateOrigin.sourceId,'innerLib',
+      'nested imported macro reports actual producing module');
+    eq(report.diagnostics[0].templateOrigin.span.start,
+      innerModule.indexOf('missing'),'nested imported template points into inner source');
+    eq(readsInner,1,'nested inner module loaded once per analysis');
+    eq(readsOuter,1,'nested outer module loaded once per analysis');
+
+    var successModule='nail 0.54 ; '
+      +'macro identity x = quote ( unquote x ) ; export identity ;';
+    var successImport='nail 0.54 ; import identity from utils ; '
+      +'expand identity 42 ;';
+    report=NailSourceAnalysis.analyze(successImport,boot,
+      name -> name == 'utils' ? successModule : null);
+    eq(report.ok,true,'Nail checker accepts valid imported expansion');
+    eq(report.types,['Int'],'imported code receives Nail-inferred type');
+
+    var missingModule='nail 0.54 ; import identity from nowhere ; '
+      +'expand identity 1 ;';
+    report=NailSourceAnalysis.analyze(missingModule,boot,
+      name -> null);
+    eq(report.ok,false,'missing module is reported rather than silently skipped');
+    eq(report.diagnostics[0].span,null,
+      'module resolver errors do not fabricate source coordinates');
+
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
