@@ -107,6 +107,9 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'def f x = if x then f false else true ; f true ;',['Bool']);
     checkGood(boot,'textConcat " A " " B " ;',['Text']);
     checkGood(boot,'7 + 5 ;',['Int']);
+    checkGood(boot,'[ 1 , 2 , 3 ] ;',['[Int]']);
+    checkGood(boot,'head [ 1 , 2 ] ;',['Int']);
+    checkBad(boot,'[ 1 , true ] ;','Type mismatch');
 
     checkBad(boot,'unknownVar ;','Unknown name');
     checkBad(boot,'1 2 ;','Type mismatch');
