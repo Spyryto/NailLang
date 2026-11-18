@@ -3384,7 +3384,7 @@ def nmRemaining step = step . remaining ;
 def nmBad step = nmIsError ( nmValue step ) ;
 def nmOutOfFuel fuel =
   nmPack ( syntaxLeaf " MacroError " " macro expansion work limit exceeded " ) fuel ;
-def nmDefaultFuel = 1000000 ;
+def nmDefaultFuel = 25000 ;
 
 def nmError message = syntaxLeaf " MacroError " message ;
 def nmOk = syntaxLeaf " NMValid " " " ;
@@ -3804,31 +3804,77 @@ def nmExpandFormsIn forms scope reversed seed modules fuel =
     else nmExpandFormsIn rest scope ( cons form reversed )
       ( nmChild seed " _form " ) modules available ;
 
+# A conservative upfront charge accounts for parsing/validation of
+# all input forms and imported templates. Executable visits then consume
+# additional fuel through the NMExpansionStep state transformer.
+def nmCountSyntax forms =
+  match forms with
+  | [] -> 0
+  | first :: rest ->
+    nmCountTree first + nmCountSyntax rest ;
+
+def nmCountTree tree =
+  let tag = syntaxTag tree in
+  if tag == " Program " then
+    1 + nmCountSyntax ( syntaxChildren tree )
+  else if tag == " Define " then
+    1 + nmCountTree ( tcSecond tree )
+  else if tag == " Evaluate " then
+    1 + nmCountTree ( tcFirst tree )
+  else if tag == " Lambda " then
+    1 + nmCountTree ( tcSecond tree )
+  else if tag == " Apply " then
+    1 + nmCountTree ( tcFirst tree ) + nmCountTree ( tcSecond tree )
+  else if tag == " If " then
+    1 + nmCountTree ( tcFirst tree )
+      + nmCountTree ( tcSecond tree ) + nmCountTree ( tcThird tree )
+  else 1 ;
+
+def nmCountModules entries =
+  match entries with
+  | [] -> 0
+  | moduleEntry :: rest ->
+    nmCountTree ( tcBindingValue moduleEntry ) + nmCountModules rest ;
+
 def nailMacroExpandSyntaxBudgeted program fuel =
   if syntaxTag program != " Program " then program
-  else nmValue ( nmExpandFormsIn
-    ( syntaxChildren program ) [] [] " m " nmNoBindings fuel ) ;
+  else let remaining = fuel - nmCountTree program in
+    if remaining <= 0 then nmValue ( nmOutOfFuel remaining )
+    else nmValue ( nmExpandFormsIn
+      ( syntaxChildren program ) [] [] " m " nmNoBindings remaining ) ;
 
 def nailMacroExpandSyntax program =
   nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 
 # Low-budget entry point exercises the failure path on every runtime target.
 def nailMacroExpandSyntaxTinyBudget program =
-  nailMacroExpandSyntaxBudgeted program 12 ;
+  nailMacroExpandSyntaxBudgeted program 50 ;
 
 # Modules are pre-parsed Syntax; no host macro expansion takes place.
 # The resolver populates NMModules with TCBinding(moduleName, Program).
-def nailMacroExpandWithModules request =
+def nailMacroExpandWithModulesBudgeted request fuel =
   if syntaxTag request != " NMRequest " then
     nmError " expected macro expansion request "
   else let program = tcFirst request in
     let modules = tcSecond request in
     if syntaxTag program != " Program " then
       nmError " expected parsed Nail program "
-    else let resolved = nmPrepareModules modules in
-      if nmIsError resolved then resolved
-      else nmValue ( nmExpandFormsIn
-      ( syntaxChildren program ) [] [] " m " resolved nmDefaultFuel ) ;
+    else if syntaxTag modules != " NMModules " then
+      nmError " expected parsed macro modules "
+    else let spent = nmCountTree program
+      + nmCountModules ( syntaxChildren modules ) in
+      let remaining = fuel - spent in
+      if remaining <= 0 then nmValue ( nmOutOfFuel remaining )
+      else let resolved = nmPrepareModules modules in
+        if nmIsError resolved then resolved
+        else nmValue ( nmExpandFormsIn
+          ( syntaxChildren program ) [] [] " m " resolved remaining ) ;
+
+def nailMacroExpandWithModules request =
+  nailMacroExpandWithModulesBudgeted request nmDefaultFuel ;
+
+def nailMacroExpandWithModulesTinyBudget request =
+  nailMacroExpandWithModulesBudgeted request 50 ;
 
 def tcCheckSourceNailModulesTraced request =
   let source = syntaxText ( tcFirst request ) in
