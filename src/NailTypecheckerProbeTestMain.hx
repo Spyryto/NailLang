@@ -245,9 +245,9 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,option+'Some 3 == Some 4 ;',['Bool']);
     checkGood(boot,'type Tree = Leaf Int | Branch Tree Tree ; '
       +'Branch ( Leaf 1 ) ( Leaf 2 ) ;',['Tree']);
-    checkGood(boot,'type Result a e = Ok a | Error e ; '
-      +'def result x = if true then Ok x else Error " Fail " ; '
-      +'result 4 ;',['Result[Int, Text]']);
+    checkGood(boot,'type Reply a e = Success a | Failure e ; '
+      +'def result x = if true then Success x else Failure " Fail " ; '
+      +'result 4 ;',['Reply[Int, Text]']);
     checkBad(boot,option+'Some 4 true ;','Type mismatch');
     checkBad(boot,option+'Some true == Some 3 ;','Type mismatch');
     checkBad(boot,'type First = A | B ; type Second = C | D ; '
