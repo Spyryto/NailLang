@@ -258,25 +258,48 @@ bytecode image. It returns:
 - `span` and `templateSpan` use the pre-existing `SourcePositions.SourceSpan`
   convention: original-source, half-open UTF-16 offsets, 1-based lines/columns
 
-The adapter does **not** invoke the Haxe `TypeChecker` or Haxe `Parser`.
-It uses the existing independent `SourcePositions.scan` to correlate a
-diagnostic with original tokens, never with fabricated transformed offsets.
+The checker now offers two APIs:
 
-This first stage intentionally reports exact locations only where attribution
-is justified: a uniquely occurring unresolved identifier, the second of
-exactly two duplicate declarations, or a single source pattern. If exactly
-one macro expansion generates a failing match, `span` points to the
-`expand` token and `templateSpan` can point to the original
-`match`/`function` token in its template. When the source has several
-plausible origins (e.g. multiple macro expansions or repeated unresolved
-identifiers), locations are `null`. A general unification failure is not
-arbitrarily attributed to its nearest token.
+- `tcCheckSource` preserves the prior `Result[Syntax, Text]` contract.
+- `tcCheckSourceTraced` returns `Error(TCFault)` with the **same Nail
+  error message**, plus a structured expression-child path and failing-form
+  trail. Tracing is compiled into ordinary Nail bytecode and adds no core AST
+  constructor or VM opcode. The adapter runs this checker **once** per query.
 
-This is **not yet** a complete per-expression source map; the full
-macro-aware compiler still needs structured origin links through every
-transformation, span propagation into Nail inference failures, and editor
-protocol integration. The adapter remains opt-in and is exercised on Haxe,
-Node and PHP.
+The adapter does **not** call the Haxe `TypeChecker`. It reuses
+`SourcePositions.scan` for original UTF-16 coordinates. When a structural
+path is available, it optionally uses the pre-existing Haxe
+`Parser.parseRaw()` **only as a provenance sidecar**, never for inference or
+validation. If the host parser does not understand experimental syntax or the
+AST has changed under macro expansion, the mapper falls back conservatively.
+
+For example, with:
+
+```nail
+nail 0.54 ;
+def broken = if true then missing else missing ;
+```
+
+The original scanner sees two `missing` tokens, but Nail's error path
+identifies the `then` child of `If`, so the diagnostic points at the
+**first** occurrence. Similarly, if two definitions use the same invalid
+name, the failing-form trail selects the earlier failing definition. Tests
+also cover errors nested in lambdas and function applications.
+
+Where a structural path cannot be mapped, locations are restricted to
+unambiguous tokens within the **failing form**, the second of exactly two
+duplicate declarations, or an isolated source pattern. When a single
+macro-generated match has a clearly identifiable call site, `span`
+points to `expand` and `templateSpan` points to its template's original
+`match`/`function` token. Multiple possible expansion sites or unrelated
+macros never receive fabricated locations.
+
+This is **not yet** complete expression provenance through all transforms:
+generated macro subtrees and specialized numeric/equality inference paths
+are not fully traced. Arbitrary unification failures and general pattern
+errors may lack a precise span. A future fully Nail-written positioned parser
+could replace the read-only host parser sidecar. This feature remains opt-in
+and is exercised on Haxe, Node and PHP.
 
 ## Parity and coverage gaps
 
@@ -298,8 +321,9 @@ The following are not yet complete:
   not yet available to the experimental checker
 - Full standard-library primitive signatures, externally imported macro
   modules, typed module signatures and precise source-span diagnostics
-- Full per-expression source provenance beyond conservatively attributable
-  source tokens; no invented spans for ambiguity or arbitrary type mismatches
+- Generated expression ancestry through macro expansion and specialized
+  numeric/equality inference paths; no invented spans for unresolved origins
+  or arbitrary type mismatches
 - Performance and bounded-resource policies for adversarial/large terms
 
 Unsupported cases must return a diagnostic rather than being accepted with
