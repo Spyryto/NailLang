@@ -254,7 +254,9 @@ An additional developer-side adapter, `nail.NailSourceAnalysis.analyze(source,
 bytecode image. It returns:
 
 - `ok: Bool`, inferred `types: Array<String>` on success
-- `diagnostics: Array<{phase, message, span, templateSpan}>` on failure
+- `diagnostics: Array<{phase, message, span, templateSpan, templateOrigin}>`
+  on failure, where `templateOrigin: {sourceId, span}?` identifies even an
+  imported template's source
 - `span` and `templateSpan` use the pre-existing `SourcePositions.SourceSpan`
   convention: original-source, half-open UTF-16 offsets, 1-based lines/columns
 
@@ -289,7 +291,8 @@ of lowered numeric/equality operators.
 
 Local macro calls now have a **two-origin read-only sidecar**:
 `SourceProvenance` attaches a precise `expand` token to generated nodes
-and independently retains each node's original quoted-template span.
+and independently retains a pair `{sourceId, span}` for each node's
+quoted-template origin.
 `MacroExpander.forms(input, provenance)` can replay exactly the same
 hygienic AST transformation solely for this diagnostic lookup. The runtime
 expander, bytecode, canonical Syntax representation and type inference do
@@ -304,13 +307,42 @@ while `templateSpan` points at the expression in the actual producing
 macro. A caller argument substituted via `unquote` keeps its own source
 position and has no fabricated template origin.
 
+The optional module-aware entry point is:
+
+```haxe
+NailSourceAnalysis.analyze(source, boot, moduleName -> moduleSource, 'src/main.nail');
+```
+
+The third argument is a **source resolver** that returns module text by its
+logical import key (for example `helpers`). The fourth names the caller's
+source. On imported expansions, `span` identifies the caller's `expand`
+token; `templateOrigin.sourceId` names the module containing the producing
+template, and `templateOrigin.span` uses offsets **in that module's text**.
+To prevent accidental cross-file interpretation, `templateSpan` is
+`null` for foreign templates, and remains populated for local macros.
+
+The resolver is cached per analysis request, so the host's syntax expansion
+and the provenance replay read each module once. Nested and transitive imports
+retain the *actual producing module*, rather than the module through which it
+was re-exported. Caller subexpressions inserted using `unquote` continue
+to point to the caller's source and have no foreign-template origin.
+
+**Scope boundary:** module-aware checking currently uses the existing Haxe
+parser/macro expander for the **syntax** of imported programs, then passes
+the already-expanded `Syntax` into `tcCheckSyntaxTraced` for inference
+entirely in Nail. Unlike `tcCheckSourceTraced`, this path cannot yet
+preserve Nail-only typed metadata or structural DSL aliases through host
+syntax conversion; its verified subset is ordinary nominal forms and core
+expressions. It does not switch to the Haxe type checker. Logical module
+names are stable identifiers supplied by imports, **not inferred filesystem
+paths**. Missing imports or incompatible module dialects are reported,
+without made-up source coordinates.
+
 Where a structural path cannot be mapped, locations are restricted to
-unambiguous tokens within the **failing form**, duplicate declarations or
-an isolated source pattern. Imported/external macro definitions cannot
-currently supply their own source file coordinates to this adapter. The
-opt-in host provenance replay can also decline to map experimental syntax
-which its parser does not accept. A general unification failure with no
-trustworthy generated call site still has a null span.
+unambiguous tokens within the failing form, duplicate declarations or an
+isolated source pattern. The provenance replay can decline to map
+experimental syntax which its parser does not accept. A general unification
+failure with no trustworthy generated call site still has a null span.
 
 This is **not yet** complete expression provenance through all transforms;
 some specialized inference paths and transformations need further origin
@@ -336,8 +368,9 @@ The following are not yet complete:
   constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
-- Full standard-library primitive signatures, externally imported macro
-  modules, typed module signatures and precise source-span diagnostics
+- Full standard-library primitive signatures and typed module signatures;
+  source positions for imported macro templates are now tracked by logical
+  module name, but module-aware Nail-only typed metadata remains deferred
 - Generated expression ancestry through macro expansion and specialized
   numeric/equality inference paths; no invented spans for unresolved origins
   or arbitrary type mismatches
