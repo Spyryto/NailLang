@@ -6,20 +6,28 @@ import nail.Ast.Form;
 import nail.SourcePositions.SourceSpan;
 import nail.SourcePositions.SourceToken;
 
+/** A source span together with the logical source identity that owns it. */
+typedef SourceOrigin = {
+  final sourceId:String;
+  final span:SourceSpan;
+}
+
 /** An optional source map for parser-created AST nodes, kept outside Ast.Expr
     and the canonical Syntax/bytecode format. No host object references escape
     into Nail runtime values. Parser transformations may create synthetic nodes:
     their outer expression retains the source range of the lowered construct. */
 class SourceProvenance {
   public final tokens:Array<SourceToken>;
+  public var sourceId:String;
   final expressionSpans:ObjectMap<Dynamic, SourceSpan> = new ObjectMap();
   final formSpans:ObjectMap<Dynamic, SourceSpan> = new ObjectMap();
   final expansionSites:ObjectMap<Dynamic, SourceSpan> = new ObjectMap();
-  final templateOrigins:ObjectMap<Dynamic, SourceSpan> = new ObjectMap();
+  final templateOrigins:ObjectMap<Dynamic, SourceOrigin> = new ObjectMap();
   final expressionStarts:ObjectMap<Dynamic, Int> = new ObjectMap();
 
-  public function new(tokens:Array<SourceToken>) {
+  public function new(tokens:Array<SourceToken>, sourceId:String = '<source>') {
     this.tokens = tokens;
+    this.sourceId = sourceId;
   }
 
   public function expression(expr:Expr, first:Int, afterLast:Int):Expr {
@@ -52,11 +60,19 @@ class SourceProvenance {
       and the source expression within the macro's quoted template.
       Neither changes the core AST or the serialized Syntax representation. */
   public function generated(expr:Expr, template:Expr,
-      site:Null<SourceSpan>):Expr {
+      site:Null<SourceSpan>, ?templateProvenance:SourceProvenance):Expr {
     if (site != null) expansionSites.set(expr, site);
-    var declared = spanOfExpression(template);
-    if (declared == null) declared = templateOrigins.get(template);
-    if (declared != null) templateOrigins.set(expr, declared);
+    // Each macro definition owns its source context; the caller does not.
+    // A foreign template span must never be interpreted against this.tokens.
+    var origin = templateProvenance == null ? this : templateProvenance;
+    var declared = origin.spanOfExpression(template);
+    if (declared != null)
+      templateOrigins.set(expr,{sourceId:origin.sourceId,
+        span:origin.templateCore(declared)});
+    else {
+      var inherited = templateOrigins.get(template);
+      if (inherited != null) templateOrigins.set(expr,inherited);
+    }
     return expr;
   }
 
@@ -89,9 +105,15 @@ class SourceProvenance {
     return core == null ? span : core;
   }
 
+  /** The owner is explicit, even when a nested macro was imported through
+      another module. Module identifiers are logical names, not fabricated paths. */
+  public function templateOriginOfExpression(expr:Expr):Null<SourceOrigin>
+    return templateOrigins.get(expr);
+
+  /** Legacy same-file span for local macros only. */
   public function templateOfExpression(expr:Expr):Null<SourceSpan> {
-    var source = templateOrigins.get(expr);
-    return source == null ? null : templateCore(source);
+    var found = templateOrigins.get(expr);
+    return found == null || found.sourceId != sourceId ? null : found.span;
   }
 
   /** Carry call-site provenance to a normalized form. Generated children
