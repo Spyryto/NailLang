@@ -100,8 +100,17 @@ class NailTypecheckerProbeTestMain {
     var check=boot.invoke('tcCheckSourceNailModulesTraced',
       SyntaxNode('NMSourceRequest',
         Cons(SyntaxLeaf('NMSource',source),Cons(modules,Nil))));
-    if (ResultValue.tag(check) != ResultValue.OK)
+    if (ResultValue.tag(check) != ResultValue.OK) {
       trace('NM_CHECK_SOURCE_ERROR: '+Std.string(check).substr(0,1600));
+      trace('NM_AST: '+normalizedMacro(ours,new StringMap<String>(),0).substr(0,2100));
+      var manual=boot.invoke('tcCheckExpandedTypedTraced',
+        SyntaxNode('TCExpansionRequest',
+          Cons(prepared,Cons(ours,Nil))));
+      trace('NM_MANUAL_CHECK: '+Std.string(manual).substr(0,1600));
+      trace('NM_HAXE_CHECK: '+Std.string(boot.invoke('tcCheckExpandedTypedTraced',
+        SyntaxNode('TCExpansionRequest',
+          Cons(prepared,Cons(theirs,Nil))))).substr(0,1600));
+    }
     eq(ResultValue.tag(check),ResultValue.OK,
       'Nail-only module expansion + Nail HM inference');
     var checkTypes=inspectResult(boot,boot.invoke('tcCheckExpandedTypedTraced',
