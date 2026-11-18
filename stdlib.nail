@@ -2194,29 +2194,44 @@ def tcCollectRelation form rest environment substitutions seed reversed aliases 
   else tcCheckForms rest environment substitutions seed reversed aliases
     ( cons ( tcBinding name row ) relations ) ;
 
-# A relation-constrained function is checked separately for every row,
-# with the parameters bound to *concrete* types. This supports overloads
-# without inventing dynamic dispatch or a generic numeric supertype.
+# Align a function's curried parameters with the exact number of input
+# columns. This enforces arity instead of assuming two Lambda nodes.
+def tcBindRelationParams source inputs environment =
+  match inputs with
+  | [] ->
+    if syntaxTag source == " Lambda " then
+      tcFault " Relation definition arity does not match "
+    else syntaxNode " TCRelationBound "
+      [ source , syntaxNode " TCEnvironment " environment ]
+  | expected :: rest ->
+    if syntaxTag source != " Lambda " then
+      tcFault " Relation definition arity does not match "
+    else let name = syntaxText ( tcFirst source ) in
+      let binding = tcBinding name ( tcScheme expected [] ) in
+      tcBindRelationParams ( tcSecond source ) rest
+        ( cons binding environment ) ;
+
+# Validate a single ordinary Nail function body under every concrete row.
+# No runtime overload method or dispatch class is created.
 def tcValidateRelationRows name source rows relation substitutions seed environment =
   match rows with
   | [] -> tcInferResult ( tcBase " Bool " ) substitutions seed
   | row :: rest ->
-    let x = syntaxText ( tcFirst source ) in
-    let secondLambda = tcSecond source in
-    let y = syntaxText ( tcFirst secondLambda ) in
-    let body = tcSecond secondLambda in
-    let local = cons ( tcBinding x ( tcScheme ( tcFirst row ) [] ) )
-      ( cons ( tcBinding y ( tcScheme ( tcSecond row ) [] ) )
-        ( cons ( tcBinding name ( tcScheme ( tcOverloaded name relation ) [] ) )
-          environment ) ) in
-    let inferred = tcInferExpression body local substitutions seed in
-    if syntaxTag inferred == " TCFault " then inferred
-    else match tcUnify ( tcResultType inferred ) ( tcThird row )
-      ( tcResultSubs inferred ) with
-    | Error message -> tcFault message
-    | Ok updated ->
-      tcValidateRelationRows name source rest relation
-        updated ( tcNext ( tcResultSeed inferred ) ) environment ;
+    let self = tcBinding name
+      ( tcScheme ( tcOverloaded name relation ) [] ) in
+    let bound = tcBindRelationParams source ( tcRelationInputs row )
+      ( cons self environment ) in
+    if syntaxTag bound == " TCFault " then bound
+    else let body = tcFirst bound in
+      let local = syntaxChildren ( tcSecond bound ) in
+      let inferred = tcInferExpression body local substitutions seed in
+      if syntaxTag inferred == " TCFault " then inferred
+      else match tcUnify ( tcResultType inferred ) ( tcRelationOutput row )
+        ( tcResultSubs inferred ) with
+      | Error message -> tcFault message
+      | Ok updated ->
+        tcValidateRelationRows name source rest relation
+          updated ( tcNext ( tcResultSeed inferred ) ) environment ;
 
 def tcCheckRelationDefinition name relationName source annotations
   rest environment substitutions seed reversed aliases relations =
@@ -2224,12 +2239,6 @@ def tcCheckRelationDefinition name relationName source annotations
     tcFault ( textConcat " Duplicate definition: " name )
   else if isEmpty annotations == false then
     tcFault " Mixed parameter annotations and named relations are not implemented "
-  else if syntaxTag source != " Lambda " then
-    tcFault " Binary relation requires exactly two parameters "
-  else if syntaxTag ( tcSecond source ) != " Lambda " then
-    tcFault " Binary relation requires exactly two parameters "
-  else if syntaxTag ( tcSecond ( tcSecond source ) ) == " Lambda " then
-    tcFault " Binary relation requires exactly two parameters "
   else let table = tcRelationTable relationName relations in
     if syntaxTag table == " TCFault " then table
     else let rows = syntaxChildren table in
