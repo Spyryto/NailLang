@@ -479,12 +479,17 @@ on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
 
-**Conservative limits:** multiple source-authored `expand` invocations
-in *the same* source form are not yet individually assigned a call site
-by the token projector; source-token disambiguation must be proven before
-emitting a span. Other unsupported lowerings, duplicated symbolic tokens,
-and missing exact source positions leave the related template span
-unset. We never fabricate locations.
+**Conservative limits:** when one source form invokes **different**
+macro names, the Nail trace identifies which macro produced the error.
+The read-only token projector then selects its source `expand name`
+pair only if that pair occurs exactly once in the form. Two calls to the
+**same** macro within one form still have ambiguous call sites: the
+projector leaves the call position unset rather than choosing one.
+Transitive macro calls whose generating macro does not appear directly
+in the caller remain subject to the unique-`expand` rule. Other
+unsupported lowerings, duplicated symbolic tokens, and missing exact
+source positions leave the relevant span unset. We never fabricate
+locations.
 
 The default `analyze` path still uses its existing optional Haxe
 macro-provenance replay, and neither `analyze` nor the production compiler
@@ -518,9 +523,9 @@ for every supported expression lowering. The Nail macro transformer now
 records each output node's structural source path and the checker can
 select the exact faulty node; imported/local numeric and conditional
 failures and unambiguous pattern sites can be mapped to original tokens.
-Multiple expansion sites within the same source expression, complex match
-lowerings and arbitrary AST/source transformations still require safer
-projection rules. Measured throughput on large recursive templates,
+Repeated calls to the **same** macro within one expression, complex
+match lowerings and arbitrary AST/source transformations still require
+safer projection rules. Measured throughput on large recursive templates,
 allocation/byte budgets beyond the work limit, and differential parity over
 the full macro corpus also remain open. The existing production compiler
 remains authoritative.
