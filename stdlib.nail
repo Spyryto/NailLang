@@ -1608,6 +1608,41 @@ def tcBinding name value =
 def tcBindingName binding = syntaxText ( tcFirst binding ) ;
 def tcBindingValue binding = tcSecond binding ;
 
+# Macro templates refer to globals by hygienic private names. Their lookups
+# must not accidentally capture a same-named local binder at the call site.
+def tcGlobalKey name = textConcat " #tc_global_ " name ;
+def tcBindGlobal name scheme environment =
+  cons ( tcBinding name scheme )
+    ( cons ( tcBinding ( tcGlobalKey name ) scheme ) environment ) ;
+
+def tcStartsAt word prefix index =
+  if index == textLength prefix then true
+  else if index == textLength word then false
+  else if textAt word index != textAt prefix index then false
+  else tcStartsAt word prefix ( index + 1 ) ;
+def tcStartsWith word prefix = tcStartsAt word prefix 0 ;
+def tcEndsAt word ending offset index =
+  if index == textLength ending then true
+  else if textAt word ( offset + index ) != textAt ending index then false
+  else tcEndsAt word ending offset ( index + 1 ) ;
+def tcEndsWith word ending =
+  if textLength word < textLength ending then false
+  else tcEndsAt word ending
+    ( textLength word - textLength ending ) 0 ;
+def tcDropPrefix word index output =
+  if index == textLength word then output
+  else tcDropPrefix word ( index + 1 )
+    ( textConcat output ( textAt word index ) ) ;
+def tcGlobalName name =
+  if tcStartsWith name " #macro_global_ " then
+    tcDropPrefix name ( textLength " #macro_global_ " ) " "
+  else name ;
+def tcIsSumMatchSubject name =
+  if name == " #nail_sum_subject_0 " then true
+  else if tcStartsWith name " #macro_local_ " then
+    tcEndsWith name " _#nail_sum_subject_0 "
+  else false ;
+
 # Persistent bindings support the same lexical shadowing as ordinary Nail.
 def tcFind name entries =
   match entries with
@@ -1941,9 +1976,12 @@ def tcInferExpression tree environment substitutions seed =
   let tag = syntaxTag tree in
   if tag == " Var " then
     let name = syntaxText tree in
-    let local = tcFind name environment in
+    let canonical = tcGlobalName name in
+    let local =
+      if canonical == name then tcFind name environment
+      else tcFind ( tcGlobalKey canonical ) environment in
     let scheme = if syntaxTag local == " TCMissing " then
-      tcBuiltinType name else local in
+      tcBuiltinType canonical else local in
     if syntaxTag scheme == " TCMissing " then
       tcFault ( textConcat " Unknown name: " name )
     else if syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " then
@@ -2002,7 +2040,7 @@ def tcInferExpression tree environment substitutions seed =
       # self-hosted parser. Validate coverage before inferring lowered code.
       let subject = syntaxText ( tcFirst fn ) in
       let matchCheck =
-        if subject == " #nail_sum_subject_0 " then
+        if tcIsSumMatchSubject subject then
           tcValidateSumBranches ( tcSecond fn ) subject environment tcMissing []
         else syntaxNode " TCMatchOK " [] in
       if syntaxTag matchCheck == " TCFault " then matchCheck
@@ -2012,12 +2050,11 @@ def tcInferExpression tree environment substitutions seed =
           ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
           # Bottom-like fallback is scoped exclusively to a validated match.
           # It is not a generally callable polymorphic primitive.
-          let scoped = if subject == " #nail_sum_subject_0 " then
-            cons
-              ( tcBinding " #sumFail "
-                ( tcScheme
-                  ( tcFun ( tcVar " a " ) ( tcVar " b " ) )
-                  [ tcVar " a " , tcVar " b " ] ) )
+          let scoped = if tcIsSumMatchSubject subject then
+            tcBindGlobal " #sumFail "
+              ( tcScheme
+                ( tcFun ( tcVar " a " ) ( tcVar " b " ) )
+                [ tcVar " a " , tcVar " b " ] )
               environment
           else environment in
           tcInferExpression ( tcSecond fn )
@@ -2183,7 +2220,7 @@ def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed
         else let final = tcResultSubs constrained in
           let scheme = tcGeneralize provisional environment final in
           tcCheckForms rest
-            ( cons ( tcBinding name scheme ) environment )
+            ( tcBindGlobal name scheme environment )
             final ( tcResultSeed constrained ) reversed aliases relations ;
 
 # Finite n-ary first-order relations. Each row holds a nonempty list
@@ -2352,7 +2389,7 @@ def tcCheckRelationDefinition name relationName source annotations
         substitutions seed environment in
       if syntaxTag checked == " TCFault " then checked
       else tcCheckForms rest
-        ( cons ( tcBinding name ( tcScheme ( tcOverloaded name table ) [] ) )
+        ( tcBindGlobal name ( tcScheme ( tcOverloaded name table ) [] )
           environment )
         ( tcResultSubs checked ) ( tcResultSeed checked ) reversed aliases relations ;
 
@@ -2370,7 +2407,11 @@ def tcCallSpine tree args =
 def tcIsOverloadedApply tree environment =
   let call = tcCallSpine tree [] in
   if syntaxTag call != " TCOverloadCall " then false
-  else let scheme = tcFind ( syntaxText ( tcFirst call ) ) environment in
+  else let callee = syntaxText ( tcFirst call ) in
+    let canonical = tcGlobalName callee in
+    let scheme = if canonical == callee then
+      tcFind callee environment
+    else tcFind ( tcGlobalKey canonical ) environment in
     if syntaxTag scheme == " TCMissing " then false
     else syntaxTag ( tcSchemeType scheme ) == " TCOverloaded " ;
 
@@ -2393,7 +2434,9 @@ def tcInferRelationArgs args environment substitutions seed reversed =
 def tcInferOverloadedApply tree environment substitutions seed =
   let call = tcCallSpine tree [] in
   let label = syntaxText ( tcFirst call ) in
-  let scheme = tcFind label environment in
+  let canonical = tcGlobalName label in
+  let scheme = if canonical == label then tcFind label environment
+    else tcFind ( tcGlobalKey canonical ) environment in
   let descriptor = tcSchemeType scheme in
   let rows = syntaxChildren ( tcSecond descriptor ) in
   let args = syntaxChildren ( tcSecond call ) in
@@ -2451,7 +2494,7 @@ def tcCheckForms forms environment substitutions seed reversed aliases relations
         | Ok updated ->
           let scheme = tcGeneralize provisional environment updated in
           tcCheckForms rest
-            ( cons ( tcBinding name scheme ) environment )
+            ( tcBindGlobal name scheme environment )
             updated ( tcResultSeed inferred ) reversed aliases relations
     else if tag == " Evaluate " then
       let inferred = tcInferExpression ( tcFirst form ) environment
@@ -2540,7 +2583,7 @@ def tcIsRecordGet tree =
   else if syntaxTag ( tcFirst arg ) != " Text " then false
   else let callee = tcFirst fn in
     if syntaxTag callee != " Var " then false
-    else syntaxText callee == " #recordGet " ;
+    else tcGlobalName ( syntaxText callee ) == " #recordGet " ;
 
 def tcIsStructuralMake tree =
   let fn = tcFirst tree in
@@ -2549,7 +2592,7 @@ def tcIsStructuralMake tree =
     if syntaxTag ownerCall != " Apply " then false
     else let callee = tcFirst ownerCall in
       if syntaxTag callee != " Var " then false
-      else syntaxText callee == " #recordMake " ;
+      else tcGlobalName ( syntaxText callee ) == " #recordMake " ;
 
 # A parser-generated list of field names or expressions is an application
 # chain of #cons ending in Nil. No native reflection is needed.
@@ -2679,10 +2722,11 @@ def tcProjectField receiver field environment substitutions seed =
 # The initial implementation supports only fully applied expressions;
 # unconstrained or partially applied overloaded operators fail closed.
 def tcNumericOperation name =
-  if name == " #modern+ " then " Add "
-  else if name == " #modern- " then " Sub "
-  else if name == " #modern* " then " Mul "
-  else if name == " #modern/ " then " Div "
+  let op = tcGlobalName name in
+  if op == " #modern+ " then " Add "
+  else if op == " #modern- " then " Sub "
+  else if op == " #modern* " then " Mul "
+  else if op == " #modern/ " then " Div "
   else " _ " ;
 
 def tcIsNumericApply tree =
@@ -2850,7 +2894,7 @@ def tcIsEqualityApply tree =
   if syntaxTag call != " Apply " then false
   else let operator = tcFirst call in
     if syntaxTag operator != " Var " then false
-    else let name = syntaxText operator in
+    else let name = tcGlobalName ( syntaxText operator ) in
       if name == " == " then true
       else name == " != " ;
 
@@ -2929,7 +2973,7 @@ def tcNominalAccessorBindings name owner fields quantifiers environment =
     else let accessor = tcScheme
       ( tcFun owner ( tcSecond field ) ) quantifiers in
       tcNominalAccessorBindings name owner rest quantifiers
-        ( cons ( tcBinding label accessor ) environment ) ;
+        ( tcBindGlobal label accessor environment ) ;
 
 def tcNominalRecordNames name = textConcat " #tc_record_fields_ " name ;
 
@@ -2960,7 +3004,7 @@ def tcCheckRecordDeclaration form rest environment substitutions seed reversed a
           name owner ( syntaxChildren fields ) args environment in
         if syntaxTag accessors == " TCFault " then accessors
         else tcCheckForms rest
-          ( cons ( tcBinding name constructor )
+          ( tcBindGlobal name constructor
             ( cons
               ( tcBinding ( tcNominalRecordNames name ) ( tcScheme names [] ) )
               ( syntaxChildren accessors ) ) )
@@ -3011,8 +3055,7 @@ def tcSumCtorAccessors name owner types quantifiers environment index =
     if syntaxTag ( tcFind getter environment ) != " TCMissing " then
       tcFault ( textConcat " Duplicate sum accessor: " getter )
     else tcSumCtorAccessors name owner rest quantifiers
-      ( cons
-        ( tcBinding getter ( tcScheme ( tcFun owner field ) quantifiers ) )
+      ( tcBindGlobal getter ( tcScheme ( tcFun owner field ) quantifiers )
         environment ) ( index + 1 ) ;
 
 # Private metadata for source pattern checking. Runtime values stay encoded
@@ -3046,12 +3089,10 @@ def tcSumConstructors ctors owner params aliases quantifiers environment =
           let withCtor = cons
             ( tcBinding ( tcSumConstructorKey predicate )
               ( tcScheme ( tcSumConstructorMeta name owner types ) [] ) )
-            ( cons
-              ( tcBinding name
-                ( tcScheme ( tcBuildFunction types owner ) quantifiers ) )
-              ( cons
-                ( tcBinding predicate
-                  ( tcScheme ( tcFun owner ( tcBase " Bool " ) ) quantifiers ) )
+            ( tcBindGlobal name
+              ( tcScheme ( tcBuildFunction types owner ) quantifiers )
+              ( tcBindGlobal predicate
+                ( tcScheme ( tcFun owner ( tcBase " Bool " ) ) quantifiers )
                 environment ) ) in
           let accessors = tcSumCtorAccessors name owner types
             quantifiers withCtor 0 in
@@ -3074,7 +3115,7 @@ def tcSumPatternMeta condition subject environment =
     else if syntaxText receiver != subject then
       tcFault " Malformed algebraic match subject "
     else let meta = tcFind
-      ( tcSumConstructorKey ( syntaxText predicate ) ) environment in
+      ( tcSumConstructorKey ( tcGlobalName ( syntaxText predicate ) ) ) environment in
       if syntaxTag meta == " TCMissing " then
         tcFault ( textConcat " Unknown algebraic constructor in match: "
           ( syntaxText predicate ) )
@@ -3089,7 +3130,7 @@ def tcSumPatternBindings branch subject constructor index =
     else if syntaxTag ( tcFirst getter ) != " Var " then index
     else if syntaxTag ( tcSecond getter ) != " Var " then index
     else if syntaxText ( tcSecond getter ) != subject then index
-    else if syntaxText ( tcFirst getter ) !=
+    else if tcGlobalName ( syntaxText ( tcFirst getter ) ) !=
       textConcat ( textConcat constructor " . " ) ( sumIndex index ) then index
     else tcSumPatternBindings ( tcSecond fn ) subject constructor ( index + 1 ) ;
 
@@ -3116,7 +3157,7 @@ def tcValidateSumBranches branch subject environment owner seen =
     let fn = tcFirst branch in
     let arg = tcSecond branch in
     if syntaxTag fn != " Var " then tcFault " Malformed algebraic match fallback "
-    else if syntaxText fn != " #sumFail " then tcFault " Malformed algebraic match fallback "
+    else if tcGlobalName ( syntaxText fn ) != " #sumFail " then tcFault " Malformed algebraic match fallback "
     else if syntaxTag arg != " Var " then tcFault " Malformed algebraic match fallback "
     else if syntaxText arg != subject then tcFault " Malformed algebraic match fallback "
     else if syntaxTag owner == " TCMissing " then tcFault " Empty algebraic match "
