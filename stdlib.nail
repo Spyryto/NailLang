@@ -1020,7 +1020,7 @@ def containsContext tree =
         else containsContext ( head ( tail ( tail parts ) ) )
     else false ;
 
-def parseFormsScoped tokens reversed aliases globals =
+def parseFormsScoped tokens reversed aliases globals typed =
   if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
   else let parsed = parseForm tokens in
     if parseFailed parsed then parseTree parsed
@@ -1028,11 +1028,14 @@ def parseFormsScoped tokens reversed aliases globals =
       let rest = parseRest parsed in
       let tag = syntaxTag form in
       if tag == " RelationDecl " then
-        parseFormsScoped rest reversed aliases globals
+        parseFormsScoped rest ( if typed then cons form reversed else reversed )
+          aliases globals typed
       else if tag == " TypeAliasDecl " then
         if syntaxTag ( aliasFind aliases ( aliasName form ) ) != " MissingAlias " then
           syntaxLeaf " Error " " Duplicate structural alias "
-        else parseFormsScoped rest reversed ( cons form aliases ) globals
+        else parseFormsScoped rest
+          ( if typed then cons form reversed else reversed )
+          ( cons form aliases ) globals typed
       else if tag == " AnnotatedDefine " then
         let parts = syntaxChildren form in
         let name = head parts in
@@ -1046,7 +1049,12 @@ def parseFormsScoped tokens reversed aliases globals =
           if valueType == " _ " then globals
           else cons ( syntaxNode " Annotation " [ name , syntaxName valueType ] ) globals in
         parseFormsScoped rest
-          ( cons ( syntaxNode " Define " [ name , resolved ] ) reversed ) aliases added
+          ( cons ( if typed then
+              syntaxNode " AnnotatedDefine "
+                [ name , syntaxNode " Annotations " annotations ,
+                  syntaxName valueType , resolved ]
+              else syntaxNode " Define " [ name , resolved ] ) reversed )
+          aliases added typed
       else if tag == " Define " then
         let parts = syntaxChildren form in
         let original = head ( tail parts ) in
@@ -1054,17 +1062,18 @@ def parseFormsScoped tokens reversed aliases globals =
           resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
         else parseFormsScoped rest
-          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals
+          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals typed
       else if tag == " Evaluate " then
         let original = head ( syntaxChildren form ) in
         let body = if containsContext original then
           resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
         else parseFormsScoped rest
-          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals
-      else parseFormsScoped rest ( cons form reversed ) aliases globals ;
+          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals typed
+      else parseFormsScoped rest ( cons form reversed ) aliases globals typed ;
 
-def parseForms tokens reversed = parseFormsScoped tokens reversed [] [] ;
+def parseForms tokens reversed = parseFormsScoped tokens reversed [] [] false ;
+def parseTypedForms tokens = parseFormsScoped tokens [] [] [] true ;
 
 
 # v0.9: Self-hosted tokenizer for code. It preserves text literals as
@@ -1982,7 +1991,8 @@ def tcCheckSyntax program =
 
 # Convenience for examples using the supported subset of the modern surface
 # language. This helper is deliberately not wired into compilation yet.
-def tcCheckSource source = tcCheckSyntax ( modernRewrite ( parseSource source ) ) ;
+def tcCheckSource source =
+  tcCheckSyntax ( modernRewrite ( parseTypedForms ( stripNailHeader ( tokenizeCode source ) ) ) ) ;
 
 # Structural rows: a closed record is TCStruct(fields); a receiver whose
 # fields are being inferred uses TCRowField(name,type,tail). This first
