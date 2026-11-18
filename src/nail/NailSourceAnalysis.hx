@@ -519,6 +519,137 @@ class NailSourceAnalysis {
     return null;
   }
 
+  /** Recover the original source-form ordinal encoded by Nail while it
+      walks raw Program forms. The seed is structural, not a global serial. */
+  static function originalSeedIndex(seed:String):Null<Int> {
+    if (seed == 'm') return 0;
+    if (!StringTools.startsWith(seed,'m')) return null;
+    var suffix=seed.substr(1);
+    var count=0;
+    while (suffix.length>0) {
+      if (!StringTools.startsWith(suffix,'_form')) return null;
+      suffix=suffix.substr(5);
+      count++;
+    }
+    return count;
+  }
+
+  static function rawProgramForm(program:Value,index:Int):Null<Value> {
+    var forms=syntaxChildren(program);
+    return index<0 || index>=forms.length ? null : forms[index];
+  }
+
+  /** Peel a left-associated Apply spine down to expand macroName.
+      Each recorded argument retains its path in the *original* Syntax. */
+  static function macroHead(tree:Value,path:String):Null<{
+      label:String,args:Array<{node:Value,path:String}>}> {
+    var current=tree;
+    var here=path;
+    var reversed:Array<{node:Value,path:String}>=[];
+    while (true) {
+      switch (current) {
+        case SyntaxNode('Apply',Cons(
+            SyntaxLeaf('Var','#macro_expand'),
+            Cons(SyntaxLeaf('Var',label),Nil))):
+          reversed.reverse();
+          return {label:label,args:reversed};
+        case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
+          reversed.push({node:arg,path:here+'1'});
+          current=fn;
+          here+='0';
+        case _: return null;
+      }
+    }
+    return null;
+  }
+
+  static function macroCallsInOrder(tree:Value,path:String,
+      found:Array<{path:String,label:String}>):Void {
+    var head=macroHead(tree,path);
+    if (head!=null) {
+      found.push({path:path,label:head.label});
+      for (arg in head.args)
+        macroCallsInOrder(arg.node,arg.path,found);
+      return;
+    }
+    switch(tree) {
+      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
+        macroCallsInOrder(fn,path+'0',found);
+        macroCallsInOrder(arg,path+'1',found);
+      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
+        macroCallsInOrder(body,path+'1',found);
+      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
+        macroCallsInOrder(test,path+'0',found);
+        macroCallsInOrder(yes,path+'1',found);
+        macroCallsInOrder(no,path+'2',found);
+      case _:
+    }
+  }
+
+  /** The Nail expander supplies the exact caller form and AST child path.
+      Project it onto the original 'expand' token only when all macro calls
+      can be bijectively matched in lexical order and names. No Haxe parser,
+      macro expander, or template replay is involved. Ambiguity fails closed. */
+  static function preciseMacroCallsite(caller:Value,formIndex:Int,
+      site:Value,tokens:Array<SourceToken>):Null<SourceSpan> {
+    var seed:String;
+    var path:String;
+    switch (site) {
+      case SyntaxNode('NMCallerSite',Cons(
+          SyntaxLeaf('Name',rawSeed),Cons(SyntaxLeaf('Name',rawPath),Nil))):
+        seed=rawSeed;
+        path=rawPath;
+      case _: return null;
+    }
+    var rawIndex=originalSeedIndex(seed);
+    if (rawIndex==null) return null;
+    var forms=syntaxChildren(caller);
+    if (rawIndex<0 || rawIndex>=forms.length) return null;
+    var survivor=0;
+    for (i in 0...rawIndex) switch(forms[i]) {
+      case SyntaxNode('Define',Cons(SyntaxLeaf('Name',name),_))
+          if (StringTools.startsWith(name,'#macro_decl_')
+            || StringTools.startsWith(name,'#macro_import_')
+            || StringTools.startsWith(name,'#macro_export_')):
+      case _: survivor++;
+    }
+    if (survivor!=formIndex) return null;
+    var body:Value=switch(forms[rawIndex]) {
+      case SyntaxNode('Evaluate',Cons(expr,Nil))
+        | SyntaxNode('Define',Cons(_,Cons(expr,Nil))): expr;
+      case _: return null;
+    };
+    var calls:Array<{path:String,label:String}>=[];
+    macroCallsInOrder(body,'',calls);
+    var matched=-1;
+    for (i in 0...calls.length) if (calls[i].path==path) {
+      if (matched>=0) return null;
+      matched=i;
+    }
+    if (matched<0) return null;
+    var areas=sourceForms(tokens);
+    if (formIndex>=areas.length) return null;
+    var area=areas[formIndex];
+    var keywords:Array<Int>=[];
+    var hasLet=false;
+    for (i in 0...tokens.length) {
+      var token=tokens[i];
+      if (token.start<area.start || token.end>area.end) continue;
+      if (token.text=='expand') keywords.push(i);
+      if (token.text=='let') hasLet=true;
+    }
+    // Let lowering reorders the binding and body inside an Apply; don't
+    // claim lexical ordering for repeated calls in that case.
+    if (hasLet && keywords.length>1) return null;
+    if (keywords.length!=calls.length) return null;
+    for (i in 0...calls.length) {
+      var tokenIndex=keywords[i];
+      if (tokenIndex+1>=tokens.length
+          || tokens[tokenIndex+1].text!=calls[i].label) return null;
+    }
+    return tokenSpan(tokens[keywords[matched]]);
+  }
+
   /** Convert a single-pass Nail source-path into a real template token.
       The source map itself comes from Nail's NMTrace sidecar. */
   static function tracedMacroNodeOrigin(boot:BootRuntime,traces:Value,
@@ -531,15 +662,24 @@ class NailSourceAnalysis {
     if (cursor==null) return null;
     var areas=sourceForms(tokens);
     if (cursor.index<0 || cursor.index>=areas.length) return null;
-    var site=uniqueInForm(tokens,'expand',areas[cursor.index]);
-    if (site==null) return null;
-    var ref=boot.invoke('nmFaultNodeOrigin',SyntaxNode('NMTraceRequest',
+    var ref=boot.invoke('nmFaultNodeOriginAt',SyntaxNode('NMTraceRequest',
       Cons(traces,Cons(fault,Nil))));
+    var rawSite:Value=switch(ref) {
+      case SyntaxNode('NMSourceAt',Cons(_,Cons(_,Cons(_,Cons(site,Nil))))):
+        site;
+      case _: SyntaxLeaf('NMNoTrace','');
+    };
+    var site=preciseMacroCallsite(callerProgram,cursor.index,
+      rawSite,tokens);
+    if (site==null)
+      site=uniqueInForm(tokens,'expand',areas[cursor.index]);
+    if (site==null) return null;
     return switch(ref) {
-      case SyntaxNode('NMSource',Cons(
+      case SyntaxNode('NMSourceAt',Cons(
           SyntaxLeaf('Name',owner),Cons(
           SyntaxLeaf('Name',macroName),Cons(
-          SyntaxLeaf('Name',path),Nil)))) if (macroName!='#caller'):
+          SyntaxLeaf('Name',path),Cons(_,Nil)))))
+          if (macroName!='#caller'):
         var templateProgram=owner=='#caller' ? callerProgram
           : findModuleProgram(moduleTable,owner);
         var templateSource=owner=='#caller' ? source
