@@ -762,18 +762,18 @@ def parseSumDefinition tokens =
 # A structural type alias is a static contract, never a nominal
 # constructor. Preserve just member names for contextual resolution;
 # the Haxe checker validates field signatures and compatibility.
-def parseAliasTypeTokens tokens count =
+def parseAliasTypeTokens tokens reversed =
   if isEmpty tokens then parseError " Missing } in structural alias "
   else let word = parsePeek tokens in
     if word == " , " then
-      if count == 0 then parseError " Missing structural field type "
-      else parsePair ( syntaxNode " TypeList " [] ) tokens
+      if isEmpty reversed then parseError " Missing structural field type "
+      else parsePair ( syntaxNode " TypeList " ( reverse reversed ) ) tokens
     else if word == " } " then
-      if count == 0 then parseError " Missing structural field type "
-      else parsePair ( syntaxNode " TypeList " [] ) tokens
+      if isEmpty reversed then parseError " Missing structural field type "
+      else parsePair ( syntaxNode " TypeList " ( reverse reversed ) ) tokens
     else if isIdentifier word == false then parseError " Invalid structural field type "
-    else if count >= 17 then parseError " Too many structural field types "
-    else parseAliasTypeTokens ( tail tokens ) ( count + 1 ) ;
+    else if length reversed >= 17 then parseError " Too many structural field types "
+    else parseAliasTypeTokens ( tail tokens ) ( cons ( syntaxName word ) reversed ) ;
 
 def parseAliasFields tokens reversed =
   if isEmpty tokens then parseError " Missing } in structural alias "
@@ -782,13 +782,13 @@ def parseAliasFields tokens reversed =
     else parsePair ( syntaxNode " AliasFields " ( reverse reversed ) ) ( tail tokens )
   else let field = parsePeek tokens in
     if isIdentifier field == false then parseError " Invalid structural field name "
-    else if hasParam reversed field then parseError " Duplicate structural field "
+    else if recordFieldExists reversed field then parseError " Duplicate structural field "
     else if parsePeek ( tail tokens ) != " : " then parseError " Expected : in structural field "
-    else let typed = parseAliasTypeTokens ( tail ( tail tokens ) ) 0 in
+    else let typed = parseAliasTypeTokens ( tail ( tail tokens ) ) [] in
       if parseFailed typed then typed
       else let remaining = parseRest typed in
         let next = parsePeek remaining in
-        let fields = cons ( syntaxName field ) reversed in
+        let fields = cons ( syntaxNode " AliasField " [ syntaxName field , parseTree typed ] ) reversed in
         if next == " , " then
           if parsePeek ( tail remaining ) == " } " then parseError " Trailing comma in structural alias "
           else parseAliasFields ( tail remaining ) fields
@@ -911,8 +911,10 @@ def annotationDrop entries name =
 
 def bindingFrame name ty =
   syntaxNode " BindingFrame " [ syntaxName name , syntaxName ty ] ;
+def aliasFieldNames fields =
+  syntaxNode " AliasNames " ( map ( fun field -> tcFirst field ) ( syntaxChildren fields ) ) ;
 def contextFrame hidden fields =
-  syntaxNode " ContextFrame " [ syntaxName hidden , fields ] ;
+  syntaxNode " ContextFrame " [ syntaxName hidden , aliasFieldNames fields ] ;
 
 # Hidden variables cannot be written in source. More lexical frames mean
 # longer hidden names; no fixed nesting limit or integer-to-text primitive.
