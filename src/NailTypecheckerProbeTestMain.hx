@@ -340,9 +340,9 @@ class NailTypecheckerProbeTestMain {
       +'| Red -> " R " | Blue -> " B " ) ; '
       +'expand color Blue ;',['Text']);
     checkMacroGood(boot,option
-      +'macro unwrap x = quote ( function '
+      +'macro makeUnwrapper = quote ( function '
       +'| None -> 0 | Some item -> item ) ; '
-      +'( expand unwrap ) ( Some 21 ) ;',['Int']);
+      +'def unwrap = expand makeUnwrapper ; unwrap ( Some 21 ) ;',['Int']);
     checkMacroGood(boot,'def helper x = x ; '
       +'macro applyHelper arg = quote ( helper ( unquote arg ) ) ; '
       +'let helper = fun x -> true in expand applyHelper 42 ;',['Int']);
