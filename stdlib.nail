@@ -2777,3 +2777,122 @@ def tcInferEqualityApply tree environment substitutions seed =
       | Error message -> tcFault message
       | Ok constrained -> tcInferResult
           ( tcBase " Bool " ) constrained ( tcResultSeed second ) ;
+
+# Nominal declarations are checked as type-level definitions. Constructor and
+# accessor signatures are inserted into the ordinary lexical type environment;
+# they don't require extra bytecode operations or VM-level nominal metadata.
+def tcNominalParamBindings names owner reversed =
+  match names with
+  | [] -> syntaxNode " TCDeclParams " ( reverse reversed )
+  | item :: rest ->
+    let name = syntaxText item in
+    if syntaxTag ( tcFind name reversed ) != " TCMissing " then
+      tcFault " Duplicate nominal type parameter "
+    else tcNominalParamBindings rest owner
+      ( cons
+        ( tcBinding name
+          ( tcVar ( textConcat ( textConcat " #nominal_" owner ) name ) ) )
+        reversed ) ;
+
+def tcNominalParamVars params =
+  map ( fun binding -> tcBindingValue binding ) params ;
+
+def tcNominalFieldType name params aliases =
+  let parameter = tcFind name params in
+  if syntaxTag parameter != " TCMissing " then parameter
+  else let declared = tcSurfaceType name aliases in
+    if syntaxTag declared == " TCNominal " then
+      if isEmpty ( tcNominalArgs declared ) then declared
+      else tcFault " Parameterized nominal field requires explicit application "
+    else declared ;
+
+def tcNominalRecordFields source params aliases reversed =
+  match source with
+  | [] -> tcStruct ( reverse reversed )
+  | field :: rest ->
+    let name = syntaxText ( tcFirst field ) in
+    let typeName = syntaxText ( tcSecond field ) in
+    if syntaxTag ( tcFindField name reversed ) != " TCMissing " then
+      tcFault ( textConcat " Duplicate nominal record field: " name )
+    else let ty = tcNominalFieldType typeName params aliases in
+      if syntaxTag ty == " TCFault " then ty
+      else tcNominalRecordFields rest params aliases
+        ( cons ( tcField name ty ) reversed ) ;
+
+def tcNominalCtorType fields result =
+  match fields with
+  | [] -> result
+  | field :: rest ->
+    tcFun ( tcSecond field ) ( tcNominalCtorType rest result ) ;
+
+def tcNominalAccessorBindings name owner fields quantifiers environment =
+  match fields with
+  | [] -> syntaxNode " TCEnvironment " environment
+  | field :: rest ->
+    let label = textConcat
+      ( textConcat name " . " ) ( syntaxText ( tcFirst field ) ) in
+    if syntaxTag ( tcFind label environment ) != " TCMissing " then
+      tcFault ( textConcat " Duplicate nominal accessor: " label )
+    else let accessor = tcScheme
+      ( tcFun owner ( tcSecond field ) ) quantifiers in
+      tcNominalAccessorBindings name owner rest quantifiers
+        ( cons ( tcBinding label accessor ) environment ) ;
+
+def tcNominalRecordNames name = textConcat " #tc_record_fields_ " name ;
+
+def tcCheckRecordDeclaration form rest environment substitutions seed reversed aliases relations =
+  let name = syntaxText ( tcFirst form ) in
+  if syntaxTag ( tcFind name environment ) != " TCMissing " then
+    tcFault ( textConcat " Duplicate nominal owner: " name )
+  else if syntaxTag ( tcFind name aliases ) != " TCMissing " then
+    tcFault ( textConcat " Duplicate nominal owner: " name )
+  else let bindings = tcNominalParamBindings
+    ( syntaxChildren ( tcSecond form ) ) name [] in
+    if syntaxTag bindings == " TCFault " then bindings
+    else let parameters = syntaxChildren bindings in
+      let args = tcNominalParamVars parameters in
+      let owner = tcNominal " Record " name args in
+      let declaredAliases = cons ( tcBinding name owner ) aliases in
+      let fields = tcNominalRecordFields
+        ( syntaxChildren ( tcThird form ) )
+        parameters declaredAliases [] in
+      if syntaxTag fields == " TCFault " then fields
+      else let names = syntaxNode " TCRecordNames "
+        ( map ( fun field -> tcFirst field ) ( syntaxChildren fields ) ) in
+        let constructor = tcScheme
+          ( tcNominalCtorType ( syntaxChildren fields ) owner ) args in
+        let accessors = tcNominalAccessorBindings
+          name owner ( syntaxChildren fields ) args environment in
+        if syntaxTag accessors == " TCFault " then accessors
+        else tcCheckForms rest
+          ( cons ( tcBinding name constructor )
+            ( cons
+              ( tcBinding ( tcNominalRecordNames name ) ( tcScheme names [] ) )
+              ( syntaxChildren accessors ) ) )
+          substitutions seed reversed declaredAliases relations ;
+
+# Nominal records with named fields are encoded as #recordMake just like
+# structural records. Reorder only the *type-checking expression* into the
+# declaration's constructor order. Runtime evaluation stays source-ordered.
+def tcFindNamedExpression name names expressions =
+  match names with
+  | [] -> tcMissing
+  | first :: rest ->
+    match expressions with
+    | [] -> tcMissing
+    | expression :: tail ->
+      if syntaxTag first == " Literal " then
+        if syntaxText ( tcFirst first ) == name then expression
+        else tcFindNamedExpression name rest tail
+      else tcMissing ;
+
+def tcNominalNamedCall constructor fields names values =
+  match fields with
+  | [] -> constructor
+  | field :: rest ->
+    let expression = tcFindNamedExpression
+      ( syntaxText field ) names values in
+    if syntaxTag expression == " TCMissing " then
+      tcFault ( textConcat " Missing named record field: " ( syntaxText field ) )
+    else tcNominalNamedCall
+      ( syntaxApply constructor expression ) rest names values ;
