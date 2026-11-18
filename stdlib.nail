@@ -3462,7 +3462,7 @@ def nmInvocation tree args =
         if syntaxTag arg != " Var " then
           nmError " expand expects a macro name "
         else syntaxNode " NMCall "
-          [ syntaxName ( syntaxText arg ),
+          [ syntaxName ( syntaxText arg ) ,
             syntaxNode " NMArgs " args ]
       else nmInvocation fn ( cons arg args )
     else nmInvocation fn ( cons arg args ) ;
