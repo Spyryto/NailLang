@@ -903,6 +903,11 @@ class NailTypecheckerProbeTestMain {
         +'expand outer 41 ;',
       'macro choose x = quote ( if true then unquote x else 0 ) ; '
         +'expand choose 7 ; expand choose 8 ;',
+      'macro choose x = quote ( unquote x ) ; '
+        +'if true then expand choose 7 else expand choose 8 ;',
+      'macro first x = quote ( unquote x + 1 ) ; '
+        +'macro second x = quote ( expand first ( unquote x ) ) ; '
+        +'def n = 1 ; expand second n ;',
       'macro constant = quote ( fun arg -> arg ) ; '
         +'( expand constant ) 9 ;',
       'macro applied x = quote ( fun p -> p ) ; '
@@ -916,7 +921,11 @@ class NailTypecheckerProbeTestMain {
       'macro invalid x = quote ( unquote unknown ) ; 1 ;',
       'macro named x = quote ( unquote x ) ; '
         +'macro named y = quote ( unquote y ) ; 1 ;',
-      'macro bad x = quote ( quote 1 ) ; 1 ;'
+      'macro bad x = quote ( quote 1 ) ; 1 ;',
+      'macro duplicate x x = quote ( unquote x ) ; 1 ;',
+      'macro id x = quote ( unquote x ) ; expand id ;',
+      'macro self x = quote ( expand self ( unquote x ) ) ; '
+        +'expand self 1 ;'
     ]) {
       var input='nail 0.54 ; '+bad;
       var parsed=boot.invoke('modernRewrite',
