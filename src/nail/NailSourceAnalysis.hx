@@ -424,7 +424,7 @@ class NailSourceAnalysis {
   static function templateAtPath(template:Value,path:String):Null<Value> {
     var node:Value=template;
     for (i in 0...path.length) {
-      var digit=path.charCodeAt(i)-'0'.code;
+      var digit=path.charCodeAt(i)-48;
       var parts=syntaxChildren(node);
       if (digit<0 || digit>=parts.length) return null;
       node=parts[digit];
@@ -446,6 +446,9 @@ class NailSourceAnalysis {
           SyntaxNode('Apply',Cons(SyntaxLeaf('Var',name),_)),_)):
         numericSymbol(name);
       case SyntaxNode('If',_): 'if';
+      case SyntaxNode('Apply',Cons(SyntaxLeaf('Var',name),_))
+          if (!StringTools.startsWith(name,'#macro_')):
+        name;
       case SyntaxLeaf('Var',name):
         if (StringTools.startsWith(name,'#macro_global_'))
           name.substr('#macro_global_'.length)
@@ -485,8 +488,9 @@ class NailSourceAnalysis {
   /** Only look inside the selected macro declaration, keeping tokens from
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
-      template:Value,path:String,selected:Value):Null<SourceSpan> {
-    var hint=nodeTokenHint(selected);
+      template:Value,path:String,selected:Value,
+      ?preferred:String):Null<SourceSpan> {
+    var hint=preferred==null ? nodeTokenHint(selected) : preferred;
     if (hint==null || hint.length==0) return null;
     var tokens=SourcePositions.scan(source);
     var matches:Array<SourceSpan>=[];
@@ -546,8 +550,18 @@ class NailSourceAnalysis {
           if (template==null) null;
           else {
             var selected=templateAtPath(template,path);
+            var message=switch(fault) {
+              case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
+                StringTools.trim(text);
+              case _: '';
+            };
+            var pattern=StringTools.startsWith(message,'Non-exhaustive match:')
+              || StringTools.startsWith(message,'Mixed constructors in algebraic match')
+              || StringTools.startsWith(message,
+                'Constructor match binding arity mismatch:');
             var matching=selected==null ? null
-              : templateTokenSpan(templateSource,macroName,template,path,selected);
+              : templateTokenSpan(templateSource,macroName,template,path,
+                  selected,pattern ? 'match' : null);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;
