@@ -3383,8 +3383,8 @@ type NMExpansionStep { result Syntax remaining Number trace Syntax } ;
 # Paths are structural child indices (0/1/2), rooted at a macro template.
 # Caller-owned syntax is distinct from template-generated syntax.
 def nmNoTrace = syntaxLeaf " NMNoTrace " " " ;
-def nmSource owner macro path =
-  syntaxNode " NMSource " [ syntaxName owner , syntaxName macro ,
+def nmSource owner macroName path =
+  syntaxNode " NMSource " [ syntaxName owner , syntaxName macroName ,
     syntaxName path ] ;
 def nmAt source child =
   if syntaxTag source != " NMSource " then nmNoTrace
