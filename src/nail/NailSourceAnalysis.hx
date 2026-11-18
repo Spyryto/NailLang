@@ -528,6 +528,20 @@ class NailSourceAnalysis {
     }
   }
 
+  /** Sum-pattern checking reports the lowered match node. A function
+      expression has the same lowering, but maps back to 'function', not
+      to a nonexistent 'match' token in the caller's template. */
+  static function patternKeywordAtPath(template:Value,path:String):Null<String> {
+    var patterns:Array<{path:String,token:String}>=[];
+    syntaxPatternOrder(template,'',patterns);
+    var found:Null<String>=null;
+    for (pattern in patterns) if (pattern.path==path) {
+      if (found!=null) return null;
+      found=pattern.token;
+    }
+    return found;
+  }
+
   /** Only look inside the selected macro declaration, keeping tokens from
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
@@ -720,9 +734,13 @@ class NailSourceAnalysis {
               || StringTools.startsWith(message,'Mixed constructors in algebraic match')
               || StringTools.startsWith(message,
                 'Constructor match binding arity mismatch:');
+            var patternToken=pattern ? patternKeywordAtPath(template,path) : null;
+            // Preserve earlier unique-match projection if a complex private
+            // lowering does not yet expose a one-to-one structural path.
+            if (pattern && patternToken==null) patternToken='match';
             var matching=selected==null ? null
               : templateTokenSpan(templateSource,macroName,template,path,
-                  selected,pattern ? 'match' : null);
+                  selected,patternToken);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;

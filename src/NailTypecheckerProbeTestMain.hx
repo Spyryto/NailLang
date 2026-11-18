@@ -1365,6 +1365,17 @@ class NailTypecheckerProbeTestMain {
       firstMatch.indexOf('match'),
       'first generated match resolves its own keyword');
 
+    var generatedFunction='nail 0.54 ; type Choice = A | B ; '
+      +'macro partial = quote ( function | A -> 1 ) ; '
+      +'expand partial ;';
+    var functionReport=NailSourceAnalysis.analyzeNailMacros(
+      generatedFunction,boot,null,'src/function-pattern.nail');
+    eq(functionReport.ok,false,
+      'Nail validates exhaustiveness inside a generated function expression');
+    eq(functionReport.diagnostics[0].templateOrigin.span.start,
+      generatedFunction.indexOf('function'),
+      'generated function-pattern failure maps to its function keyword');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

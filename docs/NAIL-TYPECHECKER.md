@@ -481,7 +481,9 @@ lowered `match` sites are also supported. Repeated `match` keywords
 inside one macro template are disambiguated by their corresponding
 Nail-parsed lowered binders, preserving the checker-node path and the
 original source order. A mismatch between the lowered AST and source
-keyword count fails closed instead of guessing an origin. No Haxe macro replay occurs
+keyword count fails closed instead of guessing an origin.
+The same mapping recognizes generated `function | ...` expressions,
+which lower internally to a match but point back to the `function` token. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
