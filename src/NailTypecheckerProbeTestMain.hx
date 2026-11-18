@@ -1332,6 +1332,39 @@ class NailTypecheckerProbeTestMain {
       generatedPattern.indexOf('expand'),
       'generated pattern failure identifies its caller site');
 
+
+    // Pattern lowering erases surface 'match' markers. An origin path must
+    // select the matching keyword by its AST position, not the first match
+    // keyword with the same spelling in a macro template.
+    var twoMatches='nail 0.54 ; type Choice = A | B ; '
+      +'macro onlySecond x y = quote ( '
+      +'( match unquote x with | A -> 1 | B -> 2 ) + '
+      +'( match unquote y with | A -> 3 ) ) ; '
+      +'expand onlySecond A A ;';
+    var secondMatchReport=NailSourceAnalysis.analyzeNailMacros(
+      twoMatches,boot,null,'src/two-matches.nail');
+    eq(secondMatchReport.ok,false,
+      'second of two generated sum matches rejects missing constructor');
+    eq(secondMatchReport.diagnostics[0].templateOrigin.span.start,
+      twoMatches.lastIndexOf('match'),
+      'second generated match resolves its own keyword');
+    eq(secondMatchReport.diagnostics[0].span.start,
+      twoMatches.indexOf('expand onlySecond'),
+      'second generated match preserves caller keyword');
+
+    var firstMatch='nail 0.54 ; type Choice = A | B ; '
+      +'macro onlyFirst x y = quote ( '
+      +'( match unquote x with | A -> 1 ) + '
+      +'( match unquote y with | A -> 3 | B -> 4 ) ) ; '
+      +'expand onlyFirst A A ;';
+    var firstMatchReport=NailSourceAnalysis.analyzeNailMacros(
+      firstMatch,boot,null,'src/first-match.nail');
+    eq(firstMatchReport.ok,false,
+      'first of two generated sum matches rejects missing constructor');
+    eq(firstMatchReport.diagnostics[0].templateOrigin.span.start,
+      firstMatch.indexOf('match'),
+      'first generated match resolves its own keyword');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

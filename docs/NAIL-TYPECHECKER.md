@@ -477,7 +477,11 @@ into source coordinates by scanning only the owning macro declaration.
 Numeric infix operators can be disambiguated by their in-order AST
 position, even when the same operator appears more than once; generated
 conditionals, straightforward function applications and unambiguous
-lowered `match` sites are also supported. No Haxe macro replay occurs
+lowered `match` sites are also supported. Repeated `match` keywords
+inside one macro template are disambiguated by their corresponding
+Nail-parsed lowered binders, preserving the checker-node path and the
+original source order. A mismatch between the lowered AST and source
+keyword count fails closed instead of guessing an origin. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.

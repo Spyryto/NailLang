@@ -485,6 +485,49 @@ class NailSourceAnalysis {
     }
   }
 
+  /** Match and function are surface constructs erased by the Nail parser.
+      Recognize only its private lowered binders (including hygienic names). */
+  static function loweredBinder(name:String,privateName:String):Bool
+    return name==privateName
+      || (StringTools.startsWith(name,'#macro_local_')
+        && StringTools.endsWith(name,'_'+privateName));
+
+  static function loweredMatch(name:String):Bool
+    return loweredBinder(name,'#nail_sum_subject_0')
+      || loweredBinder(name,'#nail_list_0');
+
+  /** Recover lexical pattern-keyword order from the immutable Nail-parsed AST.
+      The path identifies the checker-visible node that starts a lowered match.
+      A 'function |' wraps an internal sum match, which is not a second token.
+      Traverse a match's scrutinee before its branches to reflect source order,
+      including patterns nested in either position. */
+  static function syntaxPatternOrder(node:Value,path:String,
+      out:Array<{path:String,token:String}>,skipMatch:Bool=false):Void {
+    switch(node) {
+      case SyntaxNode('Lambda',Cons(SyntaxLeaf('Name',binder),
+          Cons(body,Nil))) if (loweredBinder(binder,'#nail_function_subject_0')):
+        out.push({path:path+'1',token:'function'});
+        syntaxPatternOrder(body,path+'1',out,true);
+      case SyntaxNode('Apply',Cons(
+          SyntaxNode('Lambda',Cons(SyntaxLeaf('Name',binder),
+            Cons(branch,Nil))),Cons(scrutinee,Nil)))
+          if (loweredMatch(binder)):
+        if (!skipMatch) out.push({path:path,token:'match'});
+        syntaxPatternOrder(scrutinee,path+'1',out);
+        syntaxPatternOrder(branch,path+'01',out);
+      case SyntaxNode('Apply',Cons(fn,Cons(arg,Nil))):
+        syntaxPatternOrder(fn,path+'0',out);
+        syntaxPatternOrder(arg,path+'1',out);
+      case SyntaxNode('Lambda',Cons(_,Cons(body,Nil))):
+        syntaxPatternOrder(body,path+'1',out);
+      case SyntaxNode('If',Cons(test,Cons(yes,Cons(no,Nil)))):
+        syntaxPatternOrder(test,path+'0',out);
+        syntaxPatternOrder(yes,path+'1',out);
+        syntaxPatternOrder(no,path+'2',out);
+      case _:
+    }
+  }
+
   /** Only look inside the selected macro declaration, keeping tokens from
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
@@ -511,7 +554,9 @@ class NailSourceAnalysis {
     if (declarations!=1 || matches.length==0) return null;
     if (matches.length==1) return matches[0];
     var order:Array<{path:String,token:String}>=[];
-    syntaxOperatorOrder(template,'',order);
+    if (hint=='match' || hint=='function')
+      syntaxPatternOrder(template,'',order);
+    else syntaxOperatorOrder(template,'',order);
     var same=[for (item in order) if (item.token==hint) item];
     if (same.length!=matches.length) return null;
     for (i in 0...same.length)
