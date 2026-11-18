@@ -2518,14 +2518,84 @@ def tcCheckSyntax program =
     if syntaxTag checked == " TCFault " then Error ( syntaxText checked )
     else Ok checked ;
 
-# Convenience for examples using the supported subset of the modern surface
-# language. This helper is deliberately not wired into compilation yet.
+# The macro expander works exclusively on executable Program forms.
+# Keep the annotation/alias/relation metadata in Nail while allowing the
+# existing Syntax-level expander to transform the expression bodies once.
+# Private static placeholders preserve the source order of declarations.
+def tcFourth tree =
+  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
+def tcFifth tree =
+  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
+
+def tcPrepareTypedMacros forms seed reversed metadata =
+  match forms with
+  | [] ->
+    syntaxNode " TCPreparedMacros "
+      [ syntaxNode " Program " ( reverse reversed ),
+        syntaxNode " TCMetadata " metadata ]
+  | form :: rest ->
+    let tag = syntaxTag form in
+    if tag == " RelationDecl " then
+      tcPrepareStaticMacro form rest seed reversed metadata
+    else if tag == " TypeAliasDecl " then
+      tcPrepareStaticMacro form rest seed reversed metadata
+    else if tag == " AnnotatedDefine " then
+      let name = syntaxText ( tcFirst form ) in
+      tcPrepareTypedMacros rest ( tcNext seed )
+        ( cons ( syntaxDefine name ( tcFifth form ) ) reversed )
+        ( cons ( tcBinding name form ) metadata )
+    else tcPrepareTypedMacros rest ( tcNext seed )
+      ( cons form reversed ) metadata ;
+
+def tcPrepareStaticMacro form rest seed reversed metadata =
+  let marker = textConcat " #tc_static_form_ " seed in
+  tcPrepareTypedMacros rest ( tcNext seed )
+    ( cons ( syntaxDefine marker syntaxNil ) reversed )
+    ( cons ( tcBinding marker form ) metadata ) ;
+
+def tcRestoreTypedMacros forms metadata reversed =
+  match forms with
+  | [] -> syntaxNode " Program " ( reverse reversed )
+  | form :: rest ->
+    if syntaxTag form != " Define " then
+      tcRestoreTypedMacros rest metadata ( cons form reversed )
+    else let name = syntaxText ( tcFirst form ) in
+      let original = tcFind name metadata in
+      if syntaxTag original == " TCMissing " then
+        tcRestoreTypedMacros rest metadata ( cons form reversed )
+      else if syntaxTag original == " AnnotatedDefine " then
+        tcRestoreTypedMacros rest metadata
+          ( cons
+            ( syntaxNode " AnnotatedDefine "
+              [ tcFirst original , tcSecond original ,
+                tcThird original , tcFourth original , tcSecond form ] )
+            reversed )
+      else tcRestoreTypedMacros rest metadata ( cons original reversed ) ;
+
+def tcExpandTypedMacros program =
+  if syntaxTag program != " Program " then program
+  else let prepared = tcPrepareTypedMacros
+    ( syntaxChildren program ) " m " [] [] in
+    let expanded = macroExpandSyntax ( tcFirst prepared ) in
+    if syntaxTag expanded == " MacroError " then
+      syntaxLeaf " Error " ( syntaxText expanded )
+    else if syntaxTag expanded != " Program " then
+      syntaxLeaf " Error " " Macro expansion did not produce a Program "
+    else tcRestoreTypedMacros ( syntaxChildren expanded )
+      ( syntaxChildren ( tcSecond prepared ) ) [] ;
+
+# Convenience source entry point: parse, expand macros once, restore typed
+# metadata, rewrite modern numeric syntax and infer entirely in Nail. The
+# existing Haxe macro expander is a syntax transformation primitive, never a
+# delegate to Haxe's TypeChecker. Public compileSource stays unchanged.
 def tcCheckSource source =
   let tokens = tokenizeCode source in
   if parsePeek tokens != " nail " then
     Error " Nail typechecker currently requires versioned modern source "
   else tcCheckSyntax
-    ( modernRewrite ( parseTypedForms ( stripNailHeader tokens ) ) ) ;
+    ( modernRewrite
+      ( tcExpandTypedMacros
+        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 
 # Structural rows: a closed record is TCStruct(fields); a receiver whose
 # fields are being inferred uses TCRowField(name,type,tail). This first
