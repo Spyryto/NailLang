@@ -2307,7 +2307,11 @@ def tcCheckSyntax program =
 # Convenience for examples using the supported subset of the modern surface
 # language. This helper is deliberately not wired into compilation yet.
 def tcCheckSource source =
-  tcCheckSyntax ( modernRewrite ( parseTypedForms ( stripNailHeader ( tokenizeCode source ) ) ) ) ;
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    Error " Nail typechecker currently requires versioned modern source "
+  else tcCheckSyntax
+    ( modernRewrite ( parseTypedForms ( stripNailHeader tokens ) ) ) ;
 
 # Structural rows: a closed record is TCStruct(fields); a receiver whose
 # fields are being inferred uses TCRowField(name,type,tail). This first
