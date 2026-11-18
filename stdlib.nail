@@ -4064,29 +4064,81 @@ def nailMacroExpandSyntaxTinyBudget program =
 
 # Modules are pre-parsed Syntax; no host macro expansion takes place.
 # The resolver populates NMModules with TCBinding(moduleName, Program).
-def nailMacroExpandWithModulesBudgeted request fuel =
+# The provenance map is emitted during the *same* expansion pass. The
+# checker receives only the first child, the ordinary Program Syntax.
+def nmExpansionTraced step =
+  syntaxNode " NMExpansionTraced " [ nmValue step , nmTraceOf step ] ;
+
+def nailMacroExpandWithModulesTracedBudgeted request fuel =
   if syntaxTag request != " NMRequest " then
-    nmError " expected macro expansion request "
+    nmExpansionTraced
+      ( nmPack ( nmError " expected macro expansion request " ) fuel )
   else let program = tcFirst request in
     let modules = tcSecond request in
     if syntaxTag program != " Program " then
-      nmError " expected parsed Nail program "
+      nmExpansionTraced
+        ( nmPack ( nmError " expected parsed Nail program " ) fuel )
     else if syntaxTag modules != " NMModules " then
-      nmError " expected parsed macro modules "
+      nmExpansionTraced
+        ( nmPack ( nmError " expected parsed macro modules " ) fuel )
     else let spent = nmCountTree program
       + nmCountModules ( syntaxChildren modules ) in
       let remaining = fuel - spent in
-      if remaining <= 0 then nmValue ( nmOutOfFuel remaining )
+      if remaining <= 0 then nmExpansionTraced ( nmOutOfFuel remaining )
       else let resolved = nmPrepareModules modules in
-        if nmIsError resolved then resolved
-        else nmValue ( nmExpandFormsIn
+        if nmIsError resolved then
+          nmExpansionTraced ( nmPack resolved remaining )
+        else nmExpansionTraced ( nmExpandFormsIn
           ( syntaxChildren program ) [] [] [] " m " resolved remaining ) ;
+
+def nailMacroExpandWithModulesTraced request =
+  nailMacroExpandWithModulesTracedBudgeted request nmDefaultFuel ;
+
+def nailMacroExpandWithModulesBudgeted request fuel =
+  tcFirst ( nailMacroExpandWithModulesTracedBudgeted request fuel ) ;
 
 def nailMacroExpandWithModules request =
   nailMacroExpandWithModulesBudgeted request nmDefaultFuel ;
 
 def nailMacroExpandWithModulesTinyBudget request =
   nailMacroExpandWithModulesBudgeted request 50 ;
+
+# Select a checker-traced failure from the *actual* output's parallel map.
+# This is independent of macro names, operator spellings and source replays.
+def nmNthTrace traces index =
+  match traces with
+  | [] -> nmNoTrace
+  | first :: rest ->
+    if index == 0 then first
+    else nmNthTrace rest ( index - 1 ) ;
+
+def nmTraceAtPath tree path =
+  match path with
+  | [] ->
+    if syntaxTag tree != " NMTrace " then nmNoTrace
+    else tcFirst tree
+  | step :: rest ->
+    if syntaxTag tree != " NMTrace " then nmNoTrace
+    else let children = syntaxChildren ( tcSecond tree ) in
+      let label = syntaxText step in
+      let index =
+        if label == " 0 " then 0
+        else if label == " 1 " then 1
+        else if label == " 2 " then 2
+        else 999 in
+        nmTraceAtPath ( nmNthTrace children index ) rest ;
+
+def nmFaultNodeOrigin request =
+  if syntaxTag request != " NMTraceRequest " then nmNoOrigin
+  else let traces = tcFirst request in
+    let fault = tcSecond request in
+    if syntaxTag traces != " NMTraceProgram " then nmNoOrigin
+    else if syntaxTag fault != " TCFault " then nmNoOrigin
+    else let formIndex = length ( syntaxChildren ( tcThird fault ) ) - 1 in
+      if formIndex < 0 then nmNoOrigin
+      else nmTraceAtPath
+        ( nmNthTrace ( syntaxChildren traces ) formIndex )
+        ( syntaxChildren ( tcSecond fault ) ) ;
 
 def tcCheckSourceNailModulesTraced request =
   let source = syntaxText ( tcFirst request ) in
