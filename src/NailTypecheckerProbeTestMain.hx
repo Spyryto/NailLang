@@ -1130,6 +1130,44 @@ class NailTypecheckerProbeTestMain {
       normalizedMacro(duplicateExports,new StringMap<String>(),0),
       'Nail export resolution remains deterministic across repeated requests');
 
+    var wideImportedSource='nail 0.54 ; import add from arithmetic ; ';
+    for (i in 0...24) wideImportedSource+='expand add '+(i+1)+' ; ';
+    var wideImportedProgram=NailMacroModuleInputs.parsedModern(
+      boot,wideImportedSource);
+    var wideImportedModules=NailMacroModuleInputs.collect(
+      boot,wideImportedSource,name -> macroModules.get(name),
+      wideImportedProgram);
+    var budgetRequest=NailMacroModuleInputs.request(
+      wideImportedProgram,wideImportedModules);
+    var outOfFuel=boot.invoke('nailMacroExpandWithModulesTinyBudget',
+      budgetRequest);
+    eq(switch(outOfFuel) {
+      case SyntaxLeaf('MacroError',message):
+        message.indexOf('work limit exceeded') >= 0;
+      case _: false;
+    },true,'imported macro calls share one global work budget');
+    eq(switch(boot.invoke('nailMacroExpandWithModules',budgetRequest)) {
+      case SyntaxNode('Program',_): true;
+      case _: false;
+    },true,'normal expansion budget accepts repeated imports');
+
+    var largeModule='nail 0.54 ; ';
+    for (i in 0...100)
+      largeModule+='macro filler'+i+' = quote ( '+i+' ) ; ';
+    largeModule+='export filler0 ;';
+    macroModules.set('large',largeModule);
+    var largeMain='nail 0.54 ; import filler0 from large ; expand filler0 ;';
+    var largeModules=NailMacroModuleInputs.collect(boot,largeMain,
+      name -> macroModules.get(name));
+    var largeRequest=NailMacroModuleInputs.request(
+      NailMacroModuleInputs.parsedModern(boot,largeMain),largeModules);
+    eq(switch(boot.invoke('nailMacroExpandWithModulesTinyBudget',
+        largeRequest)) {
+      case SyntaxLeaf('MacroError',message):
+        message.indexOf('work limit exceeded') >= 0;
+      case _: false;
+    },true,'preflight work charge includes imported module declarations');
+
     macroModules.set('hidden','nail 0.54 ; '
       +'macro private x = quote ( unquote x ) ; export private ; '
       +'macro notExported x = quote ( unquote x ) ;');
