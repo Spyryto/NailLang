@@ -225,6 +225,15 @@ class NailTypecheckerProbeTestMain {
       'Eq constraint');
     checkBad(boot,'type A { value Int } ; type B { value Int } ; '
       +'if true then A 1 else B 2 ;','Type mismatch');
+    checkBad(boot,'type Person { name Text } ; '
+      +'type Company { name Text } ; '
+      +'def get x = x . name ;',
+      'Ambiguous nominal record field');
+    checkBad(boot,'type Box a { value a } ; '
+      +'type Holder { inner Box } ;',
+      'Parameterized nominal field');
+    checkBad(boot,'type Plain { value Int } ; '
+      +'( Plain true ) . value ;','Type mismatch');
 
     var option='type Option a = None | Some a ; ';
     checkGood(boot,'type Color = Red | Blue ; Red ; Blue ;',
