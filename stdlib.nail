@@ -1642,3 +1642,122 @@ def tcPretty ty =
         ( textConcat " ( " ( tcPretty ( tcFirst ty ) ) ) " -> " )
         ( textConcat ( tcPretty ( tcSecond ty ) ) " ) " )
   else " <unknown-type> " ;
+
+# Hindley-Milner schemes: a term plus the variables quantified by its scope.
+# Free variables are represented by the same TCVar Syntax leaves as types.
+def tcScheme ty quantifiers =
+  syntaxNode " TCScheme " [ ty , syntaxNode " TCQuant " quantifiers ] ;
+def tcSchemeType scheme = tcFirst scheme ;
+def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
+
+def tcContainsVar label variables =
+  match variables with
+  | [] -> false
+  | item :: rest ->
+    if syntaxText item == label then true
+    else tcContainsVar label rest ;
+
+def tcUnionVars xs ys =
+  match xs with
+  | [] -> ys
+  | item :: rest ->
+    if tcContainsVar ( syntaxText item ) ys then tcUnionVars rest ys
+    else tcUnionVars rest ( cons item ys ) ;
+
+def tcExceptVars variables removed =
+  match variables with
+  | [] -> []
+  | item :: rest ->
+    if tcContainsVar ( syntaxText item ) removed then
+      tcExceptVars rest removed
+    else cons item ( tcExceptVars rest removed ) ;
+
+def tcFreeType ty substitutions =
+  let resolved = tcFollow ty substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCVar " then [ resolved ]
+  else if tag == " TCList " then
+    tcFreeType ( tcFirst resolved ) substitutions
+  else if tag == " TCFun " then
+    tcUnionVars
+      ( tcFreeType ( tcFirst resolved ) substitutions )
+      ( tcFreeType ( tcSecond resolved ) substitutions )
+  else [] ;
+
+def tcFreeEnvironment environment substitutions =
+  match environment with
+  | [] -> []
+  | binding :: rest ->
+    let scheme = tcBindingValue binding in
+    let own = tcExceptVars
+      ( tcFreeType ( tcSchemeType scheme ) substitutions )
+      ( tcSchemeQuantifiers scheme ) in
+    tcUnionVars own ( tcFreeEnvironment rest substitutions ) ;
+
+def tcGeneralize ty environment substitutions =
+  let normalized = tcNormalize ty substitutions in
+  let free = tcFreeType normalized [] in
+  let fixed = tcFreeEnvironment environment substitutions in
+  tcScheme normalized ( tcExceptVars free fixed ) ;
+
+# The counter is a text string ("t", "tx", "txx", ...), avoiding a native
+# type-variable allocator and keeping generated variable IDs deterministic.
+def tcNext seed = textConcat seed " x " ;
+def tcInferResult ty substitutions seed =
+  syntaxNode " TCInferResult "
+    [ ty , syntaxNode " TCSubstitutions " substitutions ,
+      syntaxLeaf " TCSeed " seed ] ;
+def tcResultType result = tcFirst result ;
+def tcResultSubs result = syntaxChildren ( tcSecond result ) ;
+def tcResultSeed result = syntaxText ( tcThird result ) ;
+def tcRenamingState substitutions seed =
+  syntaxNode " TCRenamingState "
+    [ syntaxNode " TCSubstitutions " substitutions ,
+      syntaxLeaf " TCSeed " seed ] ;
+def tcRenameSubs state = syntaxChildren ( tcFirst state ) ;
+def tcRenameSeed state = syntaxText ( tcSecond state ) ;
+
+def tcRenameQuantifiers quantifiers seed mappings =
+  match quantifiers with
+  | [] -> tcRenamingState mappings seed
+  | variable :: rest ->
+    tcRenameQuantifiers rest ( tcNext seed )
+      ( cons ( tcBinding ( syntaxText variable ) ( tcVar seed ) ) mappings ) ;
+
+def tcInstantiate scheme substitutions seed =
+  let renaming = tcRenameQuantifiers
+    ( tcSchemeQuantifiers scheme ) seed [] in
+  let instance = tcNormalize
+    ( tcSchemeType scheme ) ( tcRenameSubs renaming ) in
+  tcInferResult instance substitutions ( tcRenameSeed renaming ) ;
+
+# A deliberately limited, typed prelude for the *first* independent
+# checker prototype. Overloaded numeric relations and Eq are not yet
+# accepted here; no invalid inference is silently treated as valid.
+def tcBuiltinType name =
+  tcFind name [
+    tcBinding " textConcat "
+      ( tcScheme ( tcFun ( tcBase " Text " )
+        ( tcFun ( tcBase " Text " ) ( tcBase " Text " ) ) ) [] ) ,
+    tcBinding " textLengthInt "
+      ( tcScheme ( tcFun ( tcBase " Text " ) ( tcBase " Int " ) ) [] ) ,
+    tcBinding " head "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) ) ( tcVar " a " ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " tail "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) )
+          ( tcList ( tcVar " a " ) ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " isEmpty "
+      ( tcScheme
+        ( tcFun ( tcList ( tcVar " a " ) ) ( tcBase " Bool " ) )
+        [ tcVar " a " ] ) ,
+    tcBinding " + "
+      ( tcScheme ( tcFun ( tcBase " Int " )
+        ( tcFun ( tcBase " Int " ) ( tcBase " Int " ) ) ) [] ) ,
+    tcBinding " #modern+ "
+      ( tcScheme ( tcFun ( tcBase " Int " )
+        ( tcFun ( tcBase " Int " ) ( tcBase " Int " ) ) ) [] )
+  ] ;
