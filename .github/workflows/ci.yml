@@ -48,6 +48,13 @@ jobs:
           node build/tests/context-block-probe.js
           haxe context-block-probe-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-context-block-probe/index.php
+      - name: Probe Nail-written HM typechecker (Haxe, Node, PHP)
+        run: |
+          haxe nail-typechecker-test-interp.hxml
+          haxe nail-typechecker-test-js.hxml
+          node build/tests/nail-typechecker.js
+          haxe nail-typechecker-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-nail-typechecker/index.php
       - name: Verify v0.54 typed module source imports (Haxe, Node, PHP)
         run: |
           haxe module-source-imports-test-interp.hxml
