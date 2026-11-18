@@ -2156,33 +2156,34 @@ def tcRelationAtom ty =
     else if name == " Bool " then true
     else name == " Syntax " ;
 
+def tcParseRelationTypes names aliases reversed =
+  match names with
+  | [] -> reverse reversed
+  | name :: rest ->
+    let ty = tcSurfaceType ( syntaxText name ) aliases in
+    if syntaxTag ty == " TCFault " then ty
+    else if tcRelationAtom ty == false then
+      tcFault " Invalid finite relation atomic type "
+    else tcParseRelationTypes rest aliases ( cons ty reversed ) ;
+
 def tcDeclareRelation name fieldTypes aliases relations =
-  if length fieldTypes != 3 then
-    tcFault " Named relations with arity other than two are not implemented "
-  else let first = tcSurfaceType ( syntaxText ( head fieldTypes ) ) aliases in
-    let second = tcSurfaceType
-      ( syntaxText ( head ( tail fieldTypes ) ) ) aliases in
-    let result = tcSurfaceType
-      ( syntaxText ( head ( tail ( tail fieldTypes ) ) ) ) aliases in
-    if syntaxTag first == " TCFault " then first
-    else if syntaxTag second == " TCFault " then second
-    else if syntaxTag result == " TCFault " then result
-    else if tcRelationAtom first == false then
-      tcFault " Invalid finite relation atomic type "
-    else if tcRelationAtom second == false then
-      tcFault " Invalid finite relation atomic type "
-    else if tcRelationAtom result == false then
-      tcFault " Invalid finite relation atomic type "
-    else let existing = tcFind name relations in
+  if length fieldTypes < 2 then tcFault " Relation needs input and result "
+  else if length fieldTypes > 17 then tcFault " Too many relation types "
+  else let types = tcParseRelationTypes fieldTypes aliases [] in
+    if syntaxTag types == " TCFault " then types
+    else let inputs = tcRelationInitial types in
+      let existing = tcFind name relations in
       let previous =
         if syntaxTag existing == " TCMissing " then []
         else syntaxChildren existing in
-      let prior = tcFindRelationResult
-        ( syntaxText first ) ( syntaxText second ) previous in
-      if syntaxTag prior != " TCMissing " then
-        tcFault " Duplicate relation input types "
-      else tcRelationRows
-        ( cons ( tcRelationRow first second result ) previous ) ;
+      let differentArity =
+        if isEmpty previous then false
+        else length ( tcRelationInputs ( head previous ) ) != length inputs in
+      if differentArity then tcFault " Inconsistent relation arity "
+      else let prior = tcFindRelationResult inputs previous in
+        if syntaxTag prior != " TCMissing " then
+          tcFault " Duplicate relation input types "
+        else tcRelationRows ( cons ( tcRelationRow types ) previous ) ;
 
 def tcCollectRelation form rest environment substitutions seed reversed aliases relations =
   let name = syntaxText ( tcFirst form ) in
