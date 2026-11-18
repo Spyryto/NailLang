@@ -1,9 +1,11 @@
 # Contextual DSL blocks — parser/type-checker experiment
 
-**Status: exploratory. Not a Nail language feature, version or public ABI.**
-The ordinary Parser constructor, supported 0.54 syntax, self-hosted source
-compiler, module loader and VM remain unchanged. Do not ship the experimental
-constructor as a source-language guarantee.
+**Status: exploratory PR, not a released Nail language version or public ABI.**
+The ordinary Haxe Parser constructor and shipped 0.54 semantics remain unchanged.
+The **self-hosted Nail-written source compiler now has experimental contextual
+syntax and erases structural contracts/parameter annotations**, while the
+runtime AST, VM opcodes and module loader remain unchanged. This is intentionally
+unmerged and not a public-language guarantee.
 
 ## Motivation
 
@@ -41,8 +43,11 @@ inference. Existing lowercase function application to an anonymous record
 constructions remain unchanged. The context field map can now be **derived
 from an already checked, closed structural value interface** with
 `ContextInterfaces.fromChecked(checker, ["Html", "html"])`.
-This bridge does not infer interfaces from unknown function parameters or
-automatically integrate context discovery into the complete source compiler.
+This Haxe-side bridge does not infer interfaces from unknown parameters.
+The Nail-written source compiler separately resolves contextual fields from
+explicit parameter or value annotations and preceding structural type aliases.
+That path requires named structural contracts; automatic discovery for
+unannotated receivers remains deferred.
 
 The block is lowered immediately to the existing five-expression AST core:
 
@@ -112,10 +117,44 @@ the separate trailing function-constraint position.
 Current limitations: simple primitive or previously introduced alias
 types in these declarations only; no recursive/generic aliases,
 no function types with arbitrary nested grouping, and no automatic
-source-free/self-hosted parsing of the new surface syntax. Parser
-annotations are sidecar metadata; compiler or Syntax roundtrips that
-discard it do not preserve its static contract. Therefore this remains
-a draft language design, not published Nail syntax.
+inference of context field candidates for unannotated receivers in the
+source-free compiler. **The Nail-written parser now recognizes and lowers
+these aliases, annotations and nested context blocks**; it does *not*
+reimplement static structural contract checking. Haxe `TypeChecker.checkParsed`
+verifies the contracts; source-free compilation erases them and is not
+a replacement for build-time type checking. Parser annotations are sidecar
+metadata, so Syntax roundtrips that discard them do not preserve their
+static contract. This remains a draft language design, not published Nail syntax.
+
+
+## Nail-written source compiler parity (experimental)
+
+The same static source is now processed by **both** the opt-in Haxe frontend
+and the self-hosted `parseSource` / `compileModernSource` frontend:
+
+```nail
+nail 0.54 ;
+type Html = { h2 : Text Text , div : Text Text } ;
+def render ( html : Html ) title = html { h2 title } ;
+```
+
+The Nail parser stores `TypeAliasDecl` / `AnnotatedDefine` as **temporary
+Syntax** during lexical resolution, then erases them. An internal
+`Context` Syntax marker is similarly resolved into `Lambda`, `Apply`
+and `#recordGet` expressions. The core AST, bytecode and VM stay unchanged.
+
+Resolver rules are ordered lexically: locally introduced lambdas (including
+`let`) beat context fields from earlier scopes; inner contexts beat outer
+contexts; missing inner members fall through to outer contexts; explicit
+`html . div` remains qualified. Quoted text containing `{` is not mistaken
+for punctuation. Concrete annotated values can open a context in subsequent
+source forms. Untyped receivers without a known contract are rejected by
+the self-hosted resolver rather than treated as an implicitly open record.
+
+The source-free path is **not itself a static type checker**. Compatibility
+of function and value annotations is checked by the opt-in Haxe type checker;
+a future compiler release must integrate authoritative static validation
+into the end-to-end distribution and source diagnostic pipeline.
 
 ## Boundaries deliberately explored
 
@@ -146,10 +185,12 @@ a draft language design, not published Nail syntax.
    source-provenance mapped. This must be solved before production diagnostics.
 6. Unlike public module imports (0.54), the experimental record interface
    is provided by the embedding test, not resolved from compiled modules.
-7. Because the ordinary parser remains untouched, original surface source
-   containing contextual blocks cannot yet be compiled by the **Nail
-   source-free compiler**. The compiled lowered AST is an independent
-   demonstration, not parity for the original source.
+7. The experimental self-hosted source compiler **now parses annotated
+   contextual source directly**, desugars lexical fields into `#recordGet`
+   and compiles it on Haxe, Node and PHP. Its static verification is
+   presently limited to syntactic annotation/alias recognition; the Haxe
+   checker is still authoritative for type compatibility, and full
+   self-hosted type inference/diagnostic provenance is not implemented.
 
 ## Reproducible regressions
 
@@ -168,6 +209,9 @@ local shadowing, hygienic macro expansion, successful runtime parameter
 values with open-row static inference, rejection of absent or mistyped
 required fields, malformed context interfaces and unclosed blocks.
 
-**Decision still open:** use `Html { ... }`, an explicit `with Html { ... }`,
-a distinct punctuation form, or an alternative. Do not merge the draft PR
-as a shipped feature before discussing the inference model and syntax.
+**Confirmed design:** `html { expression }`, with inner context field
+shadowing, access to outer members via `html . div`, optional
+`( html : Html )` parameter annotations and structural type aliases.
+Remaining decisions concern full type-ABI support, inference of unknown
+context member sets, source spans and formalized compiler parity. Do not
+merge this draft PR as a shipped feature before resolving those gaps.
