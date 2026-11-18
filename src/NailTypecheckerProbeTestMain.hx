@@ -638,7 +638,7 @@ class NailTypecheckerProbeTestMain {
     eq(report.ok,false,'invalid generated numeric operator rejected');
     eq(report.diagnostics[0].span.start,generatedNumeric.lastIndexOf('expand'),
       'numeric error resolves to second macro invocation after a valid first');
-    eq(report.diagnostics[0].templateSpan.start,generatedNumeric.indexOf('1 )'),
+    eq(report.diagnostics[0].templateSpan.start,generatedNumeric.indexOf('unquote x + 1'),
       'numeric error retains the quoted operator expression origin');
 
     var repeatedPattern='nail 0.54 ; type Option a = None | Some a ; '
