@@ -2158,7 +2158,7 @@ def tcRelationAtom ty =
 
 def tcParseRelationTypes names aliases reversed =
   match names with
-  | [] -> reverse reversed
+  | [] -> syntaxNode " TCRelationTypes " ( reverse reversed )
   | name :: rest ->
     let ty = tcSurfaceType ( syntaxText name ) aliases in
     if syntaxTag ty == " TCFault " then ty
@@ -2171,7 +2171,8 @@ def tcDeclareRelation name fieldTypes aliases relations =
   else if length fieldTypes > 17 then tcFault " Too many relation types "
   else let types = tcParseRelationTypes fieldTypes aliases [] in
     if syntaxTag types == " TCFault " then types
-    else let inputs = tcRelationInitial types in
+    else let parsed = syntaxChildren types in
+      let inputs = tcRelationInitial parsed in
       let existing = tcFind name relations in
       let previous =
         if syntaxTag existing == " TCMissing " then []
@@ -2183,7 +2184,7 @@ def tcDeclareRelation name fieldTypes aliases relations =
       else let prior = tcFindRelationResult inputs previous in
         if syntaxTag prior != " TCMissing " then
           tcFault " Duplicate relation input types "
-        else tcRelationRows ( cons ( tcRelationRow types ) previous ) ;
+        else tcRelationRows ( cons ( tcRelationRow parsed ) previous ) ;
 
 def tcCollectRelation form rest environment substitutions seed reversed aliases relations =
   let name = syntaxText ( tcFirst form ) in
