@@ -197,6 +197,35 @@ class NailTypecheckerProbeTestMain {
       'def getX r = textConcat ( r . x ) " S " ; '
       +'getX { x = true } ;',
       'Type mismatch');
+    var person='type Person { name Text age Int } ; ';
+    var box='type Box a { value a } ; ';
+    var pair='type Pair a b { first a second b } ; ';
+    checkGood(boot,person+'( Person " Ada " 36 ) . name ;',['Text']);
+    checkGood(boot,person+'( Person { age = 36 , name = " Ada " } ) . age ;',
+      ['Int']);
+    checkGood(boot,person+'def read p = p . name ; read ( Person " C " 12 ) ;',
+      ['Text']);
+    checkGood(boot,box+'( Box true ) . value ; ( Box 7 ) . value ;',
+      ['Bool','Int']);
+    checkGood(boot,box+'def wrap x = Box x ; '
+      +'( wrap 42 ) . value ; ( wrap false ) . value ;',
+      ['Int','Bool']);
+    checkGood(boot,pair+'( Pair 9 true ) . first ; '
+      +'( Pair " Y " 6 ) . second ;',['Int','Int']);
+    checkGood(boot,person+'type Badge { owner Person valid Bool } ; '
+      +'( Badge { valid = true , owner = Person " Jo " 9 } ) . owner . age ;',
+      ['Int']);
+    checkGood(boot,box+'Box 1 == Box 2 ;',['Bool']);
+    checkBad(boot,person+'Person true 1 ;','Type mismatch');
+    checkBad(boot,person+'Person { name = " Ada " } ;',
+      'Nominal record field count mismatch');
+    checkBad(boot,person+'Person { name = " Ada " , invalid = 2 } ;',
+      'Missing named record field');
+    checkBad(boot,box+'Box ( fun x -> x ) == Box ( fun y -> y ) ;',
+      'Eq constraint');
+    checkBad(boot,'type A { value Int } ; type B { value Int } ; '
+      +'if true then A 1 else B 2 ;','Type mismatch');
+
     var htmlContract='type Html = { h2 : Text Text , div : Text Text } ; ';
     checkStructural(boot,htmlContract
       +'def html = { h2 = fun x -> textConcat " H: " x , '
