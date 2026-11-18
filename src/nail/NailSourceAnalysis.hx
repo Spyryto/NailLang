@@ -2,7 +2,8 @@ package nail;
 
 import nail.BootRuntime;
 import nail.Parser;
-import nail.SyntaxEncoder;
+import nail.MacroExpander;
+import nail.MacroModuleDialect;
 import haxe.ds.StringMap;
 import nail.SourceProvenance.SourceOrigin;
 import nail.Ast.Expr;
@@ -414,13 +415,28 @@ class NailSourceAnalysis {
       if (cachedModules == null)
         result = runtime.invoke('tcCheckSourceTraced', Text(source));
       else {
-        // Imported macro syntax is expanded by the existing host parser;
-        // the resulting Syntax is inferred ONLY by the Nail bytecode checker.
-        var parser = new Parser(source);
-        parser.provenance.sourceId = sourceId;
-        var expanded = parser.parse(cachedModules);
-        result = runtime.invoke('tcCheckSyntaxTraced',
-          SyntaxEncoder.program(expanded));
+        // Preserve typed aliases, relations, annotated definitions and
+        // contextual DSL lowering in the Nail parser, NOT the host parser.
+        // Only the existing hygienic macro syntax primitive is host-run.
+        var prepared = runtime.invoke('tcPrepareTypedSource', Text(source));
+        var executable:Value = switch (prepared) {
+          case SyntaxNode('TCPreparedMacros',Cons(program,Cons(_,Nil))):
+            program;
+          case _: SyntaxLeaf('MacroError','Typed source preparation failed');
+        };
+        var expanded = MacroExpander.syntax(executable, name -> {
+          var moduleSource = cachedModules(name);
+          if (moduleSource == null) return null;
+          MacroModuleDialect.requireCompatible(
+            numeric.LanguageVersion.declared(source),
+            numeric.NumericDialect.isExact(source), moduleSource, name);
+          // Parse imported source using the same Nail bytecode parser as
+          // the caller; the host only supplies module text.
+          return runtime.invoke('parseSource',Text(moduleSource));
+        });
+        result = runtime.invoke('tcCheckExpandedTypedTraced',
+          SyntaxNode('TCExpansionRequest',
+            Cons(prepared,Cons(expanded,Nil))));
       }
     } catch (error:Dynamic) {
       return {ok:false, types:[], diagnostics:[{phase:'macro',
