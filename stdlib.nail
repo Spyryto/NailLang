@@ -1737,7 +1737,9 @@ def tcPrettyNominalArgs types =
   | [] -> " "
   | first :: rest ->
     if isEmpty rest then tcPretty first
-    else textConcat ( textConcat ( tcPretty first ) " , " )
+    else textConcat
+      ( textConcat ( tcPretty first )
+        ( textConcat " , " ( textAt " a b " 1 ) ) )
       ( tcPrettyNominalArgs rest ) ;
 
 def tcPretty ty =
