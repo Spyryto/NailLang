@@ -1168,6 +1168,84 @@ class NailTypecheckerProbeTestMain {
       case _: false;
     },true,'preflight work charge includes imported module declarations');
 
+    // Symbolic provenance comes from Nail's own module and lexical scope
+    // resolution. The diagnostic sidecar only translates the returned
+    // source identity into original token offsets; no Haxe macro replay.
+    var localBroken='nail 0.54 ; '
+      +'macro broken x = quote ( unknownLocal ) ; '
+      +'expand broken 1 ;';
+    var localProvenance=NailSourceAnalysis.analyzeNailMacros(
+      localBroken,boot,null,'src/local-provenance.nail');
+    eq(localProvenance.ok,false,'Nail local generated unknown name rejected');
+    eq(localProvenance.diagnostics[0].span.start,
+      localBroken.indexOf('expand'),
+      'Nail local macro provenance identifies original expansion keyword');
+    eq(localProvenance.diagnostics[0].templateOrigin.sourceId,
+      'src/local-provenance.nail',
+      'Nail provenance names its local defining source');
+    eq(localProvenance.diagnostics[0].templateOrigin.span.start,
+      localBroken.indexOf('unknownLocal'),
+      'Nail provenance resolves original local template identifier');
+
+    var importedBad='nail 0.54 ; '
+      +'import broken from brokenLib ; expand broken 1 ;';
+    var brokenModule='nail 0.54 ; '
+      +'macro broken x = quote ( missingFromModule ) ; '
+      +'export broken ;';
+    macroModules.set('brokenLib',brokenModule);
+    var badModuleReport=NailSourceAnalysis.analyzeNailMacros(
+      importedBad,boot,name -> macroModules.get(name),'src/main.nail');
+    eq(badModuleReport.ok,false,'Nail imported generated unknown name rejected');
+    eq(badModuleReport.diagnostics[0].span.start,
+      importedBad.indexOf('expand'),
+      'Nail macro provenance preserves caller import callsite');
+    eq(badModuleReport.diagnostics[0].templateOrigin.sourceId,'brokenLib',
+      'Nail macro provenance owns foreign template module');
+    eq(badModuleReport.diagnostics[0].templateOrigin.span.start,
+      brokenModule.indexOf('missingFromModule'),
+      'Nail macro provenance resolves foreign template identifier');
+
+    var otherFirst='nail 0.54 ; '
+      +'import id from identity ; import broken from brokenLib ; '
+      +'expand id 3 ; expand broken 1 ;';
+    var secondReport=NailSourceAnalysis.analyzeNailMacros(
+      otherFirst,boot,name -> macroModules.get(name),'src/two-calls.nail');
+    eq(secondReport.ok,false,'Nail checker rejects later failing macro call');
+    eq(secondReport.diagnostics[0].span.start,
+      otherFirst.indexOf('expand broken'),
+      'Nail provenance distinguishes calls in separate source forms');
+
+    var nestedBrokenModule='nail 0.54 ; '
+      +'import broken from brokenLib ; '
+      +'macro wrapper x = quote ( expand broken ( unquote x ) ) ; '
+      +'export wrapper ;';
+    macroModules.set('nestedBroken',nestedBrokenModule);
+    var nestedBad='nail 0.54 ; import wrapper from nestedBroken ; '
+      +'expand wrapper 9 ;';
+    var nestedReport=NailSourceAnalysis.analyzeNailMacros(
+      nestedBad,boot,name -> macroModules.get(name),
+      'src/nested-generated.nail');
+    eq(nestedReport.ok,false,'Nail rejects transitive macro template failure');
+    eq(nestedReport.diagnostics[0].span.start,nestedBad.indexOf('expand'),
+      'Nail trace retains outermost user callsite');
+    eq(nestedReport.diagnostics[0].templateOrigin.sourceId,'brokenLib',
+      'Nail resolves deepest lexical producer without Haxe expansion');
+    eq(nestedReport.diagnostics[0].templateOrigin.span.start,
+      brokenModule.indexOf('missingFromModule'),
+      'Nail nested origin uses innermost defining module');
+
+    var escapedHole='nail 0.54 ; import id from identity ; '
+      +'expand id missingCaller ;';
+    var holeReport=NailSourceAnalysis.analyzeNailMacros(
+      escapedHole,boot,name -> macroModules.get(name),
+      'src/caller-hole.nail');
+    eq(holeReport.ok,false,'unquoted caller argument typechecks as original');
+    eq(holeReport.diagnostics[0].span.start,
+      escapedHole.indexOf('missingCaller'),
+      'Nail unquote preserves caller identifier provenance');
+    eq(holeReport.diagnostics[0].templateOrigin,null,
+      'unquoted caller subtree receives no invented template origin');
+
     macroModules.set('hidden','nail 0.54 ; '
       +'macro private x = quote ( unquote x ) ; export private ; '
       +'macro notExported x = quote ( unquote x ) ;');
