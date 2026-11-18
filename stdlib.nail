@@ -3365,3 +3365,288 @@ def tcCheckSumDeclaration form rest environment substitutions seed reversed alia
               ( tcScheme ( tcSumCases constructors [] ) [] ) )
             ( syntaxChildren registered ) )
           substitutions seed reversed knownAliases relations ;
+
+# --------------------------------------------------------------------------
+# Experimental hygienic macro expansion implemented in Nail.
+# The Haxe expander remains the differential oracle and production path.
+# All macro state is ordinary immutable Syntax and persistent bindings;
+# path-derived private names need neither a VM opcode nor mutable counters.
+# This first stage supports local declarations (imports are intentionally
+# rejected until a Nail-defined module environment is supplied).
+# --------------------------------------------------------------------------
+
+def nmError message = syntaxLeaf " MacroError " message ;
+def nmOk = syntaxLeaf " NMValid " " " ;
+def nmIsError value = syntaxTag value == " MacroError " ;
+def nmNoBindings = syntaxLeaf " NMNoBindings " " " ;
+def nmBindings entries = syntaxNode " NMBindings " entries ;
+def nmChild seed suffix = textConcat seed suffix ;
+
+def nmDefinition name params template captured =
+  syntaxNode " NMDefinition "
+    [ syntaxName name , syntaxNode " NMParams " params ,
+      template , syntaxNode " NMScope " captured ] ;
+
+def nmParameters expr reversed =
+  if syntaxTag expr == " Lambda " then
+    let name = syntaxText ( tcFirst expr ) in
+    if nmContainsParam name reversed then
+      nmError ( textConcat " duplicate macro parameter " name )
+    else nmParameters ( tcSecond expr ) ( cons ( syntaxName name ) reversed )
+  else if syntaxTag expr == " Apply " then
+    let fn = tcFirst expr in
+    if syntaxTag fn == " Var " then
+      if syntaxText fn == " #macro_quote " then
+        syntaxNode " NMParameters "
+          [ syntaxNode " NMParams " ( reverse reversed ) , tcSecond expr ]
+      else nmError " expected quote ( expression ) in macro "
+    else nmError " expected quote ( expression ) in macro "
+  else nmError " expected quote ( expression ) in macro " ;
+
+def nmContainsParam name params =
+  match params with
+  | [] -> false
+  | first :: rest ->
+    if syntaxText first == name then true
+    else nmContainsParam name rest ;
+
+def nmValidate tree params name depth =
+  if depth > 128 then nmError " expansion nesting limit exceeded "
+  else let tag = syntaxTag tree in
+    if tag == " Apply " then
+      let fn = tcFirst tree in
+      let arg = tcSecond tree in
+      if syntaxTag fn == " Var " then
+        if syntaxText fn == " #macro_unquote " then
+          if syntaxTag arg != " Var " then
+            nmError " unquote expects a parameter name "
+          else let label = syntaxText arg in
+            if nmContainsParam label params then nmOk
+            else nmError
+              ( textConcat
+                ( textConcat " unknown unquote parameter " label )
+                ( textConcat " in " name ) )
+        else nmValidateChildren fn arg params name depth
+      else nmValidateChildren fn arg params name depth
+    else if tag == " Lambda " then
+      nmValidate ( tcSecond tree ) params name ( depth + 1 )
+    else if tag == " If " then
+      let first = nmValidate ( tcFirst tree ) params name ( depth + 1 ) in
+      if nmIsError first then first
+      else let second = nmValidate ( tcSecond tree ) params name ( depth + 1 ) in
+        if nmIsError second then second
+        else nmValidate ( tcThird tree ) params name ( depth + 1 )
+    else if tag == " Var " then
+      let label = syntaxText tree in
+      if label == " #macro_unquote " then
+        nmError " unquote expects a parameter name "
+      else if label == " #macro_quote " then
+        nmError " nested quote is not supported "
+      else nmOk
+    else nmOk ;
+
+def nmValidateChildren fn arg params name depth =
+  let left = nmValidate fn params name ( depth + 1 ) in
+  if nmIsError left then left
+  else nmValidate arg params name ( depth + 1 ) ;
+
+# A macro invocation is a left-associated Apply spine whose head is
+# ( #macro_expand macroName ). Arguments are collected in source order.
+def nmInvocation tree args =
+  if syntaxTag tree != " Apply " then
+    syntaxLeaf " NMNotCall " " "
+  else let fn = tcFirst tree in
+    let arg = tcSecond tree in
+    if syntaxTag fn == " Var " then
+      if syntaxText fn == " #macro_expand " then
+        if syntaxTag arg != " Var " then
+          nmError " expand expects a macro name "
+        else syntaxNode " NMCall "
+          [ syntaxName ( syntaxText arg ),
+            syntaxNode " NMArgs " args ]
+      else nmInvocation fn ( cons arg args )
+    else nmInvocation fn ( cons arg args ) ;
+
+def nmDropArguments params args =
+  match params with
+  | [] -> args
+  | p :: rest ->
+    match args with
+    | [] -> []
+    | arg :: remaining -> nmDropArguments rest remaining ;
+
+# Evaluate each substituted argument in its *caller's* lexical environment.
+# Caller trees are never renamed while substituting unquote holes.
+def nmBindArguments params args scope holes locals seed depth entries =
+  match params with
+  | [] -> nmBindings entries
+  | param :: remaining ->
+    match args with
+    | [] -> nmError " missing macro argument "
+    | arg :: rest ->
+      let substituted = nmWalk arg scope holes locals
+        ( nmChild seed " _a " ) ( depth + 1 ) in
+      if nmIsError substituted then substituted
+      else nmBindArguments remaining rest scope holes locals
+        ( nmChild seed " _next " ) ( depth + 1 )
+        ( cons ( tcBinding ( syntaxText param ) substituted ) entries ) ;
+
+def nmApplyExtra result extras scope holes locals seed depth =
+  match extras with
+  | [] -> result
+  | arg :: rest ->
+    let expanded = nmWalk arg scope holes locals
+      ( nmChild seed " _extra " ) ( depth + 1 ) in
+    if nmIsError expanded then expanded
+    else nmApplyExtra ( syntaxApply result expanded ) rest
+      scope holes locals ( nmChild seed " _next " ) ( depth + 1 ) ;
+
+def nmExpandCall call scope holes locals seed depth =
+  let name = syntaxText ( tcFirst call ) in
+  let definition = tcFind name scope in
+  if syntaxTag definition == " TCMissing " then
+    nmError ( textConcat " unknown macro " name )
+  else let params = syntaxChildren ( tcSecond definition ) in
+    let args = syntaxChildren ( tcSecond call ) in
+    if length args < length params then
+      nmError ( textConcat " macro requires more arguments: " name )
+    else let bound = nmBindArguments params args scope holes locals
+      ( nmChild seed " _args " ) ( depth + 1 ) [] in
+      if nmIsError bound then bound
+      else let captured = syntaxChildren
+        ( tcFourth definition ) in
+        let ownScope = cons ( tcBinding name definition ) captured in
+        let generated = nmWalk ( tcThird definition ) ownScope bound
+          ( nmBindings [] ) ( nmChild seed " _template " )
+          ( depth + 1 ) in
+        if nmIsError generated then generated
+        else nmApplyExtra generated ( nmDropArguments params args )
+          scope holes locals ( nmChild seed " _remaining " ) ( depth + 1 ) ;
+
+def nmWalk tree scope holes locals seed depth =
+  if depth > 128 then nmError " expansion nesting limit exceeded "
+  else let tag = syntaxTag tree in
+    if tag == " Apply " then
+      let fn = tcFirst tree in
+      let arg = tcSecond tree in
+      if syntaxTag holes == " NMBindings " then
+        if syntaxTag fn == " Var " then
+          if syntaxText fn == " #macro_unquote " then
+            if syntaxTag arg != " Var " then
+              nmError " unquote expects a parameter name "
+            else let replacement = tcFind ( syntaxText arg )
+              ( syntaxChildren holes ) in
+              if syntaxTag replacement == " TCMissing " then
+                nmError ( textConcat " unknown unquote parameter " ( syntaxText arg ) )
+              else replacement
+          else nmWalkApplication tree fn arg scope holes locals seed depth
+        else nmWalkApplication tree fn arg scope holes locals seed depth
+      else nmWalkApplication tree fn arg scope holes locals seed depth
+    else if tag == " Lambda " then
+      let name = syntaxText ( tcFirst tree ) in
+      if syntaxTag locals == " NMBindings " then
+        let fresh = textConcat
+          ( textConcat " #macro_local_" seed )
+          ( textConcat " _" name ) in
+        let renamed = nmWalk ( tcSecond tree ) scope holes
+          ( nmBindings ( cons ( tcBinding name ( syntaxName fresh ) )
+            ( syntaxChildren locals ) ) )
+          ( nmChild seed " _body " ) ( depth + 1 ) in
+        if nmIsError renamed then renamed
+        else syntaxLambda fresh renamed
+      else let body = nmWalk ( tcSecond tree ) scope holes locals
+        ( nmChild seed " _body " ) ( depth + 1 ) in
+        if nmIsError body then body
+        else syntaxLambda name body
+    else if tag == " If " then
+      let condition = nmWalk ( tcFirst tree ) scope holes locals
+        ( nmChild seed " _if0 " ) ( depth + 1 ) in
+      if nmIsError condition then condition
+      else let yes = nmWalk ( tcSecond tree ) scope holes locals
+        ( nmChild seed " _if1 " ) ( depth + 1 ) in
+        if nmIsError yes then yes
+        else let no = nmWalk ( tcThird tree ) scope holes locals
+          ( nmChild seed " _if2 " ) ( depth + 1 ) in
+          if nmIsError no then no
+          else syntaxIf condition yes no
+    else if tag == " Var " then
+      let name = syntaxText tree in
+      if name == " #macro_expand " then nmError " expand expects a macro name "
+      else if name == " #macro_unquote " then nmError " unquote belongs inside a macro template "
+      else if name == " #macro_quote " then nmError " quote belongs at the start of a macro body "
+      else if syntaxTag locals != " NMBindings " then tree
+      else let binding = tcFind name ( syntaxChildren locals ) in
+        if syntaxTag binding == " TCMissing " then
+          syntaxVar ( textConcat " #macro_global_ " name )
+        else syntaxVar ( syntaxText binding )
+    else tree ;
+
+def nmWalkApplication tree fn arg scope holes locals seed depth =
+  let invocation = nmInvocation tree [] in
+  if nmIsError invocation then invocation
+  else if syntaxTag invocation == " NMCall " then
+    nmExpandCall invocation scope holes locals seed ( depth + 1 )
+  else let left = nmWalk fn scope holes locals
+    ( nmChild seed " _left " ) ( depth + 1 ) in
+    if nmIsError left then left
+    else let right = nmWalk arg scope holes locals
+      ( nmChild seed " _right " ) ( depth + 1 ) in
+      if nmIsError right then right
+      else syntaxApply left right ;
+
+def nmExpandForms forms scope reversed seed =
+  match forms with
+  | [] -> syntaxNode " Program " ( reverse reversed )
+  | form :: rest ->
+    let tag = syntaxTag form in
+    if tag == " Define " then
+      let name = syntaxText ( tcFirst form ) in
+      if tcStartsWith name " #macro_decl_ " then
+        let label = tcDropPrefix name
+          ( textLength " #macro_decl_ " ) " " in
+        if syntaxTag ( tcFind label scope ) != " TCMissing " then
+          nmError ( textConcat " duplicate macro " label )
+        else let parts = nmParameters ( tcSecond form ) [] in
+          if nmIsError parts then parts
+          else let params = syntaxChildren ( tcFirst parts ) in
+            let template = tcSecond parts in
+            let validity = nmValidate template params label 0 in
+            if nmIsError validity then validity
+            else let definition = nmDefinition label params template scope in
+              nmExpandForms rest
+                ( cons ( tcBinding label definition ) scope )
+                reversed ( nmChild seed " _form " )
+      else if tcStartsWith name " #macro_import_ " then
+        nmError " macro import requires a module environment "
+      else if tcStartsWith name " #macro_export_ " then
+        nmError " export is only allowed in a macro module "
+      else let body = nmWalk ( tcSecond form ) scope
+        nmNoBindings nmNoBindings seed 0 in
+        if nmIsError body then body
+        else nmExpandForms rest scope
+          ( cons ( syntaxDefine name body ) reversed )
+          ( nmChild seed " _form " )
+    else if tag == " Evaluate " then
+      let body = nmWalk ( tcFirst form ) scope
+        nmNoBindings nmNoBindings seed 0 in
+      if nmIsError body then body
+      else nmExpandForms rest scope
+        ( cons ( syntaxNode " Evaluate " [ body ] ) reversed )
+        ( nmChild seed " _form " )
+    else nmExpandForms rest scope ( cons form reversed )
+      ( nmChild seed " _form " ) ;
+
+def nailMacroExpandSyntax program =
+  if syntaxTag program != " Program " then program
+  else nmExpandForms ( syntaxChildren program ) [] [] " m " ;
+
+# End-to-end opt-in dogfooding: a source with local macros is parsed,
+# expanded and typechecked entirely with Nail-written transformations.
+# The Haxe macro expander is deliberately not called along this path.
+def tcCheckSourceNailMacrosTraced source =
+  let prepared = tcPrepareTypedSource source in
+  if syntaxTag prepared != " TCPreparedMacros " then
+    Error ( tcFault " Invalid prepared typed source " )
+  else let expanded = nailMacroExpandSyntax ( tcFirst prepared ) in
+    tcCheckExpandedTypedTraced
+      ( syntaxNode " TCExpansionRequest " [ prepared , expanded ] ) ;
