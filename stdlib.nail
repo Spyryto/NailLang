@@ -3386,11 +3386,32 @@ def nmNoTrace = syntaxLeaf " NMNoTrace " " " ;
 def nmSource owner macroName path =
   syntaxNode " NMSource " [ syntaxName owner , syntaxName macroName ,
     syntaxName path ] ;
+
+# The fourth component is the *outermost caller's* structural call site.
+# This sidecar never enters the executable AST and survives nested expansion.
+def nmSourceAt owner macroName path site =
+  syntaxNode " NMSourceAt "
+    [ syntaxName owner , syntaxName macroName , syntaxName path , site ] ;
+
 def nmAt source child =
-  if syntaxTag source != " NMSource " then nmNoTrace
-  else nmSource ( syntaxText ( tcFirst source ) )
-    ( syntaxText ( tcSecond source ) )
-    ( textConcat ( syntaxText ( tcThird source ) ) child ) ;
+  if syntaxTag source == " NMSourceAt " then
+    nmSourceAt ( syntaxText ( tcFirst source ) )
+      ( syntaxText ( tcSecond source ) )
+      ( textConcat ( syntaxText ( tcThird source ) ) child )
+      ( tcFourth source )
+  else if syntaxTag source == " NMSource " then
+    nmSource ( syntaxText ( tcFirst source ) )
+      ( syntaxText ( tcSecond source ) )
+      ( textConcat ( syntaxText ( tcThird source ) ) child )
+  else nmNoTrace ;
+
+# An original invocation carries the source-form seed plus the expression
+# path. Generated nested invocations inherit that first caller reference.
+def nmCallSite source =
+  if syntaxTag source != " NMSourceAt " then nmNoTrace
+  else if syntaxText ( tcFirst source ) == " #caller " then
+    syntaxNode " NMCallerSite " [ tcFourth source , tcThird source ]
+  else tcFourth source ;
 def nmTrace origin children =
   syntaxNode " NMTrace " [ origin , syntaxNode " NMTraceNodes " children ] ;
 def nmPackTrace result remaining trace =
@@ -3679,7 +3700,7 @@ def nmApplyExtra result extraTrace extras scope holes locals seed depth fuel =
       rest scope holes locals ( nmChild seed " _next " )
       ( depth + 1 ) ( nmRemaining expanded ) ;
 
-def nmExpandCall call scope holes locals seed depth fuel =
+def nmExpandCall call scope holes locals seed depth fuel callerSource =
   let name = syntaxText ( tcFirst call ) in
   let definition = tcFind name scope in
   if syntaxTag definition == " TCMissing " then
@@ -3694,8 +3715,8 @@ def nmExpandCall call scope holes locals seed depth fuel =
       if nmBad bound then bound
       else let captured = syntaxChildren ( tcFourth definition ) in
         let ownScope = cons ( tcBinding name definition ) captured in
-        let source = nmSource ( syntaxText ( tcFifth definition ) )
-          name " " in
+        let source = nmSourceAt ( syntaxText ( tcFifth definition ) )
+          name " " ( nmCallSite callerSource ) in
         let generated = nmWalk ( tcThird definition ) ownScope
           ( nmValue bound ) ( nmBindings [] )
           ( nmChild seed " _template " ) ( depth + 1 )
@@ -3798,7 +3819,7 @@ def nmWalkApplication tree fn arg scope holes locals seed depth fuel source =
   let invocation = nmInvocation tree [] source in
   if nmIsError invocation then nmPack invocation fuel
   else if syntaxTag invocation == " NMCall " then
-    nmExpandCall invocation scope holes locals seed ( depth + 1 ) fuel
+    nmExpandCall invocation scope holes locals seed ( depth + 1 ) fuel source
   else let left = nmWalk fn scope holes locals
     ( nmChild seed " _left " ) ( depth + 1 ) fuel
     ( nmAt source " 0 " ) in
@@ -3848,7 +3869,8 @@ def nmExpandFormsIn forms scope reversed traced seed modules fuel =
         nmPack ( nmError " export is only allowed in a macro module " ) available
       else let body = nmWalk ( tcSecond form ) scope
         nmNoBindings nmNoBindings seed 0 available
-        ( nmSource " #caller " " #caller " " " ) in
+        ( nmSourceAt " #caller " " #caller " " "
+          ( syntaxName seed ) ) in
         if nmBad body then body
         else nmExpandFormsIn rest scope
           ( cons ( syntaxDefine name ( nmValue body ) ) reversed )
@@ -3858,7 +3880,8 @@ def nmExpandFormsIn forms scope reversed traced seed modules fuel =
     else if tag == " Evaluate " then
       let body = nmWalk ( tcFirst form ) scope
         nmNoBindings nmNoBindings seed 0 available
-        ( nmSource " #caller " " #caller " " " ) in
+        ( nmSourceAt " #caller " " #caller " " "
+          ( syntaxName seed ) ) in
       if nmBad body then body
       else nmExpandFormsIn rest scope
         ( cons ( syntaxNode " Evaluate " [ nmValue body ] ) reversed )
@@ -4128,7 +4151,8 @@ def nmTraceAtPath tree path =
         else 999 in
         nmTraceAtPath ( nmNthTrace children index ) rest ;
 
-def nmFaultNodeOrigin request =
+# Raw trace keeps the call site as well as the template AST path.
+def nmFaultNodeOriginAt request =
   if syntaxTag request != " NMTraceRequest " then nmNoOrigin
   else let traces = tcFirst request in
     let fault = tcSecond request in
@@ -4139,6 +4163,15 @@ def nmFaultNodeOrigin request =
       else nmTraceAtPath
         ( nmNthTrace ( syntaxChildren traces ) formIndex )
         ( syntaxChildren ( tcSecond fault ) ) ;
+
+# Preserve the three-component result expected by older tooling.
+def nmFaultNodeOrigin request =
+  let origin = nmFaultNodeOriginAt request in
+  if syntaxTag origin == " NMSourceAt " then
+    nmSource ( syntaxText ( tcFirst origin ) )
+      ( syntaxText ( tcSecond origin ) )
+      ( syntaxText ( tcThird origin ) )
+  else origin ;
 
 def tcCheckSourceNailModulesTraced request =
   let source = syntaxText ( tcFirst request ) in
