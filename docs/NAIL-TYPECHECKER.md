@@ -49,6 +49,11 @@ Unification performs an **occurs check** to reject infinite types.
 - **Algebraic sum constructors**, including zero-field cases and polymorphic
   variants (for example `type Option a = None | Some a`); distinct sum
   owners remain distinct, with predicate and positional accessor signatures
+- **Exhaustive list and nominal sum patterns** in `match ... with` and
+  `function | ...`: the Nail checker recognizes the parser's private
+  lowering, checks each constructor's owner and binding arity, rejects
+  missing cases and mixed owners, then uses ordinary HM inference for the
+  bound values and branch results. No new core AST constructor or VM opcode
 - **Optional parameter and value annotations**, structural type aliases
   `type Html = { h2 : Text Text , div : Text Text }`, required-field
   validation with allowance for additional implementation fields
@@ -167,9 +172,38 @@ providing the same structural fields. The runtime already lowers all
 these declarations to ordinary `Define` forms: the new logic exists only
 in the Nail-written type checker.
 
-The generic constructor tests compare Nail's output with the separate
-Haxe checker. Sum-pattern checking and nominal public-interface ABI
-validation are not yet claimed by this experiment.
+The generic constructor and pattern tests compare Nail's output with
+the separate Haxe checker. Exhaustiveness and destructuring are validated
+for the exact private sum-match lowering shape produced by the normal
+self-hosted parser. These checks remain opt-in and do not yet cover
+macro-renamed subjects or general source provenance. Nominal public-interface
+ABI validation remains future work.
+
+
+## Pattern inference examples
+
+```nail
+nail 0.54 ;
+type Option a = None | Some a ;
+def unwrap = function
+  | None -> 0
+  | Some value -> value ;
+unwrap ( Some 42 ) ;
+
+def firstOr fallback = function
+  | [] -> fallback
+  | item :: rest -> item ;
+firstOr 0 [ 1 , 2 ] ;
+```
+
+The nominal match must cover all variants of the same owner. A missing
+`None` or `Some`, a constructor from a different sum, or a mismatch between
+the declared payload arity and the pattern binders returns `Error(Text)`.
+The private `#sumFail` fallback is assigned a polymorphic bottom-like type
+**only after** successful coverage validation; it is not exposed as a normal
+source-level name. List patterns use existing private list operations with
+ordinary polymorphic list signatures. The validation and inference run in
+Nail bytecode on Haxe, Node and PHP.
 
 ## Parity and coverage gaps
 
@@ -181,9 +215,10 @@ The following are not yet complete:
 - Higher-order and partially applied overloaded numerical relations,
   nonconcrete numeric operand inference and explicit `Eq` syntax in
   user-authored signatures (inferred qualified schemes are implemented)
-- Full **sum-pattern exhaustiveness** and destructuring (the current
-  source-free parser lowers patterns to core expressions before the checker
-  sees the original pattern); variant diagnostics and generic recursion edges
+- Macro-hygiene-renamed sum-pattern subjects and full source-pattern
+  provenance/locations; the checker currently recognizes the parser's
+  standard private lowering, including constructor ownership, binding arity,
+  exhaustiveness and type inference. Generic recursion edges remain deferred
 - Complete structural row algebra: open-row **reordering**, row-lacks
   constraints and row-polymorphic ABI
 - Generic/recursive structural aliases, applied nominal or `Node` types
