@@ -284,7 +284,8 @@ The original scanner sees two `missing` tokens, but Nail's error path
 identifies the `then` child of `If`, so the diagnostic points at the
 **first** occurrence. Similarly, if two definitions use the same invalid
 name, the failing-form trail selects the earlier failing definition. Tests
-also cover errors nested in lambdas and function applications.
+also cover errors nested in lambdas, function applications and the two operands
+of lowered numeric/equality operators.
 
 Where a structural path cannot be mapped, locations are restricted to
 unambiguous tokens within the **failing form**, the second of exactly two
@@ -295,8 +296,8 @@ points to `expand` and `templateSpan` points to its template's original
 macros never receive fabricated locations.
 
 This is **not yet** complete expression provenance through all transforms:
-generated macro subtrees and specialized numeric/equality inference paths
-are not fully traced. Arbitrary unification failures and general pattern
+generated macro subtrees and certain specialized inference paths are not
+fully traced. Numeric/equality operand paths are covered for nested failures. Arbitrary unification failures and general pattern
 errors may lack a precise span. A future fully Nail-written positioned parser
 could replace the read-only host parser sidecar. This feature remains opt-in
 and is exercised on Haxe, Node and PHP.
