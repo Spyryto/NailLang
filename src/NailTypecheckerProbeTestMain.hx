@@ -1312,6 +1312,57 @@ class NailTypecheckerProbeTestMain {
       nestedArguments.lastIndexOf('expand add'),
       'Nail caller-token map selects invalid repeated macro expansion');
 
+
+    // A typed source includes both an erased macro declaration and ordinary
+    // forms (including a sum declaration). The macro call's form ordinal is
+    // counted only among source forms retained by the checker.
+    var formOrderSource='nail 0.54 ; type Choice = A | B ; '
+      +'macro identity x = quote ( unquote x ) ; '
+      +'def first = expand identity A ; '
+      +'def second = expand identity B ;';
+    var formOrderPrepared=boot.invoke('tcPrepareTypedSource',
+      Text(formOrderSource));
+    var formOrderProgram=switch(formOrderPrepared) {
+      case SyntaxNode('TCPreparedMacros',Cons(program,_)): program;
+      case _: throw 'Could not prepare source form ordinal fixture';
+    };
+    var firstFormCalls=boot.invoke('nmSourceCallsInForm',
+      SyntaxNode('NMFormCallsRequest',
+        Cons(formOrderProgram,Cons(Number(1),Nil))));
+    var secondFormCalls=boot.invoke('nmSourceCallsInForm',
+      SyntaxNode('NMFormCallsRequest',
+        Cons(formOrderProgram,Cons(Number(2),Nil))));
+    var isSingleIdentityCall=(mapped:Value) -> switch(mapped) {
+      case SyntaxNode('NMTokenMap',Cons(
+          SyntaxNode('NMTokenOrigin',Cons(
+            SyntaxLeaf('Name',path),Cons(
+            SyntaxLeaf('Name',name),Nil))),Nil)):
+        path=='' && name=='identity';
+      case _: false;
+    };
+    eq(isSingleIdentityCall(firstFormCalls),true,
+      'Nail form selection excludes macro declaration but counts a sum form');
+    eq(isSingleIdentityCall(secondFormCalls),true,
+      'Nail form selection identifies second original source definition');
+    eq(switch(boot.invoke('nmSourceCallsInForm',
+        SyntaxNode('NMFormCallsRequest',
+          Cons(formOrderProgram,Cons(Number(99),Nil))))) {
+      case SyntaxNode('NMTokenMap',_): false;
+      case _: true;
+    },true,'Nail source form index fails closed when out of bounds');
+
+    var failingSecondForm='nail 0.54 ; '
+      +'macro add x = quote ( unquote x + 1 ) ; '
+      +'def first = expand add 2 ; '
+      +'def second = expand add " wrong " ;';
+    var failingSecondFormReport=NailSourceAnalysis.analyzeNailMacros(
+      failingSecondForm,boot,null,'src/second-original-form.nail');
+    eq(failingSecondFormReport.ok,false,
+      'second source form with macro mismatch rejected');
+    eq(failingSecondFormReport.diagnostics[0].span.start,
+      failingSecondForm.lastIndexOf('expand add'),
+      'Nail source form ordinal maps second form to its original caller');
+
     var nestedDuplicates='nail 0.54 ; '
       +'macro inner x = quote ( unquote x + 1 ) ; '
       +'macro outer x = quote ( expand inner ( unquote x ) ) ; '

@@ -4408,6 +4408,38 @@ def nmCallTokensGo tree path =
 def nmSourceCallTokens expression =
   syntaxNode " NMTokenMap " ( nmCallTokensGo expression " " ) ;
 
+# Resolve a checker form ordinal against the *original* Nail-parsed
+# Program. Macro/import/export directives create private metadata definitions
+# and disappear during expansion; only those are skipped for source ordinals.
+def nmIsErasedOriginalForm form =
+  if syntaxTag form != " Define " then false
+  else let name = syntaxText ( tcFirst form ) in
+    if tcStartsWith name " #macro_decl_ " then true
+    else if tcStartsWith name " #macro_import_ " then true
+    else tcStartsWith name " #macro_export_ " ;
+
+def nmOriginalFormAt forms index =
+  match forms with
+  | [] -> nmNoOrigin
+  | form :: rest ->
+    if nmIsErasedOriginalForm form then nmOriginalFormAt rest index
+    else if index == 0 then form
+    else nmOriginalFormAt rest ( index - 1 ) ;
+
+# The form ordinal and the original Program travel together as values;
+# only the source-coordinate projection stays in Haxe.
+def nmSourceCallsInForm request =
+  if syntaxTag request != " NMFormCallsRequest " then nmNoOrigin
+  else let program = tcFirst request in
+    let index = tcSecond request in
+    if syntaxTag program != " Program " then nmNoOrigin
+    else if index < 0 then nmNoOrigin
+    else let form = nmOriginalFormAt ( syntaxChildren program ) index in
+      let tag = syntaxTag form in
+      if tag == " Define " then nmSourceCallTokens ( tcSecond form )
+      else if tag == " Evaluate " then nmSourceCallTokens ( tcFirst form )
+      else nmNoOrigin ;
+
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
 # The Haxe macro expander is deliberately not called along this path.

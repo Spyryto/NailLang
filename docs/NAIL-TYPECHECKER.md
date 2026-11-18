@@ -502,14 +502,18 @@ as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
 
 **Caller-site disambiguation:** the Nail trace carries the original
-invocation's **structural call path**. The Nail-written
-`nmSourceCallTokens` traverses the unexpanded expression and emits
-ordered `NMTokenOrigin(path,macroName)` records. Haxe no longer
-reimplements the `#macro_expand` application spine: it only compares
-this list with the scanned `expand name` pairs and maps matches to
-source offsets. In case of disagreement, it falls back to prior safe
-unique-call rules. This covers repeated names, nested arguments, and
-imported macro invocations. No runtime AST or bytecode change occurs.
+invocation's **structural call path**. Nail-written
+`nmSourceCallsInForm` selects the requested original source form by
+checker form ordinal, omitting private macro/import/export declaration
+markers. Then `nmSourceCallTokens` traverses that form's unexpanded
+expression, returning ordered `NMTokenOrigin(path,macroName)` records.
+Haxe no longer implements either the source-form AST selection or the
+`#macro_expand` application spine: it compares this list with original
+scanned `expand name` pairs and maps matches to source offsets.
+Disagreement, unsupported forms and out-of-range ordinals fail closed,
+using only prior unambiguous fallbacks. Repeated names, nested arguments
+and imported invocations remain supported. No runtime AST or bytecode
+change occurs.
 
 **Conservative limits:** unsupported lowerings, source/AST call-count
 mismatches, duplicated symbolic template tokens, and absent exact source

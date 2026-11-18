@@ -525,36 +525,14 @@ class NailSourceAnalysis {
     return null;
   }
 
-  static function originalFormAt(program:Value,index:Int):Null<Value> {
-    var current=0;
-    for (form in syntaxChildren(program)) {
-      var erased=switch(form) {
-        case SyntaxNode('Define',Cons(SyntaxLeaf('Name',name),_)):
-          StringTools.startsWith(name,'#macro_decl_')
-            || StringTools.startsWith(name,'#macro_import_')
-            || StringTools.startsWith(name,'#macro_export_');
-        case _: false;
-      };
-      if (erased) continue;
-      if (current==index) return form;
-      current++;
-    }
-    return null;
-  }
-
   /** Nail owns call discovery and structural order; Haxe only projects
       ordered (path,name) tokens to verified source offsets. */
   static function tracedCallSite(boot:BootRuntime,
       tokens:Array<SourceToken>,area:SourceSpan,
       program:Value,index:Int,callPath:String):Null<SourceSpan> {
-    var form=originalFormAt(program,index);
-    if (form==null) return null;
-    var body:Value=switch(form) {
-      case SyntaxNode('Define',Cons(_,Cons(expr,Nil))): expr;
-      case SyntaxNode('Evaluate',Cons(expr,Nil)): expr;
-      case _: return null;
-    };
-    var calls=nailOriginTokens(boot,'nmSourceCallTokens',body);
+    var request=SyntaxNode('NMFormCallsRequest',
+      Cons(program,Cons(Number(index),Nil)));
+    var calls=nailOriginTokens(boot,'nmSourceCallsInForm',request);
     var keywords:Array<{name:String,span:SourceSpan}>=[];
     for (i in 0...tokens.length-1) {
       var keyword=tokens[i];
