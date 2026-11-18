@@ -3889,28 +3889,33 @@ def nmOriginalFormAt forms index =
     else if index == 0 then form
     else nmOriginalFormAt rest ( index - 1 ) ;
 
-def nmOriginScopeBefore forms target scope modules =
+# Count the output form ordinal instead of comparing Syntax values: two
+# identical source forms may be structurally equal but have different sites.
+def nmOriginScopeBefore forms remaining scope modules =
   match forms with
-  | [] -> syntaxNode " NMScope " scope
+  | [] -> nmNoOrigin
   | form :: rest ->
-    if form == target then syntaxNode " NMScope " scope
-    else if syntaxTag form != " Define " then
-      nmOriginScopeBefore rest target scope modules
+    if syntaxTag form != " Define " then
+      if remaining == 0 then syntaxNode " NMScope " scope
+      else nmOriginScopeBefore rest ( remaining - 1 ) scope modules
     else let name = syntaxText ( tcFirst form ) in
       if tcStartsWith name " #macro_decl_ " then
         let label = tcDropPrefix name
           ( textLength " #macro_decl_ " ) " " in
         let declared = nmDeclare label ( tcSecond form ) scope " #caller " in
         if nmIsError declared then nmNoOrigin
-        else nmOriginScopeBefore rest target
+        else nmOriginScopeBefore rest remaining
           ( cons ( tcBinding label declared ) scope ) modules
       else if tcStartsWith name " #macro_import_ " then
         let imported = nmImportCached form scope modules in
         if nmIsError imported then nmNoOrigin
-        else nmOriginScopeBefore rest target
+        else nmOriginScopeBefore rest remaining
           ( cons ( tcBinding ( syntaxText ( tcFirst imported ) )
             ( tcSecond imported ) ) scope ) modules
-      else nmOriginScopeBefore rest target scope modules ;
+      else if tcStartsWith name " #macro_export_ " then
+        nmOriginScopeBefore rest remaining scope modules
+      else if remaining == 0 then syntaxNode " NMScope " scope
+      else nmOriginScopeBefore rest ( remaining - 1 ) scope modules ;
 
 # Return a symbolic origin only for an unambiguously generated identifier.
 # A source scanner turns this logical origin into concrete module-local spans.
@@ -3938,7 +3943,7 @@ def nmFaultMacroOrigin request =
           else let prepared = nmPrepareModules modules in
             if nmIsError prepared then nmNoOrigin
             else let scope = nmOriginScopeBefore
-              ( syntaxChildren program ) form []
+              ( syntaxChildren program ) formIndex []
               prepared in
               if syntaxTag scope != " NMScope " then nmNoOrigin
               else let definition = tcFind ( syntaxText ( tcFirst call ) )
