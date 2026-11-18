@@ -407,6 +407,30 @@ re-export restrictions, duplicate checking and circular import detection.
 Definitions retain the environment in which they were declared; imports
 do not inherit the caller's variables.
 
+The Nail transformer now builds a **persistent module-export cache**:
+`nmPrepareModules` traverses the import graph, resolves each module's
+exports at most once, and stores the result under its logical module key.
+Cyclic imports and re-export restrictions still fail rather than creating
+partial export tables. The resolver itself remains source-text-only; the
+cache is ordinary Nail `Syntax` with no mutable host map.
+
+Expansion work is also **bounded in Nail**. An internal `NMExpansionStep`
+record carries the transformed `Syntax` and a numeric *remaining fuel*.
+Every recursive expression visit and top-level form consumes fuel, with
+the remainder threaded through sibling subexpressions, caller arguments
+and nested calls. A conservative upfront charge also accounts for the
+number of core Syntax nodes in the caller and every parsed module. The
+default cap is **25,000 units** (independent of the VM's instruction limit).
+Exhaustion returns `MacroError("macro expansion work limit exceeded")`.
+The pure Nail functions `nailMacroExpandSyntaxBudgeted(program, fuel)`
+and `nailMacroExpandWithModulesBudgeted(request, fuel)` allow experiments
+with a smaller or larger cap; the existing public names use the default.
+The special tiny-budget entry points are available for deterministic tests.
+
+The budget measures source Syntax size and expansion traversal visits,
+not wall-clock time or a physical byte allocation. The VM continues to
+provide an independent interpreter step limit for other execution costs.
+
 `NailMacroModuleInputs.collect` is a narrow Haxe adapter. It asks a
 caller-provided resolver for source text **once per logical module**, parses
 the returned source using Nail's `parseSource` and `modernRewrite`, and
@@ -445,12 +469,12 @@ also check Nail's type verdict independently on both expanded programs,
 and validate rejection of malformed macro declarations and calls.
 
 **Known gaps before substitution in the public compiler:** full
-equivalence of error messages, a global work/node-count limit (only
-expansion depth and module discovery are bounded), pure Nail provenance
-through all generated nodes, performance under large recursive templates,
-memoized module export evaluation within the Nail transformer, and
-differential parity over the full macro corpus. The existing production
-compiler remains authoritative.
+equivalence of error messages, pure Nail provenance through all generated
+nodes, measured throughput on large recursive templates, allocation/byte
+budgets in addition to the deterministic work budget, and differential
+parity over the full macro corpus. Module-export memoization and a
+cumulative Nail-side traversal budget are now implemented. The existing
+production compiler remains authoritative.
 
 ## Parity and coverage gaps
 
