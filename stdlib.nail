@@ -3546,8 +3546,8 @@ def nmWalk tree scope holes locals seed depth =
       let name = syntaxText ( tcFirst tree ) in
       if syntaxTag locals == " NMBindings " then
         let fresh = textConcat
-          ( textConcat " #macro_local_" seed )
-          ( textConcat " _" name ) in
+          ( textConcat " #macro_local_ " seed )
+          ( textConcat " _ " name ) in
         let renamed = nmWalk ( tcSecond tree ) scope holes
           ( nmBindings ( cons ( tcBinding name ( syntaxName fresh ) )
             ( syntaxChildren locals ) ) )
