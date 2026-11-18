@@ -493,6 +493,23 @@ def parseNamedFields recur owner tokens reversed =
           else parseNamedFields recur owner ( tail rest ) ( cons entry reversed )
         else parseError " Expected comma or } in named record " ;
 
+# A context block remains a Syntax-only marker until the lexical
+# resolver knows the record contract. It is never a runtime AST node.
+def parseContextSyntax recur name tokens =
+  let body = recur 0 tokens in
+  if parseFailed body then body
+  else if parsePeek ( parseRest body ) != " } " then parseError " Expected } in context "
+  else parsePair ( syntaxNode " Context " [ syntaxName name , parseTree body ] )
+    ( tail ( parseRest body ) ) ;
+
+def startsNamedField tokens =
+  if isEmpty tokens then false
+  else if parsePeek tokens != " { " then false
+  else if isEmpty ( tail tokens ) then false
+  else let field = parsePeek ( tail tokens ) in
+    if isIdentifier field == false then false
+    else parsePeek ( tail ( tail tokens ) ) == " = " ;
+
 def parsePrefix recur tokens =
   if isEmpty tokens then parseError " Unexpected end of source "
   else let word = parsePeek tokens in
@@ -547,10 +564,14 @@ def parsePrefix recur tokens =
     else if isNumeric word then parsePair ( syntaxLiteral " Number " word ) remaining
     else if isRecordTypeName word then
       if parsePeek remaining == " { " then
-        if parsePeek ( tail remaining ) == " } " then parseError " Named record requires a field "
-        else parseNamedFields recur word ( tail remaining ) []
+        if startsNamedField remaining then parseNamedFields recur word ( tail remaining ) []
+        else parseContextSyntax recur word ( tail remaining )
       else parsePair ( syntaxVar word ) remaining
-    else if isIdentifier word then parsePair ( syntaxVar word ) remaining
+    else if isIdentifier word then
+      if parsePeek remaining == " { " then
+        if startsNamedField remaining then parsePair ( syntaxVar word ) remaining
+        else parseContextSyntax recur word ( tail remaining )
+      else parsePair ( syntaxVar word ) remaining
     else parseError ( textConcat " Unexpected token: " word ) ;
 
 # Distinguish punctuation from a StringToken containing ".".
