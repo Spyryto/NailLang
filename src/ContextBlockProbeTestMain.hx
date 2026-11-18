@@ -186,6 +186,17 @@ class ContextBlockProbeTestMain {
     equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+localSelfHost),
       ['Local:X'], 'self-hosted lexical let shadows context field');
 
+    var officialExample=haxe.Resource.getString('contextual_example');
+    ok(officialExample!=null,'contextual DSL example bundled for all targets');
+    equal(typeRows(officialExample,new StringMap()).types,['[Text]'],
+      'bundled example is statically checked with optional contracts');
+    equal(run(officialExample,new StringMap()),
+      [['H:Math:Nail','H:HTML:Nail']],
+      'bundled example executes in original Haxe bytecode VM');
+    equal(new BootRuntime(55000000).runPlain(officialExample),
+      [['H:Math:Nail','H:HTML:Nail']],
+      'bundled example compiles and runs from Nail-written source parser');
+
     var nonRecordChecker=new TypeChecker();
     nonRecordChecker.check('def Html = 4 ;');
     fails(() -> ContextInterfaces.fromChecked(nonRecordChecker,['Html']),
