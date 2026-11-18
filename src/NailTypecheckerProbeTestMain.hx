@@ -1,4 +1,6 @@
 import haxe.Json;
+import haxe.ds.StringMap;
+import nail.Parser;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -68,6 +70,31 @@ class NailTypecheckerProbeTestMain {
     eq(rejected,true,'Haxe must also reject '+body);
   }
 
+  static function checkStructural(boot:BootRuntime,body:String,expected:Array<String>):Void {
+    var source='nail 0.54 ; '+body;
+    var found=inspect(boot,source);
+    eq(found.ok,true,'expected open-row success: '+body+' ('+found.message+')');
+    eq(found.types,expected,'Nail open-record type: '+body);
+    var parser=new Parser(source,new StringMap<Array<String>>());
+    var checker=new TypeChecker();
+    eq(checker.checkParsed(parser,parser.parse()),expected,
+      'Haxe opt-in open-row parity: '+body);
+  }
+
+  static function rejectsStructural(boot:BootRuntime,body:String,reason:String):Void {
+    var source='nail 0.54 ; '+body;
+    var found=inspect(boot,source);
+    eq(found.ok,false,'Nail must reject structural failure: '+body);
+    if(found.message.indexOf(reason)<0)
+      throw 'NAIL TYPECHECKER: expected '+reason+' got '+found.message;
+    checks++;
+    var parser=new Parser(source,new StringMap<Array<String>>());
+    var checker=new TypeChecker();
+    var rejected=false;
+    try checker.checkParsed(parser,parser.parse()) catch(_:Dynamic) rejected=true;
+    eq(rejected,true,'Haxe must reject same structural failure: '+body);
+  }
+
   static function main():Void {
     var boot=new BootRuntime(60000000);
     checkGood(boot,'42 ;',['Int']);
@@ -86,6 +113,18 @@ class NailTypecheckerProbeTestMain {
     checkBad(boot,'if 1 then true else false ;','Type mismatch');
     checkBad(boot,'if true then 1 else false ;','Type mismatch');
     checkBad(boot,'fun x -> x x ;','Recursive type');
+
+    checkStructural(boot,'( { x = 1 , y = true } ) . x ;',['Int']);
+    checkStructural(boot,'def getX r = r . x ; getX { x = 5 , y = true } ;',['Int']);
+    checkStructural(boot,'def getX r = r . x ; getX { x = 5 } ;',['Int']);
+    checkStructural(boot,
+      'def sum r = ( r . x ) + ( r . y ) ; sum { x = 2 , y = 3 } ;',
+      ['Int']);
+    rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
+      'Missing structural field');
+    rejectsStructural(boot,
+      'def getX r = r . x + 1 ; getX { x = true } ;',
+      'Type mismatch');
     trace('Nail-written typechecker core: '+checks+' differential checks passed');
   }
 }
