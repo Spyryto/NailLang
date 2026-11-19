@@ -540,6 +540,18 @@ load, JIT effects, and run order can mask or outweigh the avoided call.
 Do not describe this refactoring as a general performance speedup
 without repeated, comparable measurements.
 
+**End-to-end diagnostic profile:** the optional `phaseObserver` on
+`NailSourceAnalysis.analyzeNailMacros` records elapsed milliseconds for
+source preparation, module discovery, traced expansion, HM checking,
+result decoding, and source-coordinate diagnostics. The typechecker
+probe runs five cases with a shared, already-initialized `BootRuntime`,
+reports medians and total-run samples, and verifies that the complete
+diagnostic report is identical with and without observation. Timings
+include per-phase host/VM interaction where relevant, but exclude
+creating the shared runtime. This isolates likely costs more meaningfully
+than the microbenchmark of one provenance helper. The observer is opt-in;
+ordinary analysis has no additional clock reads.
+
 **Caller-site disambiguation:** the Nail trace carries the original
 invocation's **structural call path**. Nail-written
 `nmSourceCallsInForm` selects the requested original source form by

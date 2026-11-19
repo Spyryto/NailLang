@@ -1806,6 +1806,36 @@ class NailTypecheckerProbeTestMain {
       importedNumericCaller.indexOf('expand'),
       'imported numeric error retains caller site');
 
+
+    // Profile a complete imported-macro diagnostic, not just a VM helper.
+    // The same error must have identical source/template spans with and
+    // without timing; all timings are observations, never CI thresholds.
+    var timedPhases=['prepare','modules','expand','check','result','diagnostic'];
+    var phaseSeries=new StringMap<Array<Float>>();
+    for (name in timedPhases) phaseSeries.set(name,[]);
+    var totalSeries:Array<Float>=[];
+    for (sample in 0...5) {
+      var times=new StringMap<Float>();
+      var startFull=haxe.Timer.stamp();
+      var measured=NailSourceAnalysis.analyzeNailMacros(
+        importedNumericCaller,boot,name -> macroModules.get(name),
+        'src/imported-numeric.nail',
+        (phase,ms) -> times.set(phase,ms));
+      totalSeries.push((haxe.Timer.stamp()-startFull)*1000);
+      eq(measured,importedNumericReport,
+        'profiled Nail diagnostic is unchanged, sample '+sample);
+      for (name in timedPhases) {
+        eq(times.exists(name),true,'diagnostic profile includes '+name);
+        phaseSeries.get(name).push(times.get(name));
+      }
+    }
+    var profiledSummary=[for (name in timedPhases)
+      name+':'+Std.string(median(phaseSeries.get(name)))+'ms'].join(', ');
+    trace('Nail full diagnostic profile: five imported-macro error runs; '
+      +'median total '+Std.string(median(totalSeries))+'ms; '
+      +profiledSummary+'; total samples '
+      +haxe.Json.stringify(totalSeries)+' (non-gating; shared BootRuntime)');
+
     var importedRepeated='nail 0.54 ; '
       +'import bad from numericBad ; '
       +'( expand bad 2 ) + ( expand bad " text " ) ;';

@@ -671,16 +671,28 @@ class NailSourceAnalysis {
       expander, including source modules. The regular analyze() continues to
       use the production macro expander unless explicitly requested. */
   public static function analyzeNailMacros(source:String, ?boot:BootRuntime,
-      ?modules:String->Null<String>, sourceId:String = '<source>'):NailCheckReport
-    return analyze(source,boot,modules,sourceId,true);
+      ?modules:String->Null<String>, sourceId:String = '<source>',
+      ?phaseObserver:(String,Float)->Void):NailCheckReport
+    return analyze(source,boot,modules,sourceId,true,phaseObserver);
 
   /** Read-only per-source report, using the same Nail bytecode image on Haxe,
       JavaScript and PHP. The optional BootRuntime lets callers reuse the
       compiled source-free image across queries without compiler mutations. */
   public static function analyze(source:String, ?boot:BootRuntime,
       ?modules:String->Null<String>, sourceId:String = '<source>',
-      nailMacros:Bool = false):NailCheckReport {
+      nailMacros:Bool = false,
+      ?phaseObserver:(String,Float)->Void):NailCheckReport {
     var runtime = boot == null ? new BootRuntime(60000000) : boot;
+    // Opt-in instrumentation only; normal compilation and diagnostics
+    // retain their existing behavior and need no clock reads.
+    var segmentStart=phaseObserver==null ? 0.0 : haxe.Timer.stamp();
+    var mark=(phase:String) -> {
+      if (phaseObserver!=null) {
+        var now=haxe.Timer.stamp();
+        phaseObserver(phase,(now-segmentStart)*1000);
+        segmentStart=now;
+      }
+    };
     var result:Value;
     var nailProgram:Null<Value>=null;
     var nailModuleTable:Null<Value>=null;
@@ -703,12 +715,14 @@ class NailSourceAnalysis {
         // Preserve the *actual* input to expansion for symbolic provenance;
         // no host macro replay is needed after a checker fault.
         var prepared=runtime.invoke('tcPrepareTypedSource',Text(source));
+        mark('prepare');
         var executable:Value=switch(prepared) {
           case SyntaxNode('TCPreparedMacros',Cons(program,_)): program;
           case _: SyntaxLeaf('MacroError','Typed source preparation failed');
         };
         var moduleTable=NailMacroModuleInputs.collect(
           runtime,source,cachedModules,executable);
+        mark('modules');
         var expandedWithOrigins=runtime.invoke('nailMacroExpandWithModulesTraced',
           NailMacroModuleInputs.request(executable,moduleTable));
         var expanded:Value=switch(expandedWithOrigins) {
@@ -719,9 +733,11 @@ class NailSourceAnalysis {
         };
         nailProgram=executable;
         nailModuleTable=moduleTable;
+        mark('expand');
         result=runtime.invoke('tcCheckExpandedTypedTraced',
           SyntaxNode('TCExpansionRequest',
             Cons(prepared,Cons(expanded,Nil))));
+        mark('check');
       } else if (cachedModules == null)
         result = runtime.invoke('tcCheckSourceTraced', Text(source));
       else {
@@ -763,9 +779,11 @@ class NailSourceAnalysis {
         templateOrigin:null}]};
     }
 
-    if (tag == ResultValue.OK)
+    if (tag == ResultValue.OK) {
+      mark('result');
       return {ok:true, diagnostics:[],
         types:pretty(runtime, ResultValue.get(result, ResultValue.OK))};
+    }
 
     var fault = ResultValue.get(result, ResultValue.ERR);
     var message = switch (fault) {
@@ -781,6 +799,7 @@ class NailSourceAnalysis {
     var located:{span:Null<SourceSpan>,template:Null<SourceSpan>,
       templateOrigin:Null<SourceOrigin>} =
       {span:null,template:null,templateOrigin:null};
+    mark('result');
     // Even if scanning fails (e.g. an unterminated quote), never attach an
     // offset invented by a second parser or replace Nail's error message.
     try {
@@ -815,6 +834,7 @@ class NailSourceAnalysis {
     } catch (_:Dynamic) {
       // Attribution is best-effort, but the Nail checker error is authoritative.
     }
+    mark('diagnostic');
 
     return {ok:false,types:[],diagnostics:[{
       phase:macroError ? 'macro' : 'type', message:message,
