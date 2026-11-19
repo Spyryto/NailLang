@@ -421,43 +421,6 @@ class NailSourceAnalysis {
     return null;
   }
 
-  static function templateAtPath(template:Value,path:String):Null<Value> {
-    var node:Value=template;
-    for (i in 0...path.length) {
-      var digit=path.charCodeAt(i)-48;
-      var parts=syntaxChildren(node);
-      if (digit<0 || digit>=parts.length) return null;
-      node=parts[digit];
-    }
-    return node;
-  }
-
-  static function numericSymbol(name:String):Null<String> return switch(name) {
-    case '#modern+' | '+': '+';
-    case '#modern-' | '-': '-';
-    case '#modern*' | '*': '*';
-    case '#modern/' | '/': '/';
-    case _: null;
-  };
-
-  static function nodeTokenHint(node:Value):Null<String> {
-    return switch(node) {
-      case SyntaxNode('Apply',Cons(
-          SyntaxNode('Apply',Cons(SyntaxLeaf('Var',name),_)),_)):
-        numericSymbol(name);
-      case SyntaxNode('If',_): 'if';
-      case SyntaxNode('Apply',Cons(SyntaxLeaf('Var',name),_))
-          if (!StringTools.startsWith(name,'#macro_')):
-        name;
-      case SyntaxLeaf('Var',name):
-        if (StringTools.startsWith(name,'#macro_global_'))
-          name.substr('#macro_global_'.length)
-        else if (StringTools.startsWith(name,'#macro_local_')) null
-        else name;
-      case _: null;
-    }
-  }
-
   /** Pattern matching and constructor recognition are now computed by
       Nail itself. Haxe only projects their ordered lexical token identities
       onto original source coordinates; it does not inspect the lowering. */
@@ -493,10 +456,9 @@ class NailSourceAnalysis {
   /** Only look inside the selected macro declaration, keeping tokens from
       other macros, string contents and module headers out of attribution. */
   static function templateTokenSpan(source:String,macroName:String,
-      template:Value,path:String,selected:Value,
-      ?preferred:String,
+      path:String,?preferred:String,?fallbackHint:String,
       ?ordered:Array<{path:String,token:String}>):Null<SourceSpan> {
-    var hint=preferred==null ? nodeTokenHint(selected) : preferred;
+    var hint=preferred==null ? fallbackHint : preferred;
     if (hint==null || hint.length==0) return null;
     var tokens=SourcePositions.scan(source);
     var matches:Array<SourceSpan>=[];
@@ -601,7 +563,22 @@ class NailSourceAnalysis {
           var template=templateSyntax(templateProgram,macroName);
           if (template==null) null;
           else {
-            var selected=templateAtPath(template,path);
+            // Nail supplies both structural selection and the surface
+            // hint. Haxe never traverses the template AST for these.
+            var selection=boot.invoke('nmSourceTokenHintAtPath',
+              SyntaxNode('NMTokenPathRequest',Cons(template,
+                Cons(SyntaxLeaf('Name',path),Nil))));
+            var hasSelection=false;
+            var selectedHint:Null<String>=null;
+            switch(selection) {
+              case SyntaxNode('NMSelectedToken',Cons(hint,Nil)):
+                hasSelection=true;
+                switch(hint) {
+                  case SyntaxLeaf('Name',word): selectedHint=word;
+                  case _:
+                }
+              case _:
+            }
             var message=switch(fault) {
               case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
                 StringTools.trim(text);
@@ -628,19 +605,19 @@ class NailSourceAnalysis {
               preferred='match';
               ordered=null;
             }
-            if (!coverage && !caseFault && selected!=null) {
-              var hint=nodeTokenHint(selected);
-              if (hint=='+' || hint=='-' || hint=='*' || hint=='/'
-                  || hint=='if') {
+            if (!coverage && !caseFault && hasSelection) {
+              if (selectedHint=='+' || selectedHint=='-'
+                  || selectedHint=='*' || selectedHint=='/'
+                  || selectedHint=='if') {
                 ordered=nailOriginTokens(boot,'nmSourceOperatorTokens',template);
                 preferred=tokenAtPath(ordered,path);
                 if (preferred==null) ordered=null;
               }
             }
-            var matching=selected==null || (caseFault && preferred==null)
+            var matching=!hasSelection || (caseFault && preferred==null)
               ? null
-              : templateTokenSpan(templateSource,macroName,template,path,
-                  selected,preferred,ordered);
+              : templateTokenSpan(templateSource,macroName,path,
+                  preferred,selectedHint,ordered);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;

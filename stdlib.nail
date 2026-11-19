@@ -4408,6 +4408,65 @@ def nmCallTokensGo tree path =
 def nmSourceCallTokens expression =
   syntaxNode " NMTokenMap " ( nmCallTokensGo expression " " ) ;
 
+# Select a source-origin node without delegating AST path traversal to
+# Haxe. Preserve the difference between a missing path and a selected node
+# that has no surface-token hint (e.g. an internal lowered expression).
+def nmSourceSelectChild items ordinal =
+  match items with
+  | [] -> nmNoOrigin
+  | first :: rest ->
+    if ordinal == 0 then syntaxNode " NMSelected " [ first ]
+    else nmSourceSelectChild rest ( ordinal - 1 ) ;
+
+def nmSourceSelectAt tree path offset =
+  if offset >= textLength path then
+    syntaxNode " NMSelected " [ tree ]
+  else let digit = textAt path offset in
+    let ordinal =
+      if digit == " 0 " then 0
+      else if digit == " 1 " then 1
+      else if digit == " 2 " then 2
+      else 999 in
+    let child = nmSourceSelectChild ( syntaxChildren tree ) ordinal in
+    if syntaxTag child != " NMSelected " then nmNoOrigin
+    else nmSourceSelectAt ( tcFirst child ) path ( offset + 1 ) ;
+
+# The selected AST node determines the token kind, not the host language.
+# Macro-global names refer to their original source spelling; hygienic
+# macro-local names must never be attributed to a made-up source token.
+def nmSourceNodeTokenHint node =
+  let tag = syntaxTag node in
+  if tag == " Apply " then
+    let fn = tcFirst node in
+    if syntaxTag fn == " Apply " then
+      let callee = tcFirst fn in
+      if syntaxTag callee == " Var " then
+        let label = syntaxText callee in
+        if tcStartsWith label " #macro_global_ " then nmNoOrigin
+        else nmSourceNumericSymbol label
+      else nmNoOrigin
+    else if syntaxTag fn == " Var " then
+      let label = syntaxText fn in
+      if tcStartsWith label " #macro_ " then nmNoOrigin
+      else syntaxName label
+    else nmNoOrigin
+  else if tag == " If " then syntaxName " if "
+  else if tag == " Var " then
+    let label = syntaxText node in
+    if tcStartsWith label " #macro_global_ " then
+      syntaxName ( tcGlobalName label )
+    else if tcStartsWith label " #macro_local_ " then nmNoOrigin
+    else syntaxName label
+  else nmNoOrigin ;
+
+def nmSourceTokenHintAtPath request =
+  if syntaxTag request != " NMTokenPathRequest " then nmNoOrigin
+  else let selected = nmSourceSelectAt
+    ( tcFirst request ) ( syntaxText ( tcSecond request ) ) 0 in
+    if syntaxTag selected != " NMSelected " then nmNoOrigin
+    else syntaxNode " NMSelectedToken "
+      [ nmSourceNodeTokenHint ( tcFirst selected ) ] ;
+
 # Reuse nmOriginalFormAt above, already shared with the Nail-authored
 # symbolic macro-origin resolver. No second form-index implementation.
 # The form ordinal and the original Program travel together as values;

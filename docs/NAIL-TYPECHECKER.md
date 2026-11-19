@@ -493,8 +493,11 @@ specific failing constructor predicate path. **Nail functions
 the ordered, path-labeled `match`, `function`, and constructor tokens
 from the Nail-lowered Syntax, including patterns nested in scrutinees and
 branches. Haxe no longer reimplements pattern, numeric or conditional AST
-traversals: it scans the original template, checks token-count agreement
-and projects Nail-generated token identities to UTF-16 spans.
+traversals. The Nail-written `nmSourceTokenHintAtPath` also selects the
+exact template node and derives its surface-token hint, distinguishing
+missing structural paths from selected nodes with no lexical token.
+Haxe scans the original source, checks token-count agreement, and
+projects Nail-generated token identities to UTF-16 spans.
 Coverage errors remain attached to the enclosing `match`/`function`.
 Ambiguous token order fails closed. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains

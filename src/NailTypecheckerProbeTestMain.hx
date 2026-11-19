@@ -1577,6 +1577,37 @@ class NailTypecheckerProbeTestMain {
       matchThenIf.indexOf('if true'),
       'lowered match predicate does not hide explicit authored if');
 
+
+    // The last AST source-node interpretation is also Nail-written.
+    // It must distinguish a present node with no token from a bad path.
+    var directHintTree=SyntaxNode('Apply',Cons(
+      SyntaxNode('Apply',Cons(
+        SyntaxLeaf('Var','#modern+'),Cons(SyntaxLeaf('Var','left'),Nil))),
+      Cons(SyntaxLeaf('Var','right'),Nil)));
+    var hintAt=(tree:Value,path:String):Value ->
+      boot.invoke('nmSourceTokenHintAtPath',
+        SyntaxNode('NMTokenPathRequest',
+          Cons(tree,Cons(SyntaxLeaf('Name',path),Nil))));
+    var hintText=(result:Value):Null<String> -> switch(result) {
+      case SyntaxNode('NMSelectedToken',Cons(
+          SyntaxLeaf('Name',word),Nil)): word;
+      case _: null;
+    };
+    eq(hintText(hintAt(directHintTree,'')),'+',
+      'Nail source node hint recognizes numeric operator');
+    eq(hintText(hintAt(directHintTree,'01')),'left',
+      'Nail selects the left numeric argument by structural path');
+    eq(hintText(hintAt(directHintTree,'1')),'right',
+      'Nail selects the right numeric argument by structural path');
+    eq(switch(hintAt(directHintTree,'2')) {
+      case SyntaxNode('NMSelectedToken',_): true;
+      case _: false;
+    },false,'Nail rejects out-of-bounds source paths');
+    eq(hintText(hintAt(SyntaxLeaf('Var','#macro_global_missing'),'')),
+      'missing','Nail token hint strips hygienic global prefix');
+    eq(hintText(hintAt(SyntaxLeaf('Var','#macro_local_tmp'),'')),
+      null,'Nail never invents a token for a hygienic local variable');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);
