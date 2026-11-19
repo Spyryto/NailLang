@@ -156,6 +156,26 @@ of function and value annotations is checked by the opt-in Haxe type checker;
 a future compiler release must integrate authoritative static validation
 into the end-to-end distribution and source diagnostic pipeline.
 
+## Correctness gate for the stacked type checker (PR #28)
+
+The Nail-written HM checker, now integrated into this experimental branch,
+has a differential regression suite against the Haxe checker for nested
+contextual DSL blocks. It checks that an inner `div` with an incompatible
+signature **still shadows** an outer, compatible `div` (a rejected
+program, not implicit fallthrough), while explicit `html . div` selects
+the outer field. Positive tests cover correctly typed inner calls and
+lexical `let` shadowing; negative tests reject structurally incomplete or
+wrongly typed annotated values. All run through the shared Haxe/Node/PHP
+CI probe. These checks validate the experimental subset, not every
+possible row-polymorphism or source-provenance case.
+
+The self-hosted **runtime compilation** path still erases annotations;
+it must not be mistaken for static verification. Before making this
+experimental grammar authoritative for public compilation, enforce
+the checker at the appropriate API boundary and close remaining
+type-inference/diagnostic gaps. The PR remains draft until those
+correctness gates are explicitly met.
+
 ## Boundaries deliberately explored
 
 1. A record **passed as a function parameter** now works with both

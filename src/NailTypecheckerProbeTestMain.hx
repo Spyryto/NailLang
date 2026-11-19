@@ -516,6 +516,40 @@ class NailTypecheckerProbeTestMain {
     rejectsStructural(boot,'type Html = { h2 : UnknownType Text } ; '
       +'def render ( html : Html ) = html { h2 " X " } ;',
       'Unknown type');
+
+    // Correctness gate for PR #28: compare lexical contextual resolution in
+    // the self-hosted HM checker with the independent Haxe type checker.
+    // An inner context's div must shadow the outer div even when that makes
+    // the program ill-typed; explicit html . div must still select the outer.
+    var nestedContracts='type Html = { h2 : Text Text , div : Text Text } ; '
+      +'type Math = { div : Bool Text } ; ';
+    var nestedValues='def htmlValue = { h2 = fun x -> x , '
+      +'div = fun x -> textConcat " outer: " x } ; '
+      +'def mathValue = { div = fun x -> if x then " yes " else " no " } ; ';
+    checkStructural(boot,nestedContracts+nestedValues
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { h2 ( math { html . div " X " } ) } ; '
+      +'render htmlValue mathValue ;',['Text']);
+    rejectsStructural(boot,nestedContracts+nestedValues
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { h2 ( math { div " Wrong " } ) } ; '
+      +'render htmlValue mathValue ;','Type mismatch');
+    checkStructural(boot,nestedContracts+nestedValues
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { h2 ( math { div true } ) } ; '
+      +'render htmlValue mathValue ;',['Text']);
+    checkStructural(boot,htmlContract
+      +'def htmlValue = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'def render ( html : Html ) = html { '
+      +'let h2 = fun x -> textConcat " local: " x in h2 " X " } ; '
+      +'render htmlValue ;',['Text']);
+    rejectsStructural(boot,htmlContract
+      +'def html : Html = { h2 = fun x -> x } ; '
+      +'html . h2 " X " ;','Missing structural field');
+    rejectsStructural(boot,htmlContract
+      +'def html : Html = { h2 = fun x -> true , div = fun x -> x } ; '
+      +'html . h2 " X " ;','Type mismatch');
+
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
       ['Int','Float']);
