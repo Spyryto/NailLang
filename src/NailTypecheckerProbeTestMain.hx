@@ -678,9 +678,18 @@ class NailTypecheckerProbeTestMain {
       catch(e:Dynamic) checkError=Std.string(e);
       eq(checkError.indexOf(rejected.reason)>=0,true,
         'checked execution fails closed before runtime: '+rejected.reason);
-      eq(boot.names().length,namesBefore.length,
-        'rejected checked source cannot register new globals: '
+      // Compare the whole binding set, not just its size: a checker
+      // rejection must neither add nor replace an existing VM global.
+      namesBefore.sort(Reflect.compare);
+      var namesAfter=boot.names();
+      namesAfter.sort(Reflect.compare);
+      eq(namesAfter,namesBefore,
+        'rejected checked source cannot change VM globals: '
           +rejected.reason);
+      eq(nail.RuntimeValues.plainResults(
+        boot.runTypecheckedExperimental('nail 0.54 ; " recovered " ;')),
+        ['recovered'],
+        'VM remains usable after rejected checked source: '+rejected.reason);
     }
     // Rejection must be atomic with respect to program execution. A
     // successfully typed definition preceding the fault is *not* executed.
