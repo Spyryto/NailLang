@@ -1670,12 +1670,14 @@ class NailTypecheckerProbeTestMain {
           SyntaxLeaf('Name','+'),Cons(SyntaxNode('NMTokenMap',_),Nil))): true;
       case _: false;
     },true,'Nail selects arithmetic symbol with structural token map');
-    eq(switch(projection(directHintTree,'',coverageFault)) {
+    var coverageProjection=projection(directHintTree,'',coverageFault);
+    eq(switch(coverageProjection) {
       case SyntaxNode('NMSourceProjection',Cons(
           SyntaxLeaf('Name','match'),Cons(
           SyntaxLeaf('NMNoOrigin',_),Nil))): true;
       case _: false;
-    },true,'Nail keeps coverage fallback unique-token-only');
+    },true,'Nail keeps coverage fallback unique-token-only, got '
+      +Std.string(coverageProjection));
     eq(switch(projection(directHintTree,'',constructorFault)) {
       case SyntaxLeaf('NMNoOrigin',_): true;
       case _: false;
