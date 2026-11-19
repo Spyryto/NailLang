@@ -393,34 +393,6 @@ class NailSourceAnalysis {
     return output;
   }
 
-  static function findModuleProgram(modules:Value,name:String):Null<Value> {
-    for (entry in syntaxChildren(modules)) switch(entry) {
-      case SyntaxNode('TCBinding',Cons(SyntaxLeaf('TCName',owner),
-          Cons(program,Nil))) if (owner==name): return program;
-      case _:
-    }
-    return null;
-  }
-
-  static function templateSyntax(program:Value,macroName:String):Null<Value> {
-    for (form in syntaxChildren(program)) switch(form) {
-      case SyntaxNode('Define',Cons(
-          SyntaxLeaf('Name',label),Cons(body,Nil)))
-          if (label=='#macro_decl_'+macroName):
-        var cur=body;
-        while (true) switch(cur) {
-          case SyntaxNode('Lambda',Cons(_,Cons(rest,Nil))):
-            cur=rest;
-          case SyntaxNode('Apply',Cons(
-              SyntaxLeaf('Var','#macro_quote'),Cons(template,Nil))):
-            return template;
-          case _: return null;
-        }
-      case _:
-    }
-    return null;
-  }
-
   /** Pattern matching and constructor recognition are now computed by
       Nail itself. Haxe only projects their ordered lexical token identities
       onto original source coordinates; it does not inspect the lowering. */
@@ -554,13 +526,19 @@ class NailSourceAnalysis {
           SyntaxLeaf('Name',owner),Cons(
           SyntaxLeaf('Name',macroName),Cons(
           SyntaxLeaf('Name',path),Cons(_,Nil))))) if (macroName!='#caller'):
-        var templateProgram=owner=='#caller' ? callerProgram
-          : findModuleProgram(moduleTable,owner);
         var templateSource=owner=='#caller' ? source
           : modules==null ? null : modules(owner);
-        if (templateProgram==null || templateSource==null) null;
+        if (templateSource==null) null;
         else {
-          var template=templateSyntax(templateProgram,macroName);
+          var resolved=boot.invoke('nmSourceTemplateInOwner',
+            SyntaxNode('NMTemplateOwnerRequest',
+              Cons(callerProgram,Cons(moduleTable,
+                Cons(SyntaxLeaf('Name',owner),
+                  Cons(SyntaxLeaf('Name',macroName),Nil))))));
+          var template:Null<Value>=switch(resolved) {
+            case SyntaxNode('NMTemplate',Cons(body,Nil)): body;
+            case _: null;
+          };
           if (template==null) null;
           else {
             // Nail supplies both structural selection and the surface

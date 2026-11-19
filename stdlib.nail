@@ -4483,6 +4483,44 @@ def nmSourceCallsInForm request =
       else if tag == " Evaluate " then nmSourceCallTokens ( tcFirst form )
       else nmNoOrigin ;
 
+# Preserve the canonical nmParameters macro-template extractor: it strips
+# Lambda parameters, validates their names and accepts exactly one quote.
+# This source-provenance read is conservative: no matching declaration or
+# more than one matching declaration yields NMNoOrigin, not a guessed site.
+def nmSourceTemplateCandidates forms label reversed =
+  match forms with
+  | [] -> reversed
+  | form :: rest ->
+    if syntaxTag form != " Define " then
+      nmSourceTemplateCandidates rest label reversed
+    else if syntaxText ( tcFirst form ) != label then
+      nmSourceTemplateCandidates rest label reversed
+    else nmSourceTemplateCandidates rest label
+      ( cons ( tcSecond form ) reversed ) ;
+
+def nmSourceTemplateInProgram program name =
+  if syntaxTag program != " Program " then nmNoOrigin
+  else let label = textConcat " #macro_decl_ " name in
+    let candidates = nmSourceTemplateCandidates
+      ( syntaxChildren program ) label [] in
+    if length candidates != 1 then nmNoOrigin
+    else let parsed = nmParameters ( head candidates ) [] in
+      if syntaxTag parsed != " NMParameters " then nmNoOrigin
+      else syntaxNode " NMTemplate " [ tcSecond parsed ] ;
+
+# The host submits original (not expanded) Syntax and the imported-module
+# table. The semantic lookup and quote extraction both run in Nail.
+def nmSourceTemplateInOwner request =
+  if syntaxTag request != " NMTemplateOwnerRequest " then nmNoOrigin
+  else let caller = tcFirst request in
+    let modules = tcSecond request in
+    let owner = syntaxText ( tcThird request ) in
+    let macroName = syntaxText ( tcFourth request ) in
+    let program =
+      if owner == " #caller " then caller
+      else tcFind owner ( syntaxChildren modules ) in
+    nmSourceTemplateInProgram program macroName ;
+
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
 # The Haxe macro expander is deliberately not called along this path.

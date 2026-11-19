@@ -1608,6 +1608,48 @@ class NailTypecheckerProbeTestMain {
     eq(hintText(hintAt(SyntaxLeaf('Var','#macro_local_tmp'),'')),
       null,'Nail never invents a token for a hygienic local variable');
 
+
+    // Template recovery uses Nail's existing nmParameters and tcFind,
+    // not a second Haxe AST walk. Duplicate definitions fail closed.
+    var templateSample='nail 0.54 ; '
+      +'macro wrap x y = quote ( unquote x + unquote y ) ; '
+      +'macro constant = quote ( 7 ) ;';
+    var templateProgram=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text(templateSample)));
+    var foreignSource='nail 0.54 ; '
+      +'macro foreign x = quote ( unquote x + 1 ) ; export foreign ;';
+    var foreignProgram=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text(foreignSource)));
+    var templateModules=SyntaxNode('NMModules',Cons(
+      SyntaxNode('TCBinding',Cons(SyntaxLeaf('TCName','external'),
+        Cons(foreignProgram,Nil))),Nil));
+    var askTemplate=(program:Value,modules:Value,owner:String,name:String) ->
+      boot.invoke('nmSourceTemplateInOwner',
+        SyntaxNode('NMTemplateOwnerRequest',Cons(program,Cons(modules,
+          Cons(SyntaxLeaf('Name',owner),
+            Cons(SyntaxLeaf('Name',name),Nil))))));
+    var resolvedTemplate=(result:Value):Bool -> switch(result) {
+      case SyntaxNode('NMTemplate',Cons(_,Nil)): true;
+      case _: false;
+    };
+    eq(resolvedTemplate(askTemplate(templateProgram,templateModules,
+      '#caller','wrap')),true,'Nail extracts two-parameter local template');
+    eq(resolvedTemplate(askTemplate(templateProgram,templateModules,
+      '#caller','constant')),true,'Nail extracts parameter-free template');
+    eq(resolvedTemplate(askTemplate(templateProgram,templateModules,
+      'external','foreign')),true,'Nail selects an imported module template');
+    eq(resolvedTemplate(askTemplate(templateProgram,templateModules,
+      'absent','foreign')),false,'Nail does not invent an absent module');
+    eq(resolvedTemplate(askTemplate(templateProgram,templateModules,
+      '#caller','missing')),false,'Nail does not invent an absent macro');
+    var duplicateTemplateProgram=boot.invoke('modernRewrite',
+      boot.invoke('parseSource',Text('nail 0.54 ; '
+        +'macro repeated = quote ( 1 ) ; '
+        +'macro repeated = quote ( 2 ) ;')));
+    eq(resolvedTemplate(askTemplate(duplicateTemplateProgram,templateModules,
+      '#caller','repeated')),false,
+      'duplicate macro declarations have no guessed template provenance');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);
