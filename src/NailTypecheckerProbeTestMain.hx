@@ -559,6 +559,30 @@ class NailTypecheckerProbeTestMain {
     eq(nail.RuntimeValues.plainResults(
       boot.runTypecheckedExperimental(checkedContext)),['Verified'],
       'opt-in checked execution accepts a valid annotated context');
+
+    // The checker must authorize the exact executable Syntax submitted to
+    // the bytecode compiler. Differential bytecode/behavior comparisons
+    // catch parser, macro-expander, numeric and contextual-lowering drift.
+    for (checkedSource in [
+      'nail 0.54 ; 1 + 2 ;',
+      'nail 0.54 ; if true then " Yes " else " No " ;',
+      'nail 0.54 ; macro id x = quote ( unquote x ) ; '
+        +'expand id 42 ;',
+      'nail 0.54 ; macro add x = quote ( unquote x + 1 ) ; '
+        +'expand add 41 ;',
+      'nail 0.54 ; macro literal = quote ( 1.5 ) ; '
+        +'expand literal ;',
+      checkedContext
+    ]) {
+      var ordinaryBytecode=boot.compile(checkedSource);
+      var checkedBytecode=boot.compileTypecheckedExperimental(checkedSource);
+      eq(normalizedMacro(checkedBytecode,new StringMap<String>(),0),
+        normalizedMacro(ordinaryBytecode,new StringMap<String>(),0),
+        'checked and regular compilers agree on bytecode: '+checkedSource);
+      eq(nail.RuntimeValues.plainResults(boot.runBytecode(checkedBytecode)),
+        nail.RuntimeValues.plainResults(boot.runBytecode(ordinaryBytecode)),
+        'checked and regular bytecode execute equally: '+checkedSource);
+    }
     for (rejected in [
       {source:'nail 0.54 ; '+htmlContract
         +'def html : Html = { h2 = fun x -> x } ; '

@@ -2664,6 +2664,27 @@ def tcCheckExpandedTypedTraced payload =
     ( tcRestoreTypedMacros ( syntaxChildren expanded )
       ( syntaxChildren ( tcSecond prepared ) ) [] ) ;
 
+# Experimental source-free checked compilation. The *same* macro-expanded
+# executable Syntax is checked (with temporary typed metadata restored)
+# and compiled. No second parse, expansion, or change of source is allowed.
+# The unchecked compiler remains available as a separate public entry.
+def tcCompileCheckedSource source =
+  let prepared = tcPrepareTypedSource source in
+  if syntaxTag prepared != " TCPreparedMacros " then
+    if syntaxTag prepared == " Error " then
+      Error ( tcFault ( syntaxText prepared ) )
+    else Error ( tcFault " Invalid prepared typed source " )
+  else let expanded = macroExpandSyntax ( tcFirst prepared ) in
+    let checked = tcCheckExpandedTypedTraced
+      ( syntaxNode " TCExpansionRequest " [ prepared , expanded ] ) in
+    match checked with
+    | Error fault -> Error fault
+    | Ok result ->
+      let program = compileExpandedSyntax expanded in
+      if syntaxTag program != " Bytecode " then
+        Error ( tcFault " Checked compiler did not produce bytecode " )
+      else Ok program ;
+
 # Convenience source entry point: parse, expand macros once, restore typed
 # metadata, rewrite modern numeric syntax and infer entirely in Nail. The
 # existing Haxe macro expander is a syntax transformation primitive, never a

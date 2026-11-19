@@ -16,12 +16,20 @@ existing VM and primitive boundary are unchanged.
 
 ## Opt-in checked execution (experimental)
 
-`BootRuntime.runTypecheckedExperimental(source)` validates a versioned
-source using `tcCheckSourceTraced` (the Nail-written HM checker, compiled
-to bytecode) **before** compiling or executing it. On `Error(TCFault)`,
-it throws the checker's message and does not call `run`. This closes
-the annotation-erasure gap for programs deliberately opting into this
-checked subset. The existing `BootRuntime.run` retains its established
+`BootRuntime.compileTypecheckedExperimental(source)` invokes the
+Nail-written `tcCompileCheckedSource` transformer. It parses and
+normalizes the source once, expands local macros once, checks the expanded
+executable Syntax with static annotations restored, and compiles **that
+same expanded Syntax** to bytecode only when checking succeeds. The
+separate source-free `BootRuntime.runTypecheckedExperimental(source)`
+executes exactly this checked bytecode; it no longer calls the ordinary
+`run(source)` pipeline after verification. On `Error(TCFault)` it
+throws the checker's diagnostic before any application bytecode can run.
+
+Differential tests compare the checked bytecode structurally with the
+existing compiler on simple expressions, local macro expansion, modern
+numeric literals, and annotated contextual DSLs; execution results
+must also agree. The public `BootRuntime.run` retains its established
 semantics and is **not** silently typechecked.
 
 This is not a promise of full language type safety: the checker is

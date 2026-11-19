@@ -172,8 +172,9 @@ possible row-polymorphism or source-provenance case.
 The existing self-hosted `BootRuntime.run` path still erases
 annotations, so it must not be mistaken for static verification.
 The new **opt-in** `BootRuntime.runTypecheckedExperimental(source)`
-runs the Nail-written HM checker first and refuses invalid annotations
-before compiling or executing the program. This is limited to the
+runs a Nail-written checker/compiler function that checks and compiles
+the *same expanded Syntax tree*, refusing invalid annotations before
+executing any application bytecode. This is limited to the
 experimentally supported versioned-source subset; it does not replace
 the public compile boundary or support imported source modules.
 Before making this grammar authoritative for public compilation,

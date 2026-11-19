@@ -46,26 +46,38 @@ class BootRuntime {
   @:keep
   public function run(source:String, ?modules:String->Null<String>):Array<Value> return machine.run(compile(source, modules));
 
-  /** Opt-in correctness gate for the Nail-written experimental HM checker.
-      No source code is executed if the checker rejects it. Unlike run(),
-      this deliberately supports only the checker's current versioned-source
-      subset; imported modules and unsupported types are not silently accepted.
-      The public compiler's checking policy remains unchanged. */
+  /** Opt-in Nail-owned type checking *and* compilation from the same
+      macro-expanded Syntax tree. Both stages run inside the source-free VM;
+      the public compiler's checking policy remains unchanged. Only the
+      experimental versioned-source subset is supported; no imports. */
   @:keep
-  public function runTypecheckedExperimental(source:String):Array<Value> {
-    var checked=invoke('tcCheckSourceTraced', Text(source));
-    if (ResultValue.tag(checked)!=ResultValue.OK) {
-      var fault=ResultValue.get(checked,ResultValue.ERR);
-      var message=switch(fault) {
-        case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
-          StringTools.trim(text);
-        case Text(text): StringTools.trim(text);
-        case _: throw 'Unexpected Nail type checker diagnostic representation';
+  public function compileTypecheckedExperimental(source:String):Value {
+    // Keep the public version gate: an experimental parsed header must not
+    // silently select another dialect or an unsupported language version.
+    if (numeric.LanguageVersion.declared(source)==null)
+      throw 'Experimental Nail type checker rejected source: '
+        +'Nail typechecker currently requires versioned modern source';
+    var checked=invoke('tcCompileCheckedSource',Text(source));
+    if (ResultValue.tag(checked)==ResultValue.OK)
+      return switch (ResultValue.get(checked,ResultValue.OK)) {
+        case SyntaxNode('Bytecode',_): ResultValue.get(checked,ResultValue.OK);
+        case _: throw 'Experimental checked compiler did not produce bytecode';
       };
-      throw 'Experimental Nail type checker rejected source: '+message;
-    }
-    return run(source);
+    var fault=ResultValue.get(checked,ResultValue.ERR);
+    var message=switch(fault) {
+      case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
+        StringTools.trim(text);
+      case Text(text): StringTools.trim(text);
+      case _: throw 'Unexpected Nail type checker diagnostic representation';
+    };
+    throw 'Experimental Nail type checker rejected source: '+message;
   }
+
+  /** Reject first, then execute exactly the bytecode that was typechecked.
+      In particular, an invalid later form cannot execute earlier forms. */
+  @:keep
+  public function runTypecheckedExperimental(source:String):Array<Value>
+    return machine.run(compileTypecheckedExperimental(source));
 
   @:keep
   public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return RuntimeValues.plainResults(run(source, modules));
