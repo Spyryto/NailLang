@@ -46,7 +46,12 @@ class RuntimeCoreTestMain {
   public static function main():Void {
     // Only CI's PHP matrix shards select a subset. Unsharded Haxe/Node and
     // local runs still execute all four independent source/VM parity cases.
-    var requestedShard = Sys.getEnv('NAIL_CI_RUNTIME_CORE_SHARD');
+    // PHP CI shards are intentionally opt-in. JS/Haxe always run all cases.
+    #if php
+    var requestedShard:Null<String> = Sys.getEnv('NAIL_CI_RUNTIME_CORE_SHARD');
+    #else
+    var requestedShard:Null<String> = null;
+    #end
     var shard:Null<Int> = switch requestedShard {
       case null: null;
       case '0': 0;
