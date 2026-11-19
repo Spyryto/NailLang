@@ -21,6 +21,13 @@ class NailMacroModuleInputs {
     if (resolver == null) return SyntaxNode('NMModules', Nil);
     var visited = new StringMap<Bool>();
     var count = 0;
+    // This is the importing unit's dialect, never the currently visited
+    // transitive module's. Decode it lazily, once per collection request:
+    // LanguageVersion.declared scans all source tokens, and doing it for
+    // every imported module repeats work proportional to source length.
+    var dialectChecked = false;
+    var mainVersion:Null<String> = null;
+    var mainExact = false;
 
     function visit(program:Value):Void {
       switch (program) {
@@ -39,10 +46,13 @@ class NailMacroModuleInputs {
                     if (++count > 256) throw 'Macro module discovery limit exceeded';
                     var source = resolver(moduleName);
                     if (source != null) {
+                      if (!dialectChecked) {
+                        mainVersion=numeric.LanguageVersion.declared(mainSource);
+                        mainExact=numeric.NumericDialect.isExact(mainSource);
+                        dialectChecked=true;
+                      }
                       MacroModuleDialect.requireCompatible(
-                        numeric.LanguageVersion.declared(mainSource),
-                        numeric.NumericDialect.isExact(mainSource), source,
-                        moduleName);
+                        mainVersion,mainExact,source,moduleName);
                       var parsed = parsedModern(runtime,source);
                       modules.push(SyntaxNode('TCBinding',Cons(
                         SyntaxLeaf('TCName',moduleName),

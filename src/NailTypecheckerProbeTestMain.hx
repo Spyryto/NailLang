@@ -1129,6 +1129,20 @@ class NailTypecheckerProbeTestMain {
     eq(normalizedMacro(preparedCache,new StringMap<String>(),0),
       normalizedMacro(duplicateExports,new StringMap<String>(),0),
       'Nail export resolution remains deterministic across repeated requests');
+    var diamondResolverCalls=new StringMap<Int>();
+    var countedDiamond=NailMacroModuleInputs.collect(boot,diamond,
+      name -> {
+        var count=diamondResolverCalls.exists(name)
+          ? diamondResolverCalls.get(name) : 0;
+        diamondResolverCalls.set(name,count+1);
+        return macroModules.get(name);
+      });
+    eq(normalizedMacro(countedDiamond,new StringMap<String>(),0),
+      normalizedMacro(diamondModules,new StringMap<String>(),0),
+      'counted source discovery yields the same diamond module table');
+    for (name in ['base','left','right'])
+      eq(diamondResolverCalls.get(name),1,
+        'diamond resolver loads '+name+' exactly once per analysis');
 
     var wideImportedSource='nail 0.54 ; import add from arithmetic ; ';
     for (i in 0...24) wideImportedSource+='expand add '+(i+1)+' ; ';
@@ -1807,34 +1821,80 @@ class NailTypecheckerProbeTestMain {
       'imported numeric error retains caller site');
 
 
-    // Profile a complete imported-macro diagnostic, not just a VM helper.
-    // The same error must have identical source/template spans with and
-    // without timing; all timings are observations, never CI thresholds.
+    // v0.55 workload matrix. Vary caller source size and imported module
+    // size independently, without changing the failing expression. This
+    // isolates the cost of source preparation and module acquisition from
+    // macro expansion, HM inference, and source-coordinate projection.
+    var localSmall='nail 0.54 ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; '
+      +'expand bad " text " ;';
+    var localWide='nail 0.54 ; '
+      +'macro bad x = quote ( unquote x + 1 ) ; ';
+    for (i in 0...16)
+      localWide+='def helper'+i+' = '+(i+1)+' ; ';
+    localWide+='expand bad " text " ;';
+    var wideNumericModule='nail 0.54 ; ';
+    for (i in 0...24)
+      wideNumericModule+='macro filler'+i+' = quote ( '+i+' ) ; ';
+    wideNumericModule+='macro bad x = quote ( unquote x + 1 ) ; '
+      +'export bad ;';
+    macroModules.set('numericWide',wideNumericModule);
+    var profileCases=[
+      {label:'local-small',source:localSmall,
+        owner:'',template:localSmall},
+      {label:'local-wide-caller',source:localWide,
+        owner:'',template:localWide},
+      {label:'imported-small',source:importedNumericCaller,
+        owner:'numericBad',template:importedNumericSource},
+      {label:'imported-wide-module',
+        source:'nail 0.54 ; import bad from numericWide ; '
+          +'expand bad " text " ;',
+        owner:'numericWide',template:wideNumericModule}
+    ];
     var timedPhases=['prepare','modules','expand','check','result','diagnostic'];
-    var phaseSeries=new StringMap<Array<Float>>();
-    for (name in timedPhases) phaseSeries.set(name,[]);
-    var totalSeries:Array<Float>=[];
-    for (sample in 0...5) {
-      var times=new StringMap<Float>();
-      var startFull=haxe.Timer.stamp();
-      var measured=NailSourceAnalysis.analyzeNailMacros(
-        importedNumericCaller,boot,name -> macroModules.get(name),
-        'src/imported-numeric.nail',
-        (phase,ms) -> times.set(phase,ms));
-      totalSeries.push((haxe.Timer.stamp()-startFull)*1000);
-      eq(measured,importedNumericReport,
-        'profiled Nail diagnostic is unchanged, sample '+sample);
-      for (name in timedPhases) {
-        eq(times.exists(name),true,'diagnostic profile includes '+name);
-        phaseSeries.get(name).push(times.get(name));
+    for (workload in profileCases) {
+      var sourceId='src/profile-'+workload.label+'.nail';
+      var resolver:Null<String->Null<String>>=workload.owner==''
+        ? null : (name:String) -> macroModules.get(name);
+      var baseline=NailSourceAnalysis.analyzeNailMacros(
+        workload.source,boot,resolver,sourceId);
+      eq(baseline.ok,false,'profile workload rejects '+workload.label);
+      eq(baseline.diagnostics[0].span.start,
+        workload.source.lastIndexOf('expand bad'),
+        'profile caller location '+workload.label);
+      eq(baseline.diagnostics[0].templateOrigin.sourceId,
+        workload.owner=='' ? sourceId : workload.owner,
+        'profile template module '+workload.label);
+      eq(baseline.diagnostics[0].templateOrigin.span.start,
+        workload.template.indexOf(' + ')+1,
+        'profile template operator '+workload.label);
+      var phaseSeries=new StringMap<Array<Float>>();
+      for (name in timedPhases) phaseSeries.set(name,[]);
+      var totalSeries:Array<Float>=[];
+      for (sample in 0...5) {
+        var times=new StringMap<Float>();
+        var startFull=haxe.Timer.stamp();
+        var measured=NailSourceAnalysis.analyzeNailMacros(
+          workload.source,boot,resolver,sourceId,
+          (phase,ms) -> times.set(phase,ms));
+        totalSeries.push((haxe.Timer.stamp()-startFull)*1000);
+        eq(measured,baseline,'profile report parity '
+          +workload.label+' #'+sample);
+        for (name in timedPhases) {
+          eq(times.exists(name),true,
+            'profile '+workload.label+' reports '+name);
+          phaseSeries.get(name).push(times.get(name));
+        }
       }
+      var profiledSummary=[for (name in timedPhases)
+        name+':'+Std.string(median(phaseSeries.get(name)))+'ms'].join(', ');
+      trace('Nail 0.55 diagnostic matrix '+workload.label
+        +': five samples, median total '
+        +Std.string(median(totalSeries))+'ms; '
+        +profiledSummary+'; total samples '
+        +haxe.Json.stringify(totalSeries)
+        +' (non-gating; same BootRuntime)');
     }
-    var profiledSummary=[for (name in timedPhases)
-      name+':'+Std.string(median(phaseSeries.get(name)))+'ms'].join(', ');
-    trace('Nail full diagnostic profile: five imported-macro error runs; '
-      +'median total '+Std.string(median(totalSeries))+'ms; '
-      +profiledSummary+'; total samples '
-      +haxe.Json.stringify(totalSeries)+' (non-gating; shared BootRuntime)');
 
     var importedRepeated='nail 0.54 ; '
       +'import bad from numericBad ; '

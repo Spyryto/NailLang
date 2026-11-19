@@ -552,6 +552,25 @@ creating the shared runtime. This isolates likely costs more meaningfully
 than the microbenchmark of one provenance helper. The observer is opt-in;
 ordinary analysis has no additional clock reads.
 
+**v0.55 consolidation matrix (experimental):** four workloads share the
+same generated numeric type error, but vary caller size (one macro versus
+16 extra definitions) and imported module size (one exported macro
+versus 24 additional private macro declarations). Each workload runs
+five profiled cases with a shared runtime, plus an unprofiled baseline.
+Tests verify both source and template spans, exact equality of the
+profiled/unprofiled reports, and presence of every timing phase. The
+matrix logs per-phase medians and five raw total times on Haxe, Node
+and PHP; measurements remain non-gating and are *not* a broad
+compiler-performance claim.
+
+The Haxe module-discovery adapter now decodes the **importing unit's**
+language version and numeric dialect lazily, once per collection, rather
+than rescanning the same caller source for every imported module. This
+preserves all module compatibility checks, including transitive imports.
+A diamond-dependency test verifies each imported source is fetched once,
+with the same module table as before. No cross-request cache or changed
+macro semantics is introduced.
+
 **Caller-site disambiguation:** the Nail trace carries the original
 invocation's **structural call path**. Nail-written
 `nmSourceCallsInForm` selects the requested original source form by
