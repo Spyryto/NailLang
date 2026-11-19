@@ -43,6 +43,12 @@ jobs:
           node-version: '22'
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
+      - name: Verify self-hosted bootstrap and generate distributable image
+        shell: bash
+        run: |
+          haxe rebootstrap-node.hxml
+          node build/tests/rebootstrap-node.js
+          test -s build/bootstrap/self-image.json
       - name: Compile full VM and self-hosted source-free JS/PHP distributions
         run: |
           haxe js.hxml
