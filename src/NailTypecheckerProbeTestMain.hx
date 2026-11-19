@@ -1687,6 +1687,78 @@ class NailTypecheckerProbeTestMain {
       case _: false;
     },true,'unresolvable checker AST path never invents a token');
 
+
+    // The fused Nail boundary must be *exactly* equivalent to the two
+    // original Nail entrypoints, for both valid and rejected source owners.
+    // It removes a VM round-trip without changing any diagnostic policy.
+    var sourceOwnerRequest=(program:Value,modules:Value,owner:String,
+        name:String):Value ->
+      SyntaxNode('NMTemplateOwnerRequest',Cons(program,Cons(modules,
+        Cons(SyntaxLeaf('Name',owner),Cons(
+          SyntaxLeaf('Name',name),Nil)))));
+    var legacyOwnerProjection=(ownerRequest:Value,path:String,fault:Value) ->
+      switch(boot.invoke('nmSourceTemplateInOwner',ownerRequest)) {
+        case SyntaxNode('NMTemplate',Cons(body,Nil)):
+          boot.invoke('nmSourceDiagnosticProjection',
+            SyntaxNode('NMSourceProjectionRequest',Cons(body,
+              Cons(SyntaxLeaf('Name',path),Cons(fault,Nil)))));
+        case _: SyntaxLeaf('NMNoOrigin','');
+      };
+    var fusedOwnerProjection=(ownerRequest:Value,path:String,fault:Value) ->
+      boot.invoke('nmSourceOwnerDiagnosticProjection',
+        SyntaxNode('NMSourceOwnerProjectionRequest',
+          Cons(ownerRequest,Cons(SyntaxLeaf('Name',path),
+            Cons(fault,Nil)))));
+    var compareOwnerProjection=(ownerRequest:Value,path:String,
+        fault:Value,label:String) -> {
+      var oldResult=legacyOwnerProjection(ownerRequest,path,fault);
+      var fusedResult=fusedOwnerProjection(ownerRequest,path,fault);
+      eq(normalizedMacro(fusedResult,new StringMap<String>(),0),
+        normalizedMacro(oldResult,new StringMap<String>(),0),
+        'single-vs-two Nail provenance calls: '+label);
+    };
+    compareOwnerProjection(sourceOwnerRequest(templateProgram,templateModules,
+      '#caller','wrap'),'',
+      numericFault,'local macro and numeric fault');
+    compareOwnerProjection(sourceOwnerRequest(templateProgram,templateModules,
+      'external','foreign'),'',
+      numericFault,'imported macro and numeric fault');
+    compareOwnerProjection(sourceOwnerRequest(templateProgram,templateModules,
+      '#caller','constant'),'',
+      coverageFault,'zero-parameter template and coverage fault');
+    compareOwnerProjection(sourceOwnerRequest(templateProgram,templateModules,
+      'external','foreign'),'9',
+      numericFault,'unresolvable template path');
+    compareOwnerProjection(sourceOwnerRequest(templateProgram,templateModules,
+      'absent','foreign'),'',
+      numericFault,'missing module');
+    compareOwnerProjection(sourceOwnerRequest(duplicateTemplateProgram,
+      templateModules,'#caller','repeated'),'',
+      numericFault,'duplicate declaration');
+    eq(switch(fusedOwnerProjection(SyntaxLeaf('NMNoOrigin',''),'',
+        numericFault)) {
+      case SyntaxLeaf('NMNoOrigin',_): true;
+      case _: false;
+    },true,'fused Nail provenance request fails closed on bad owner');
+
+    // A non-gating, three-target microbenchmark. Report both wall times,
+    // but never assert a ratio: VM startup/JIT/CI host load are variable.
+    var measurementOwner=sourceOwnerRequest(templateProgram,templateModules,
+      '#caller','wrap');
+    var iterations=32;
+    var startLegacy=haxe.Timer.stamp();
+    for (i in 0...iterations)
+      legacyOwnerProjection(measurementOwner,'',numericFault);
+    var legacyMs=(haxe.Timer.stamp()-startLegacy)*1000;
+    var startFused=haxe.Timer.stamp();
+    for (i in 0...iterations)
+      fusedOwnerProjection(measurementOwner,'',numericFault);
+    var fusedMs=(haxe.Timer.stamp()-startFused)*1000;
+    trace('Nail provenance VM boundary: '+iterations
+      +' cases, 64 legacy invokes / 32 fused invokes; '
+      +Std.string(legacyMs)+' ms vs '+Std.string(fusedMs)
+      +' ms (non-gating)');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

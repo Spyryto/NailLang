@@ -527,48 +527,39 @@ class NailSourceAnalysis {
           : modules==null ? null : modules(owner);
         if (templateSource==null) null;
         else {
-          var resolved=boot.invoke('nmSourceTemplateInOwner',
-            SyntaxNode('NMTemplateOwnerRequest',
-              Cons(callerProgram,Cons(moduleTable,
-                Cons(SyntaxLeaf('Name',owner),
-                  Cons(SyntaxLeaf('Name',macroName),Nil))))));
-          var template:Null<Value>=switch(resolved) {
-            case SyntaxNode('NMTemplate',Cons(body,Nil)): body;
-            case _: null;
-          };
-          if (template==null) null;
+          // One Nail VM call for owner lookup, template extraction and
+          // fault-dependent token selection. Only source spans stay in Haxe.
+          var ownerRequest=SyntaxNode('NMTemplateOwnerRequest',
+            Cons(callerProgram,Cons(moduleTable,
+              Cons(SyntaxLeaf('Name',owner),
+                Cons(SyntaxLeaf('Name',macroName),Nil)))));
+          var policy=boot.invoke('nmSourceOwnerDiagnosticProjection',
+            SyntaxNode('NMSourceOwnerProjectionRequest',
+              Cons(ownerRequest,Cons(SyntaxLeaf('Name',path),
+                Cons(fault,Nil)))));
+          var matching:Null<SourceSpan>=null;
+          switch(policy) {
+            case SyntaxNode('NMSourceProjection',Cons(
+                SyntaxLeaf('Name',hint),Cons(order,Nil))):
+              var ordered:Null<Array<{path:String,token:String}>>=
+                switch(order) {
+                  case SyntaxNode('NMTokenMap',_):
+                    decodeNailOriginTokens(order);
+                  case SyntaxLeaf('NMNoOrigin',_): null;
+                  case _: null;
+                };
+              matching=templateTokenSpan(templateSource,macroName,path,
+                hint,null,ordered);
+            case _:
+          }
+          if (matching==null) null;
           else {
-            // Nail chooses the semantic fault category, its exact
-            // source token and (when needed) structural token ordering.
-            // Haxe performs only strict text-token/offset projection.
-            var policy=boot.invoke('nmSourceDiagnosticProjection',
-              SyntaxNode('NMSourceProjectionRequest',
-                Cons(template,Cons(SyntaxLeaf('Name',path),
-                  Cons(fault,Nil)))));
-            var matching:Null<SourceSpan>=null;
-            switch(policy) {
-              case SyntaxNode('NMSourceProjection',Cons(
-                  SyntaxLeaf('Name',hint),Cons(order,Nil))):
-                var ordered:Null<Array<{path:String,token:String}>>=
-                  switch(order) {
-                    case SyntaxNode('NMTokenMap',_):
-                      decodeNailOriginTokens(order);
-                    case SyntaxLeaf('NMNoOrigin',_): null;
-                    case _: null;
-                  };
-                matching=templateTokenSpan(templateSource,macroName,path,
-                  hint,null,ordered);
-              case _:
-            }
-            if (matching==null) null;
-            else {
-              var ownerId=owner=='#caller' ? sourceId : owner;
-              {
-                span:site,
-                template:ownerId==sourceId ? matching : null,
-                templateOrigin:{sourceId:ownerId,span:matching}
-              };
-            }
+            var ownerId=owner=='#caller' ? sourceId : owner;
+            {
+              span:site,
+              template:ownerId==sourceId ? matching : null,
+              templateOrigin:{sourceId:ownerId,span:matching}
+            };
           }
         }
       case _: null;

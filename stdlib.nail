@@ -4591,6 +4591,21 @@ def nmSourceDiagnosticProjection request =
           else nmSourceProjection hint nmNoOrigin
         else nmSourceProjection hint nmNoOrigin ;
 
+
+# One VM boundary crossing for macro-owner template resolution plus
+# fault-token projection. The individual helpers remain available for
+# composability and parity tests, but Haxe never handles the template AST.
+def nmSourceOwnerDiagnosticProjection request =
+  if syntaxTag request != " NMSourceOwnerProjectionRequest " then nmNoOrigin
+  else let ownerRequest = tcFirst request in
+    let path = tcSecond request in
+    let fault = tcThird request in
+    let resolved = nmSourceTemplateInOwner ownerRequest in
+    if syntaxTag resolved != " NMTemplate " then nmNoOrigin
+    else nmSourceDiagnosticProjection
+      ( syntaxNode " NMSourceProjectionRequest "
+        [ tcFirst resolved , path , fault ] ) ;
+
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
 # The Haxe macro expander is deliberately not called along this path.

@@ -511,6 +511,19 @@ on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains
 as a compatibility fallback for unknown-name errors whose new projection
 cannot yet find an exact original token.
 
+**VM boundary measurement:** `nmSourceOwnerDiagnosticProjection` composes
+`nmSourceTemplateInOwner` and `nmSourceDiagnosticProjection` inside
+Nail, returning only the symbolic token policy to Haxe. Template
+lookup + fault-token selection now require **one** host-to-Nail VM call
+per traced origin instead of **two** (and the complete path falls from
+four Nail invocations to three: fault origin, caller lookup, combined
+template/policy). A 32-case microbenchmark runs on Haxe, Node, and PHP
+in the typechecker probe, emitting both raw timings as *non-gating*
+observations; CI timing is not a portable speed guarantee. Six parity
+fixtures cover local/imported macros, invalid paths, missing modules,
+duplicate declarations, and distinct fault classes. No bytecode or
+executable-Syntax format changes.
+
 **Caller-site disambiguation:** the Nail trace carries the original
 invocation's **structural call path**. Nail-written
 `nmSourceCallsInForm` selects the requested original source form by
