@@ -21,6 +21,19 @@ class SinglePassMacroTestMain {
   static var referenceCompileSeconds = 0.0;
   static var hostNailCompileSeconds = 0.0;
   static var bootNailCompileSeconds = 0.0;
+  // Comparison compilation is pure: reuse one loaded AST host across cases.
+  // Negative probes and macro-spy tests retain separate VM instances.
+  static var parityHost:Vm = null;
+  static var parityCases = 0;
+
+  static function comparisonHost():Vm {
+    if (parityHost == null) {
+      parityHost = new Vm(40000000);
+      prepareHost(parityHost);
+    }
+    parityCases++;
+    return parityHost;
+  }
 
   static function freshBoot(?steps:Int):BootRuntime {
     var start = Timer.stamp();
@@ -55,8 +68,8 @@ class SinglePassMacroTestMain {
 
   static function runCase(source:String, expected:Array<Dynamic>,
       ?modules:String->Null<String>):Void {
-    var host = new Vm(40000000);
-    prepareHost(host);
+    var host = comparisonHost();
+    var namesBefore = host.names().join("\n");
     var boot = freshBoot(40000000);
 
     var start = Timer.stamp();
@@ -78,6 +91,10 @@ class SinglePassMacroTestMain {
       'public Syntax compiler still produces reference output: ' + source);
     eq(reference, boot.compileSyntax(parsed),
       'source-free Syntax compiler still produces reference output: ' + source);
+    // Do not trade isolation for speed: compilation of any form must leave
+    // global bindings unchanged before the next independent source is tested.
+    ok(host.names().join("\n") == namesBefore,
+      'source compilation must not mutate AST VM global names: ' + source);
 
     var actual = output(source, modules);
     ok(Json.stringify(actual) == Json.stringify(expected),
@@ -229,6 +246,7 @@ class SinglePassMacroTestMain {
       'nail 0.49 ; expand absent 12 ;'), 'unknown macro absent');
     profile('macro/BootRuntime init', bootInstances, bootSeconds);
     profile('macro/Vm stdlib load', hostStdlibLoads, hostStdlibSeconds);
+    trace('CI profile macro/parity cases per reused host: ' + parityCases);
     profile('macro/Haxe reference compile', 1, referenceCompileSeconds);
     profile('macro/Vm Nail compile', 1, hostNailCompileSeconds);
     profile('macro/BootRuntime Nail compile', 1, bootNailCompileSeconds);
