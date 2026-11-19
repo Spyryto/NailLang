@@ -1650,6 +1650,41 @@ class NailTypecheckerProbeTestMain {
       '#caller','repeated')),false,
       'duplicate macro declarations have no guessed template provenance');
 
+
+    // Nail is the authority for fault-category token policy. Numeric
+    // expressions use an ordered AST map; repeated constructor errors
+    // cannot borrow a nearby unrelated token.
+    var numericFault=SyntaxNode('TCFault',Cons(
+      SyntaxLeaf('TCMessage',' No numeric relation instance '),Nil));
+    var coverageFault=SyntaxNode('TCFault',Cons(
+      SyntaxLeaf('TCMessage',' Non-exhaustive match: missing B '),Nil));
+    var constructorFault=SyntaxNode('TCFault',Cons(
+      SyntaxLeaf('TCMessage',' Unknown algebraic constructor in match: X '),
+      Nil));
+    var projection=(tree:Value,path:String,fault:Value) ->
+      boot.invoke('nmSourceDiagnosticProjection',
+        SyntaxNode('NMSourceProjectionRequest',
+          Cons(tree,Cons(SyntaxLeaf('Name',path),Cons(fault,Nil)))));
+    eq(switch(projection(directHintTree,'',numericFault)) {
+      case SyntaxNode('NMSourceProjection',Cons(
+          SyntaxLeaf('Name','+'),Cons(SyntaxNode('NMTokenMap',_),Nil))): true;
+      case _: false;
+    },true,'Nail selects arithmetic symbol with structural token map');
+    eq(switch(projection(directHintTree,'',coverageFault)) {
+      case SyntaxNode('NMSourceProjection',Cons(
+          SyntaxLeaf('Name','match'),Cons(
+          SyntaxLeaf('NMNoOrigin',_),Nil))): true;
+      case _: false;
+    },true,'Nail keeps coverage fallback unique-token-only');
+    eq(switch(projection(directHintTree,'',constructorFault)) {
+      case SyntaxLeaf('NMNoOrigin',_): true;
+      case _: false;
+    },true,'unknown constructor path cannot borrow a numeric token');
+    eq(switch(projection(directHintTree,'9',numericFault)) {
+      case SyntaxLeaf('NMNoOrigin',_): true;
+      case _: false;
+    },true,'unresolvable checker AST path never invents a token');
+
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';
     macroModules.set('numericBad',importedNumericSource);

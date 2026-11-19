@@ -396,10 +396,11 @@ class NailSourceAnalysis {
   /** Pattern matching and constructor recognition are now computed by
       Nail itself. Haxe only projects their ordered lexical token identities
       onto original source coordinates; it does not inspect the lowering. */
-  static function nailOriginTokens(boot:BootRuntime,entry:String,
-      template:Value):Array<{path:String,token:String}> {
+  /** Decode Nail's source-ordered symbolic origins. Invalid entries
+      are rejected; Haxe never reconstructs the ordering from AST shape. */
+  static function decodeNailOriginTokens(mapped:Value):
+      Null<Array<{path:String,token:String}>> {
     var out:Array<{path:String,token:String}>=[];
-    var mapped=boot.invoke(entry,template);
     switch(mapped) {
       case SyntaxNode('NMTokenMap',_):
         for (item in syntaxChildren(mapped)) switch(item) {
@@ -407,22 +408,18 @@ class NailSourceAnalysis {
               SyntaxLeaf('Name',path),Cons(SyntaxLeaf('Name',token),Nil))):
             out.push({path:path,token:token});
           case _:
-            return [];
+            return null;
         }
       case _:
-        return [];
+        return null;
     }
     return out;
   }
 
-  static function tokenAtPath(ordered:Array<{path:String,token:String}>,
-      path:String):Null<String> {
-    var found:Null<String>=null;
-    for (item in ordered) if (item.path==path) {
-      if (found!=null) return null;
-      found=item.token;
-    }
-    return found;
+  static function nailOriginTokens(boot:BootRuntime,entry:String,
+      template:Value):Array<{path:String,token:String}> {
+    var result=decodeNailOriginTokens(boot.invoke(entry,template));
+    return result==null ? [] : result;
   }
 
   /** Only look inside the selected macro declaration, keeping tokens from
@@ -541,61 +538,28 @@ class NailSourceAnalysis {
           };
           if (template==null) null;
           else {
-            // Nail supplies both structural selection and the surface
-            // hint. Haxe never traverses the template AST for these.
-            var selection=boot.invoke('nmSourceTokenHintAtPath',
-              SyntaxNode('NMTokenPathRequest',Cons(template,
-                Cons(SyntaxLeaf('Name',path),Nil))));
-            var hasSelection=false;
-            var selectedHint:Null<String>=null;
-            switch(selection) {
-              case SyntaxNode('NMSelectedToken',Cons(hint,Nil)):
-                hasSelection=true;
-                switch(hint) {
-                  case SyntaxLeaf('Name',word): selectedHint=word;
-                  case _:
-                }
+            // Nail chooses the semantic fault category, its exact
+            // source token and (when needed) structural token ordering.
+            // Haxe performs only strict text-token/offset projection.
+            var policy=boot.invoke('nmSourceDiagnosticProjection',
+              SyntaxNode('NMSourceProjectionRequest',
+                Cons(template,Cons(SyntaxLeaf('Name',path),
+                  Cons(fault,Nil)))));
+            var matching:Null<SourceSpan>=null;
+            switch(policy) {
+              case SyntaxNode('NMSourceProjection',Cons(
+                  SyntaxLeaf('Name',hint),Cons(order,Nil))):
+                var ordered:Null<Array<{path:String,token:String}>>=
+                  switch(order) {
+                    case SyntaxNode('NMTokenMap',_):
+                      decodeNailOriginTokens(order);
+                    case SyntaxLeaf('NMNoOrigin',_): null;
+                    case _: null;
+                  };
+                matching=templateTokenSpan(templateSource,macroName,path,
+                  hint,null,ordered);
               case _:
             }
-            var message=switch(fault) {
-              case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
-                StringTools.trim(text);
-              case _: '';
-            };
-            var coverage=StringTools.startsWith(message,'Non-exhaustive match:');
-            var caseFault=StringTools.startsWith(message,
-                'Mixed constructors in algebraic match')
-              || StringTools.startsWith(message,
-                'Constructor match binding arity mismatch:')
-              || StringTools.startsWith(message,
-                'Unknown algebraic constructor in match:')
-              || StringTools.startsWith(message,
-                'Duplicate algebraic match branch');
-            var ordered:Null<Array<{path:String,token:String}>>=null;
-            if (coverage)
-              ordered=nailOriginTokens(boot,'nmSourcePatternTokens',template);
-            else if (caseFault)
-              ordered=nailOriginTokens(boot,'nmSourceConstructorTokens',template);
-            var preferred=ordered==null ? null : tokenAtPath(ordered,path);
-            // Unique-match fallback remains conservative for unsupported
-            // private lowerings, never choosing one among repeated tokens.
-            if (coverage && preferred==null) {
-              preferred='match';
-              ordered=null;
-            }
-            if (!coverage && !caseFault && hasSelection) {
-              if (selectedHint=='+' || selectedHint=='-'
-                  || selectedHint=='*' || selectedHint=='/'
-                  || selectedHint=='if') {
-                ordered=nailOriginTokens(boot,'nmSourceOperatorTokens',template);
-                preferred=tokenAtPath(ordered,path);
-                if (preferred==null) ordered=null;
-              }
-            }
-            var matching=!hasSelection || (caseFault && preferred==null)
-              ? null
-              : templateTokenSpan(templateSource,macroName,path,
-                  preferred,selectedHint,ordered);
             if (matching==null) null;
             else {
               var ownerId=owner=='#caller' ? sourceId : owner;

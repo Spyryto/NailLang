@@ -499,8 +499,12 @@ missing structural paths from selected nodes with no lexical token.
 The Nail-written `nmSourceTemplateInOwner` also looks up the defining
 module and macro declaration, reusing `tcFind` and `nmParameters` rather
 than a Haxe declaration/quote AST walk. Missing and duplicate declarations
-fail closed. Haxe scans the original source, checks token-count agreement,
-and projects Nail-generated token identities to UTF-16 spans.
+fail closed. `nmSourceDiagnosticProjection` now owns the fault-dependent
+choice between a pattern keyword, offending constructor, numeric operator
+or unique source-token fallback. Haxe no longer maintains separate copies
+of checker diagnostic message prefixes or walks the token maps to select
+a matching AST path. It scans the original source, validates complete
+token-count agreement and projects Nail-provided tokens to UTF-16 spans.
 Coverage errors remain attached to the enclosing `match`/`function`.
 Ambiguous token order fails closed. No Haxe macro replay occurs
 on this opt-in path. The preceding `nmFaultMacroOrigin` lookup remains

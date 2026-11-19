@@ -4521,6 +4521,76 @@ def nmSourceTemplateInOwner request =
       else tcFind owner ( syntaxChildren modules ) in
     nmSourceTemplateInProgram program macroName ;
 
+
+# Fault-specific source-token policy belongs to Nail, alongside the HM
+# checker and its lowered pattern validation. Haxe receives a symbolic
+# token and optional ordered token map, never inferred source coordinates.
+def nmSourceMapTokenGo entries path found seen =
+  match entries with
+  | [] -> found
+  | entry :: rest ->
+    if syntaxTag entry != " NMTokenOrigin " then nmNoOrigin
+    else if syntaxText ( tcFirst entry ) != path then
+      nmSourceMapTokenGo rest path found seen
+    else if seen then nmNoOrigin
+    else nmSourceMapTokenGo rest path ( tcSecond entry ) true ;
+
+def nmSourceMapTokenAt map path =
+  if syntaxTag map != " NMTokenMap " then nmNoOrigin
+  else nmSourceMapTokenGo ( syntaxChildren map ) path nmNoOrigin false ;
+
+def nmSourceProjection hint order =
+  syntaxNode " NMSourceProjection " [ hint , order ] ;
+
+def nmSourceFaultIsConstructor message =
+  if tcStartsWith message " Mixed constructors in algebraic match " then true
+  else if tcStartsWith message " Constructor match binding arity mismatch: " then true
+  else if tcStartsWith message " Unknown algebraic constructor in match: " then true
+  else tcStartsWith message " Duplicate algebraic match branch " ;
+
+def nmSourceOperatorHint hint =
+  if syntaxTag hint != " Name " then false
+  else let text = syntaxText hint in
+    if text == " + " then true
+    else if text == " - " then true
+    else if text == " * " then true
+    else if text == " / " then true
+    else text == " if " ;
+
+# Result: NMSourceProjection(surfaceHint, NMTokenMap | NMNoOrigin).
+# Missing path and unfound constructor cases are NMNoOrigin. The caller
+# checks lexical token multiplicity against the original scanned source.
+def nmSourceDiagnosticProjection request =
+  if syntaxTag request != " NMSourceProjectionRequest " then nmNoOrigin
+  else let template = tcFirst request in
+    let path = syntaxText ( tcSecond request ) in
+    let fault = tcThird request in
+    if syntaxTag fault != " TCFault " then nmNoOrigin
+    else let selected = nmSourceTokenHintAtPath
+      ( syntaxNode " NMTokenPathRequest "
+        [ template , syntaxName path ] ) in
+      if syntaxTag selected != " NMSelectedToken " then nmNoOrigin
+      else let hint = tcFirst selected in
+        let message = tcFaultMessage fault in
+        if tcStartsWith message " Non-exhaustive match: " then
+          let ordered = nmSourcePatternTokens template in
+          let exact = nmSourceMapTokenAt ordered path in
+          if syntaxTag exact == " Name " then
+            nmSourceProjection exact ordered
+          else nmSourceProjection ( syntaxName " match " ) nmNoOrigin
+        else if nmSourceFaultIsConstructor message then
+          let ordered = nmSourceConstructorTokens template in
+          let exact = nmSourceMapTokenAt ordered path in
+          if syntaxTag exact != " Name " then nmNoOrigin
+          else nmSourceProjection exact ordered
+        else if nmSourceOperatorHint hint then
+          let ordered = nmSourceOperatorTokens template in
+          let exact = nmSourceMapTokenAt ordered path in
+          if syntaxTag exact == " Name " then
+            nmSourceProjection exact ordered
+          else nmSourceProjection hint nmNoOrigin
+        else nmSourceProjection hint nmNoOrigin ;
+
 # End-to-end opt-in dogfooding: a source with local macros is parsed,
 # expanded and typechecked entirely with Nail-written transformations.
 # The Haxe macro expander is deliberately not called along this path.
