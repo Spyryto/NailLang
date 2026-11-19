@@ -130,6 +130,24 @@ class SinglePassMacroTestMain {
   }
 
   public static function main():Void {
+    // Only PHP's CI matrix opts into phase selection. Haxe, JS and local
+    // default execution still verify the complete test in the original order.
+    #if php
+    var phase:Null<String> = Sys.getEnv('NAIL_CI_MACRO_PHASE');
+    #else
+    var phase:Null<String> = null;
+    #end
+    if (phase != null && phase != 'parity' && phase != 'rejections'
+        && phase != 'spy')
+      throw 'Unknown NAIL_CI_MACRO_PHASE: ' + phase;
+
+    // The same module fixtures are used by different independent phases.
+    var resolver = (name:String) -> name == 'numbers'
+      ? 'nail 0.49 ; macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
+    var bare = (name:String) -> name == 'numbers'
+      ? 'macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
+
+    if (phase == null || phase == 'parity') {
     runCase(
       'macro lift x = quote ( unquote x + 1 ) ; expand lift 41 ;',
       [42]);
@@ -155,8 +173,6 @@ class SinglePassMacroTestMain {
       '# nail: 0.29\nmacro half x = quote ( unquote x / 2 ) ; expand half 1 ;',
       ['E:1/2']);
 
-    var resolver = (name:String) -> name == 'numbers'
-      ? 'nail 0.49 ; macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
     runCase(
       'nail 0.49 ; import next from numbers ; expand next 41 ;',
       ['I:42/1'], resolver);
@@ -175,8 +191,6 @@ class SinglePassMacroTestMain {
     // Macro numeric literals are interpreted in the declaring module's
     // language dialect. Versionless modules may only enter versionless callers;
     // versioned modules must match the caller's exact Nail version.
-    var bare = (name:String) -> name == 'numbers'
-      ? 'macro next x = quote ( unquote x + 1 ) ; export next ;' : null;
     runCase('import next from numbers ; expand next 41 ;', [42], bare);
     var exact = (name:String) -> name == 'numbers'
       ? '# nail: 0.29\nmacro next x = quote ( unquote x + 1 ) ; export next ;'
@@ -184,6 +198,9 @@ class SinglePassMacroTestMain {
     runCase('# nail: 0.29\nimport next from numbers ; expand next 41 ;',
       ['E:42/1'], exact);
 
+    } // end parity phase
+
+    if (phase == null || phase == 'rejections') {
     rejectAll('nail 0.49 ; import next from numbers ; expand next 41 ;',
       bare, 'expected 0.49, got unversioned');
     var older = (name:String) -> name == 'numbers'
@@ -204,6 +221,9 @@ class SinglePassMacroTestMain {
     rejectAll('nail 0.49 ; import twice from outer ; expand twice 40 ;',
       wrongNested, 'incompatible Nail version: inner');
 
+    } // end rejections phase
+
+    if (phase == null || phase == 'spy') {
     // Count invocations rather than merely comparing outputs: an unnecessary
     // second pass returns equal bytecode but still traverses the complete AST.
     var probe = new Vm(40000000);
@@ -244,6 +264,22 @@ class SinglePassMacroTestMain {
       'unknown unquote parameter');
     fails(() -> freshBoot().run(
       'nail 0.49 ; expand absent 12 ;'), 'unknown macro absent');
+    } // end spy phase
+
+    // Guard against accidentally omitting any checks in CI phase selection.
+    // The full default mode must remain identical to the sum of the shards.
+    var expectedChecks = switch (phase) {
+      case null: 97;
+      case 'parity': 70;
+      case 'rejections': 20;
+      case 'spy': 7;
+      case _: throw 'Unexpected CI macro phase';
+    };
+    if (checks != expectedChecks)
+      throw 'CI macro phase ' + phase + ': expected ' + expectedChecks
+        + ' checks, got ' + checks;
+    trace('CI profile macro/phase: ' + (phase == null ? 'all' : phase)
+      + ', checks=' + checks);
     profile('macro/BootRuntime init', bootInstances, bootSeconds);
     profile('macro/Vm stdlib load', hostStdlibLoads, hostStdlibSeconds);
     trace('CI profile macro/parity cases per reused host: ' + parityCases);
