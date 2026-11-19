@@ -2664,10 +2664,24 @@ def tcCheckExpandedTypedTraced payload =
     ( tcRestoreTypedMacros ( syntaxChildren expanded )
       ( syntaxChildren ( tcSecond prepared ) ) [] ) ;
 
+# The typed checker keeps static type/relation declarations as private
+# placeholder definitions so that macro expansion preserves form order.
+# They must NOT be executed or leaked into the user program's globals.
+def tcExecutableForms forms reversed =
+  match forms with
+  | [] -> syntaxNode " Program " ( reverse reversed )
+  | form :: rest ->
+    let isStatic =
+      if syntaxTag form == " Define " then
+        tcStartsWith ( syntaxText ( tcFirst form ) ) " #tc_static_form_ "
+      else false in
+    tcExecutableForms rest
+      ( if isStatic then reversed else cons form reversed ) ;
+
 # Experimental source-free checked compilation. The *same* macro-expanded
 # executable Syntax is checked (with temporary typed metadata restored)
-# and compiled. No second parse, expansion, or change of source is allowed.
-# The unchecked compiler remains available as a separate public entry.
+# and compiled, excluding compiler-only declaration placeholders. No
+# second parse or expansion is allowed.
 def tcCompileCheckedSource source =
   let prepared = tcPrepareTypedSource source in
   if syntaxTag prepared != " TCPreparedMacros " then
@@ -2680,7 +2694,8 @@ def tcCompileCheckedSource source =
     match checked with
     | Error fault -> Error fault
     | Ok result ->
-      let program = compileExpandedSyntax expanded in
+      let executable = tcExecutableForms ( syntaxChildren expanded ) [] in
+      let program = compileExpandedSyntax executable in
       if syntaxTag program != " Bytecode " then
         Error ( tcFault " Checked compiler did not produce bytecode " )
       else Ok program ;

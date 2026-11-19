@@ -559,6 +559,9 @@ class NailTypecheckerProbeTestMain {
     eq(nail.RuntimeValues.plainResults(
       boot.runTypecheckedExperimental(checkedContext)),['Verified'],
       'opt-in checked execution accepts a valid annotated context');
+    eq([for (name in boot.names())
+      if (StringTools.startsWith(name,'#tc_static_form_')) name].length,0,
+      'checked runtime must not install compiler-only static declarations');
 
     // The checker must authorize the exact executable Syntax submitted to
     // the bytecode compiler. Differential bytecode/behavior comparisons
@@ -579,9 +582,13 @@ class NailTypecheckerProbeTestMain {
       eq(normalizedMacro(checkedBytecode,new StringMap<String>(),0),
         normalizedMacro(ordinaryBytecode,new StringMap<String>(),0),
         'checked and regular compilers agree on bytecode: '+checkedSource);
-      eq(nail.RuntimeValues.plainResults(boot.runBytecode(checkedBytecode)),
-        nail.RuntimeValues.plainResults(boot.runBytecode(ordinaryBytecode)),
-        'checked and regular bytecode execute equally: '+checkedSource);
+      // The annotated fixture already ran above, and re-running a top-level
+      // definition in one VM should correctly be rejected as a duplicate.
+      // Its bytecode is compared above; expression-only cases run both ways.
+      if (checkedSource != checkedContext)
+        eq(nail.RuntimeValues.plainResults(boot.runBytecode(checkedBytecode)),
+          nail.RuntimeValues.plainResults(boot.runBytecode(ordinaryBytecode)),
+          'checked and regular bytecode execute equally: '+checkedSource);
     }
     for (rejected in [
       {source:'nail 0.54 ; '+htmlContract

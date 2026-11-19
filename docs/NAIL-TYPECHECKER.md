@@ -20,7 +20,10 @@ existing VM and primitive boundary are unchanged.
 Nail-written `tcCompileCheckedSource` transformer. It parses and
 normalizes the source once, expands local macros once, checks the expanded
 executable Syntax with static annotations restored, and compiles **that
-same expanded Syntax** to bytecode only when checking succeeds. The
+same expanded Syntax** to bytecode only when checking succeeds, after
+removing checker-only placeholder definitions. These private placeholders
+preserve form order for type inference and must not become user-visible
+VM globals. The
 separate source-free `BootRuntime.runTypecheckedExperimental(source)`
 executes exactly this checked bytecode; it no longer calls the ordinary
 `run(source)` pipeline after verification. On `Error(TCFault)` it
