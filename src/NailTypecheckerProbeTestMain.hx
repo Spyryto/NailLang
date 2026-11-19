@@ -1657,9 +1657,9 @@ class NailTypecheckerProbeTestMain {
     var numericFault=SyntaxNode('TCFault',Cons(
       SyntaxLeaf('TCMessage',' No numeric relation instance '),Nil));
     var coverageFault=SyntaxNode('TCFault',Cons(
-      SyntaxLeaf('TCMessage',' Non-exhaustive match: missing B '),Nil));
+      SyntaxLeaf('TCMessage','Non-exhaustive match: missing B'),Nil));
     var constructorFault=SyntaxNode('TCFault',Cons(
-      SyntaxLeaf('TCMessage',' Unknown algebraic constructor in match: X '),
+      SyntaxLeaf('TCMessage','Unknown algebraic constructor in match: X'),
       Nil));
     var projection=(tree:Value,path:String,fault:Value) ->
       boot.invoke('nmSourceDiagnosticProjection',
