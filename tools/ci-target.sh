@@ -69,7 +69,7 @@ common_suites=(
 )
 
 case "$target" in
-  haxe|node|php-macro|php-runtime-0|php-runtime-1|php-rest-numeric|php-rest) ;;
+  haxe|haxe-typechecker|node|php-macro|php-runtime-0|php-runtime-1|php-modern-numbers|php-type-lowering|php-exact-rounding|php-rest) ;;
   *) echo "Unknown CI target: $target" >&2; exit 2 ;;
 esac
 
@@ -93,12 +93,17 @@ prepare_self_image() {
 case "$target" in
   haxe)
     for suite in "${common_suites[@]}"; do
+      # Run the expensive checker as a separate, equally required matrix job.
+      if [[ "$suite" == nail-typechecker ]]; then continue; fi
       if [[ "$suite" == boot ]]; then prepare_self_image; fi
       run_haxe "$suite"
     done
     # These checks exist only for the Haxe interpreter.
     run_haxe host-capabilities
     run_haxe module-host-grants
+    ;;
+  haxe-typechecker)
+    run_haxe nail-typechecker
     ;;
   node)
     for suite in "${common_suites[@]}"; do
@@ -117,16 +122,19 @@ case "$target" in
     # Two shards cover all four runtime parity cases without repetition.
     NAIL_CI_RUNTIME_CORE_SHARD="${target##*-}" run_php runtime-core
     ;;
-  php-rest-numeric|php-rest)
+  php-modern-numbers)
+    run_php modern-numbers
+    ;;
+  php-type-lowering)
+    run_php type-declaration-lowering
+    ;;
+  php-exact-rounding)
+    run_php exact-rounding
+    ;;
+  php-rest)
     for suite in "${common_suites[@]}"; do
       case "$suite" in
-        single-pass-macro|runtime-core) continue ;;
-      esac
-      # Balance the three ~100-second PHP suites against remaining suites.
-      case "$target:$suite" in
-        php-rest-numeric:modern-numbers|php-rest-numeric:type-declaration-lowering|php-rest-numeric:exact-rounding)
-          ;;
-        php-rest-numeric:*|php-rest:modern-numbers|php-rest:type-declaration-lowering|php-rest:exact-rounding)
+        single-pass-macro|runtime-core|modern-numbers|type-declaration-lowering|exact-rounding)
           continue ;;
       esac
       if [[ "$suite" == boot ]]; then prepare_self_image; fi
