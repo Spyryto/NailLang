@@ -3,7 +3,7 @@
 # runners. Do not skip target parity: a failed command fails its matrix job.
 set -euo pipefail
 
-target="${1:?expected haxe, node, php-macro, php-runtime or php-rest}"
+target="${1:?expected a CI regression target}"
 
 run_timed() {
   local label="$1"
@@ -69,7 +69,7 @@ common_suites=(
 )
 
 case "$target" in
-  haxe|node|php-macro|php-runtime|php-rest) ;;
+  haxe|node|php-macro|php-runtime-0|php-runtime-1|php-rest-numeric|php-rest) ;;
   *) echo "Unknown CI target: $target" >&2; exit 2 ;;
 esac
 
@@ -112,13 +112,22 @@ case "$target" in
   php-macro)
     run_php single-pass-macro
     ;;
-  php-runtime)
-    run_php runtime-core
+  php-runtime-0|php-runtime-1)
+    # Preserve independent Vm/BootRuntime construction per source form.
+    # Two shards cover all four runtime parity cases without repetition.
+    NAIL_CI_RUNTIME_CORE_SHARD="${target##*-}" run_php runtime-core
     ;;
-  php-rest)
+  php-rest-numeric|php-rest)
     for suite in "${common_suites[@]}"; do
       case "$suite" in
         single-pass-macro|runtime-core) continue ;;
+      esac
+      # Balance the three ~100-second PHP suites against remaining suites.
+      case "$target:$suite" in
+        php-rest-numeric:modern-numbers|php-rest-numeric:type-declaration-lowering|php-rest-numeric:exact-rounding)
+          ;;
+        php-rest-numeric:*|php-rest:modern-numbers|php-rest:type-declaration-lowering|php-rest:exact-rounding)
+          continue ;;
       esac
       if [[ "$suite" == boot ]]; then prepare_self_image; fi
       run_php "$suite"
