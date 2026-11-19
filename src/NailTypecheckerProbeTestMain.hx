@@ -1741,23 +1741,50 @@ class NailTypecheckerProbeTestMain {
       case _: false;
     },true,'fused Nail provenance request fails closed on bad owner');
 
-    // A non-gating, three-target microbenchmark. Report both wall times,
-    // but never assert a ratio: VM startup/JIT/CI host load are variable.
+    // Non-gating benchmark on every target. Warm both paths, then alternate
+    // execution order to reduce first-run and CI machine drift. We report
+    // the median of five samples, plus the raw samples for reproducibility;
+    // a VM call reduction is not itself proof of a wall-time speedup.
     var measurementOwner=sourceOwnerRequest(templateProgram,templateModules,
       '#caller','wrap');
-    var iterations=32;
-    var startLegacy=haxe.Timer.stamp();
-    for (i in 0...iterations)
+    var iterations=64;
+    var legacyMeasurement=() ->
       legacyOwnerProjection(measurementOwner,'',numericFault);
-    var legacyMs=(haxe.Timer.stamp()-startLegacy)*1000;
-    var startFused=haxe.Timer.stamp();
-    for (i in 0...iterations)
+    var fusedMeasurement=() ->
       fusedOwnerProjection(measurementOwner,'',numericFault);
-    var fusedMs=(haxe.Timer.stamp()-startFused)*1000;
-    trace('Nail provenance VM boundary: '+iterations
-      +' cases, 64 legacy invokes / 32 fused invokes; '
-      +Std.string(legacyMs)+' ms vs '+Std.string(fusedMs)
-      +' ms (non-gating)');
+    for (i in 0...8) {
+      legacyMeasurement();
+      fusedMeasurement();
+    }
+    var measure=(fn:Void->Value) -> {
+      var start=haxe.Timer.stamp();
+      for (i in 0...iterations) fn();
+      return (haxe.Timer.stamp()-start)*1000;
+    };
+    var legacySamples:Array<Float>=[];
+    var fusedSamples:Array<Float>=[];
+    for (round in 0...5) {
+      if (round%2==0) {
+        legacySamples.push(measure(legacyMeasurement));
+        fusedSamples.push(measure(fusedMeasurement));
+      } else {
+        fusedSamples.push(measure(fusedMeasurement));
+        legacySamples.push(measure(legacyMeasurement));
+      }
+    }
+    var median=(samples:Array<Float>) -> {
+      var ordered=samples.copy();
+      ordered.sort((a,b) -> a<b ? -1 : a>b ? 1 : 0);
+      return ordered[Std.int(ordered.length/2)];
+    };
+    trace('Nail provenance VM boundary: 5 samples x '+iterations
+      +' cases (warmup 8 per path, alternating order); '
+      +'legacy 2 invokes/case vs fused 1 invoke/case; '
+      +'median legacy '+Std.string(median(legacySamples))
+      +' ms, fused '+Std.string(median(fusedSamples))
+      +' ms; samples legacy '+haxe.Json.stringify(legacySamples)
+      +', fused '+haxe.Json.stringify(fusedSamples)
+      +' (non-gating)');
 
     var importedNumericSource='nail 0.54 ; '
       +'macro bad x = quote ( unquote x + 1 ) ; export bad ;';

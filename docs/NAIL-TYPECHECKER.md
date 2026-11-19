@@ -517,12 +517,28 @@ Nail, returning only the symbolic token policy to Haxe. Template
 lookup + fault-token selection now require **one** host-to-Nail VM call
 per traced origin instead of **two** (and the complete path falls from
 four Nail invocations to three: fault origin, caller lookup, combined
-template/policy). A 32-case microbenchmark runs on Haxe, Node, and PHP
-in the typechecker probe, emitting both raw timings as *non-gating*
-observations; CI timing is not a portable speed guarantee. Six parity
-fixtures cover local/imported macros, invalid paths, missing modules,
-duplicate declarations, and distinct fault classes. No bytecode or
-executable-Syntax format changes.
+template/policy). A non-gating microbenchmark runs on Haxe, Node, and
+PHP in the typechecker probe: eight warm-ups per implementation, then
+five alternating-order batches of 64 calls per implementation. It
+reports the median and raw samples, without imposing a CI timing
+threshold. Six parity fixtures cover local/imported macros, invalid
+paths, missing modules, duplicate declarations, and distinct fault
+classes. No bytecode or executable-Syntax format changes.
+
+The first CI measurement (run 44508506674, 19 Nov 2026) used only
+**one batch of 32 cases** per implementation:
+
+| Runtime | Two VM calls per case | One fused VM call per case |
+| --- | ---: | ---: |
+| Haxe interpreter | 145.37 ms | 150.61 ms |
+| Node/JavaScript | 10.62 ms | 9.11 ms |
+| PHP | 100.53 ms | 103.33 ms |
+
+These results demonstrate fewer host/VM boundary crossings, **not** a
+uniform wall-clock improvement. Small samples, VM execution costs, CI
+load, JIT effects, and run order can mask or outweigh the avoided call.
+Do not describe this refactoring as a general performance speedup
+without repeated, comparable measurements.
 
 **Caller-site disambiguation:** the Nail trace carries the original
 invocation's **structural call path**. Nail-written
