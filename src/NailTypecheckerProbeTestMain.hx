@@ -1839,6 +1839,43 @@ class NailTypecheckerProbeTestMain {
     wideNumericModule+='macro bad x = quote ( unquote x + 1 ) ; '
       +'export bad ;';
     macroModules.set('numericWide',wideNumericModule);
+
+    // Isolate the existing two Nail transformations used by every
+    // imported source. They must agree structurally with parsedModern;
+    // measure the parts rather than assuming a VM boundary dominates.
+    for (moduleSample in [
+      {label:'small',source:importedNumericSource},
+      {label:'wide-24',source:wideNumericModule}
+    ]) {
+      var expected=NailMacroModuleInputs.parsedModern(
+        boot,moduleSample.source);
+      var parsedOnce=boot.invoke('parseSource',Text(moduleSample.source));
+      var rewrittenOnce=boot.invoke('modernRewrite',parsedOnce);
+      eq(normalizedMacro(rewrittenOnce,new StringMap<String>(),0),
+        normalizedMacro(expected,new StringMap<String>(),0),
+        'module parse/rewrite split is equivalent: '+moduleSample.label);
+      var parseSamples:Array<Float>=[];
+      var rewriteSamples:Array<Float>=[];
+      for (round in 0...5) {
+        var startParse=haxe.Timer.stamp();
+        var parsed=boot.invoke('parseSource',Text(moduleSample.source));
+        parseSamples.push((haxe.Timer.stamp()-startParse)*1000);
+        var startRewrite=haxe.Timer.stamp();
+        var normalized=boot.invoke('modernRewrite',parsed);
+        rewriteSamples.push((haxe.Timer.stamp()-startRewrite)*1000);
+        eq(normalizedMacro(normalized,new StringMap<String>(),0),
+          normalizedMacro(expected,new StringMap<String>(),0),
+          'repeat module parse/rewrite parity: '
+          +moduleSample.label+' #'+round);
+      }
+      trace('Nail 0.55 module stage matrix '+moduleSample.label
+        +': five samples, median parse '
+        +Std.string(median(parseSamples))+'ms, rewrite '
+        +Std.string(median(rewriteSamples))+'ms; parse samples '
+        +haxe.Json.stringify(parseSamples)+', rewrite samples '
+        +haxe.Json.stringify(rewriteSamples)
+        +' (non-gating; same BootRuntime)');
+    }
     var profileCases=[
       {label:'local-small',source:localSmall,
         owner:'',template:localSmall},

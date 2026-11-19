@@ -571,6 +571,15 @@ A diamond-dependency test verifies each imported source is fetched once,
 with the same module table as before. No cross-request cache or changed
 macro semantics is introduced.
 
+**Parsing versus rewriting (v0.55):** each imported module goes
+through the existing `parseSource` and `modernRewrite` Nail functions.
+A non-gating five-sample stage probe measures these independently for a
+small module and a module with 24 private macro declarations. Every
+stage result must match the output of the ordinary
+`NailMacroModuleInputs.parsedModern` path exactly (up to generated
+binder renaming). The probe identifies whether parsing or the numeric
+AST walk dominates before changing compiler semantics or the VM.
+
 **Caller-site disambiguation:** the Nail trace carries the original
 invocation's **structural call path**. Nail-written
 `nmSourceCallsInForm` selects the requested original source form by
