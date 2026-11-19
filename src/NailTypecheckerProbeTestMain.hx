@@ -613,6 +613,53 @@ class NailTypecheckerProbeTestMain {
           nail.RuntimeValues.plainResults(boot.runBytecode(ordinaryBytecode)),
           'checked and regular bytecode execute equally: '+checkedSource);
     }
+
+    // Executable parity corpus: approved source must produce the same
+    // bytecode and observable results as the ordinary compiler. Reusing two
+    // independent runtimes also catches checker-only globals leaking into
+    // later programs without hiding genuine duplicate-definition errors.
+    var checkedParityVm=new BootRuntime();
+    var ordinaryParityVm=new BootRuntime();
+    for (paritySource in [
+      // Nominal generic construction and projection.
+      'nail 0.54 ; type ParityBox a { value a } ; '
+        +'( ParityBox 23 ) . value ;',
+      // Exhaustive sum-pattern lowering and its private fallback.
+      'nail 0.54 ; type ParityOption a = ParityNone | ParitySome a ; '
+        +'match ( ParitySome 12 ) with '
+        +'| ParityNone -> 0 | ParitySome value -> value ;',
+      // Compile-time-only numerical relation rows must not appear as
+      // executable user definitions, even when several rows exist.
+      'nail 0.54 ; ParityAdd : Int Int Int ; '
+        +'ParityAdd : Float Float Float ; '
+        +'def parityAdd x y : ParityAdd = x + y ; '
+        +'parityAdd 3 4 ; parityAdd 1.25 0.5 ;',
+      // An Eq-qualified polymorphic function used at distinct types.
+      'nail 0.54 ; def paritySame x y = x == y ; '
+        +'paritySame [ 1 , 2 ] [ 1 , 2 ] ; '
+        +'paritySame " A " " B " ;',
+      // The compiler must execute the exact macro-expanded sum pattern
+      // that passed the Nail checker, with no second expansion.
+      'nail 0.54 ; type ParityColor = ParityRed | ParityBlue ; '
+        +'macro parityName x = quote ( match unquote x with '
+        +'| ParityRed -> " red " | ParityBlue -> " blue " ) ; '
+        +'expand parityName ParityBlue ;'
+    ]) {
+      var checkedProgram=checkedParityVm.compileTypecheckedExperimental(paritySource);
+      var ordinaryProgram=ordinaryParityVm.compile(paritySource);
+      eq(normalizedMacro(checkedProgram,new StringMap<String>(),0),
+        normalizedMacro(ordinaryProgram,new StringMap<String>(),0),
+        'checked/ordinary bytecode parity across type features: '+paritySource);
+      var checkedValues=nail.RuntimeValues.plainResults(
+        checkedParityVm.runBytecode(checkedProgram));
+      eq(checkedValues,nail.RuntimeValues.plainResults(
+        ordinaryParityVm.runBytecode(ordinaryProgram)),
+        'checked/ordinary runtime parity across type features: '+paritySource);
+      eq([for (name in checkedParityVm.names())
+        if (StringTools.startsWith(name,'#tc_static_form_')) name].length,0,
+        'static type metadata never leaks into VM global bindings');
+    }
+
     for (rejected in [
       {source:'nail 0.54 ; '+htmlContract
         +'def html : Html = { h2 = fun x -> x } ; '
