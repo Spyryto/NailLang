@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [haxe, node, php-macro, php-runtime, php-rest]
+        target: [haxe, node, php-macro, php-runtime-0, php-runtime-1, php-rest-numeric, php-rest]
     steps:
       - uses: actions/checkout@v4
       - uses: krdlab/setup-haxe@v2
