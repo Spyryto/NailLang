@@ -618,8 +618,9 @@ class NailTypecheckerProbeTestMain {
     // bytecode and observable results as the ordinary compiler. Reusing two
     // independent runtimes also catches checker-only globals leaking into
     // later programs without hiding genuine duplicate-definition errors.
-    var checkedParityVm=new BootRuntime();
-    var ordinaryParityVm=new BootRuntime();
+    // Match the existing HM suite's bounded VM execution guard.
+    var checkedParityVm=new BootRuntime(60000000);
+    var ordinaryParityVm=new BootRuntime(60000000);
     for (paritySource in [
       // Nominal generic construction and projection.
       'nail 0.54 ; type ParityBox a { value a } ; '
