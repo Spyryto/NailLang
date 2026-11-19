@@ -80,19 +80,33 @@ fi
 # Each runner needs its own compiled source-free standard-library image.
 run_timed "Bootstrap image/$target" haxe seed-image.hxml
 
+# BootTestMain embeds build/bootstrap/self-image.json, not the stage-zero
+# stdlib image. The former serial workflow created it via the Node fixed-point
+# check before running boot tests. Each independent runner must do the same.
+# Keep it just-in-time so PHP macro/runtime jobs do not pay this cost.
+prepare_self_image() {
+  run_timed "Self-image/fixed point compile" haxe rebootstrap-node.hxml
+  run_timed "Self-image/fixed point verify" node build/tests/rebootstrap-node.js
+  test -s build/bootstrap/self-image.json
+}
+
 case "$target" in
   haxe)
-    for suite in "${common_suites[@]}"; do run_haxe "$suite"; done
+    for suite in "${common_suites[@]}"; do
+      if [[ "$suite" == boot ]]; then prepare_self_image; fi
+      run_haxe "$suite"
+    done
     # These checks exist only for the Haxe interpreter.
     run_haxe host-capabilities
     run_haxe module-host-grants
     ;;
   node)
-    for suite in "${common_suites[@]}"; do run_node "$suite"; done
+    for suite in "${common_suites[@]}"; do
+      if [[ "$suite" == boot ]]; then prepare_self_image; fi
+      run_node "$suite"
+    done
     # Node-only checks from the original CI; retain every one.
     run_node modern-bootstrap
-    run_timed "Node/rebootstrap compile" haxe rebootstrap-node.hxml
-    run_timed "Node/rebootstrap execute" node build/tests/rebootstrap-node.js
     run_timed "Node/sign-modules" node --test tools/sign-modules.test.mjs
     ;;
   php-macro)
@@ -106,6 +120,7 @@ case "$target" in
       case "$suite" in
         single-pass-macro|runtime-core) continue ;;
       esac
+      if [[ "$suite" == boot ]]; then prepare_self_image; fi
       run_php "$suite"
     done
     ;;
