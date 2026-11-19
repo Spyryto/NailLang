@@ -1692,7 +1692,7 @@ class NailTypecheckerProbeTestMain {
     // original Nail entrypoints, for both valid and rejected source owners.
     // It removes a VM round-trip without changing any diagnostic policy.
     var sourceOwnerRequest=(program:Value,modules:Value,owner:String,
-        name:String):Value ->
+        name:String) ->
       SyntaxNode('NMTemplateOwnerRequest',Cons(program,Cons(modules,
         Cons(SyntaxLeaf('Name',owner),Cons(
           SyntaxLeaf('Name',name),Nil)))));
