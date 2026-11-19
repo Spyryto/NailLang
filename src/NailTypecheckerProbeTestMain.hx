@@ -708,6 +708,46 @@ class NailTypecheckerProbeTestMain {
     eq(boot.names().indexOf(forbiddenName),-1,
       'checked execution must not commit an earlier valid definition');
 
+    // A type-check failure from any lowering must reject the *entire*
+    // application before its earlier valid top-level definitions execute.
+    // Exercise distinct fail-closed paths, not only structural annotations.
+    for (rejection in [
+      {name:'neverBoundBadNumeric',tail:'1 + 1.0 ;',
+        reason:'No numeric relation instance'},
+      {name:'neverBoundBadPattern',
+        tail:'type GuardChoice = GuardFirst | GuardSecond ; '
+          +'match GuardFirst with | GuardFirst -> 1 ;',
+        reason:'Non-exhaustive match'},
+      {name:'neverBoundBadMacro',
+        tail:'macro guardBad x = quote ( unquote missing ) ; '
+          +'expand guardBad 1 ;',
+        reason:'unknown unquote parameter'}
+    ]) {
+      var beforeGlobals=boot.names();
+      var rejectedSource='nail 0.54 ; def '+rejection.name
+        +' = " unexpectedly executed " ; '+rejection.tail;
+      var rejectionError='';
+      try boot.runTypecheckedExperimental(rejectedSource)
+      catch (error:Dynamic) rejectionError=Std.string(error);
+      eq(rejectionError.indexOf(rejection.reason)>=0,true,
+        'fail-closed checked execution: '+rejection.reason);
+      var afterGlobals=boot.names();
+      beforeGlobals.sort(Reflect.compare);
+      afterGlobals.sort(Reflect.compare);
+      eq(afterGlobals,beforeGlobals,
+        'no application definition committed for '+rejection.reason);
+      eq(boot.names().indexOf(rejection.name),-1,
+        'invalid checked source did not execute its first definition');
+    }
+    // A preceding failure must not poison a subsequent valid submission.
+    eq(boot.names().indexOf('checkedRecoveryValue'),-1,
+      'recovery test begins with no binding');
+    eq(nail.RuntimeValues.plainResults(
+      boot.runTypecheckedExperimental('nail 0.54 ; '
+        +'def checkedRecoveryValue = " recovered " ; '
+        +'checkedRecoveryValue ;')),
+      ['recovered'],'checked VM can commit a later valid definition');
+
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
       ['Int','Float']);
