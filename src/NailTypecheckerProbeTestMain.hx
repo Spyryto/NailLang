@@ -550,6 +550,29 @@ class NailTypecheckerProbeTestMain {
       +'def html : Html = { h2 = fun x -> true , div = fun x -> x } ; '
       +'html . h2 " X " ;','Type mismatch');
 
+    // Check actual nested context execution, not just the inferred type.
+    // An unqualified name must resolve to the innermost field, while a
+    // qualified outer reference keeps its original receiver.
+    var nestedRuntimeSource='nail 0.54 ; '
+      +'type OuterRuntime = { div : Text Text } ; '
+      +'type InnerRuntime = { div : Bool Text } ; '
+      +'def outerRuntime = { div = fun x -> " outer " } ; '
+      +'def innerRuntime = { div = fun x -> '
+      +'if x then " inner " else " other " } ; '
+      +'def runInner ( outer : OuterRuntime ) ( inner : InnerRuntime ) = '
+      +'outer { inner { div true } } ; '
+      +'def runOuter ( outer : OuterRuntime ) ( inner : InnerRuntime ) = '
+      +'outer { inner { outer . div " X " } } ; '
+      +'runInner outerRuntime innerRuntime ; '
+      +'runOuter outerRuntime innerRuntime ;';
+    var nestedChecked=nail.RuntimeValues.plainResults(
+      new BootRuntime().runTypecheckedExperimental(nestedRuntimeSource));
+    eq(nestedChecked,['inner','outer'],
+      'nested checked execution respects inner shadowing and explicit outer access');
+    eq(nestedChecked,nail.RuntimeValues.plainResults(
+      new BootRuntime().run(nestedRuntimeSource)),
+      'checked and ordinary execution agree on nested contextual lookup');
+
     // The source-free compiler erases annotations when compiling. The new
     // opt-in checked execution path must validate in Nail *before* running.
     var checkedContext='nail 0.54 ; '+htmlContract
