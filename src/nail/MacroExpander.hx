@@ -9,6 +9,7 @@ private typedef MacroDefinition = {
   var params:Array<String>;
   var template:Expr;
   var scope:StringMap<MacroDefinition>;
+  var origin:Null<SourceProvenance>;
 }
 
 /** Expansion works on core-shaped trees. Macro markers exist only between
@@ -28,6 +29,8 @@ class MacroExpander {
   var serial = 0;
   var visited = 0;
   final resolve:Null<String->Value>;
+  final provenance:Null<SourceProvenance>;
+  final resolveSource:Null<String->Null<String>>;
   final loaded = new StringMap<StringMap<MacroDefinition>>();
   final loading:Array<String> = [];
 
@@ -35,11 +38,15 @@ class MacroExpander {
     return StringTools.startsWith(name, GLOBAL) ? name.substr(GLOBAL.length) : name;
   }
 
-  public static function forms(input:Array<Form>):Array<Form> {
-    return new MacroExpander(null).unit(input, null);
+  public static function forms(input:Array<Form>,
+      ?provenance:SourceProvenance,
+      ?resolveSource:String->Null<String>):Array<Form> {
+    return new MacroExpander(null, provenance, resolveSource)
+      .unit(input, null, provenance);
   }
 
-  function unit(input:Array<Form>, exports:Null<StringMap<MacroDefinition>>):Array<Form> {
+  function unit(input:Array<Form>, exports:Null<StringMap<MacroDefinition>>,
+      ?definitionProvenance:SourceProvenance):Array<Form> {
     var scope = new StringMap<MacroDefinition>();
     var own = new StringMap<Bool>();
     var output:Array<Form> = [];
@@ -78,7 +85,8 @@ class MacroExpander {
           case _: fail('expected quote ( expression ) in ' + label);
         };
         var lexical = scope.copy();
-        var definition = {name:label, params:parameters, template:template, scope:lexical};
+        var definition = {name:label, params:parameters, template:template,
+          scope:lexical, origin:definitionProvenance};
         validate(template, definition, 0);
         own.set(label, true);
         scope.set(label, definition);
@@ -86,9 +94,12 @@ class MacroExpander {
       case _ if (exports != null):
         fail('only macro declarations, imports and exports are allowed in a macro module');
       case Define(name, body):
-        output.push(Define(name, expand(body, scope)));
+        var normalized = Define(name, expand(body, scope));
+        output.push(normalized);
       case Evaluate(body):
-        output.push(Evaluate(expand(body, scope)));
+        var normalized = Evaluate(expand(body, scope));
+        if (provenance != null) provenance.transfer(form, normalized);
+        output.push(normalized);
       case _:
         output.push(form);
     }
@@ -154,15 +165,30 @@ class MacroExpander {
 
   function moduleExports(name:String):StringMap<MacroDefinition> {
     if (!~/^[A-Za-z_][A-Za-z_0-9]*$/.match(name)) return fail('invalid macro module name ' + name);
-    if (resolve == null) return fail('macro module ' + name + ' requires a module resolver');
+    if (resolve == null && resolveSource == null)
+      return fail('macro module ' + name + ' requires a module resolver');
     if (loaded.exists(name)) return loaded.get(name);
     if (loading.indexOf(name) >= 0) return fail('cyclic macro imports: ' + loading.concat([name]).join(' -> '));
     if (loading.length >= MAX_DEPTH) return fail('macro import nesting limit exceeded');
-    var source = resolve(name);
-    if (source == null) return fail('missing macro module ' + name);
     loading.push(name);
     var exports = new StringMap<MacroDefinition>();
-    unit(SyntaxBridge.forms(source), exports);
+    if (resolveSource != null) {
+      #if nail_seed_only
+      // Source-free distributions receive pre-parsed module Syntax from Nail.
+      // Never link the Haxe stage-zero Parser into their reachable runtime.
+      return fail('source-only macro resolution is unavailable in the source-free runtime');
+      #else
+      var text = resolveSource(name);
+      if (text == null) return fail('missing macro module ' + name);
+      var parser = new Parser(text);
+      parser.provenance.sourceId = name;
+      unit(parser.parseRaw(), exports, parser.provenance);
+      #end
+    } else {
+      var source = resolve(name);
+      if (source == null) return fail('missing macro module ' + name);
+      unit(SyntaxBridge.forms(source), exports);
+    }
     loading.pop();
     loaded.set(name, exports);
     return exports;
@@ -172,7 +198,18 @@ class MacroExpander {
 
   static function fail(message:String):Dynamic throw new MacroExpansionError(message);
 
-  function new(resolve:Null<String->Value>) this.resolve = resolve;
+  function new(resolve:Null<String->Value>, ?provenance:SourceProvenance,
+      ?resolveSource:String->Null<String>) {
+    this.resolve = resolve;
+    this.provenance = provenance;
+    this.resolveSource = resolveSource;
+  }
+
+  function generated(result:Expr, template:Expr,
+      site:Null<nail.SourcePositions.SourceSpan>,
+      origin:Null<SourceProvenance>):Expr
+    return provenance == null ? result :
+      provenance.generated(result, template, site, origin);
 
   function tick(depth:Int):Void {
     if (depth > MAX_DEPTH) fail('expansion nesting limit exceeded');
@@ -211,13 +248,15 @@ class MacroExpander {
   }
 
   function expand(expr:Expr, scope:StringMap<MacroDefinition>):Expr {
-    return hasMarkers(expr) ? walk(expr, scope, null, null, 0) : expr;
+    return hasMarkers(expr) ? walk(expr, scope, null, null, 0, null, null) : expr;
   }
 
   /** Template and caller subtrees are walked in their own scopes. The caller
       arguments are fully expanded before insertion and are never renamed. */
   function walk(expr:Expr, scope:StringMap<MacroDefinition>, holes:Null<StringMap<Expr>>,
-      locals:Null<StringMap<String>>, depth:Int):Expr {
+      locals:Null<StringMap<String>>, depth:Int,
+      site:Null<nail.SourcePositions.SourceSpan>,
+      templateOrigin:Null<SourceProvenance>):Expr {
     tick(depth);
     switch (expr) {
       case Apply(Var(UNQUOTE), Var(name)) if (holes != null):
@@ -232,28 +271,45 @@ class MacroExpander {
             + definition.params.length + ' arguments, got ' + call.args.length);
           var bindings = new StringMap<Expr>();
           for (i in 0...definition.params.length)
-            bindings.set(definition.params[i], walk(call.args[i], scope, holes, locals, depth + 1));
-          var result = walk(definition.template, definition.scope, bindings, new StringMap<String>(), depth + 1);
-          for (i in definition.params.length...call.args.length)
-            result = Apply(result, walk(call.args[i], scope, holes, locals, depth + 1));
+            bindings.set(definition.params[i],
+              walk(call.args[i], scope, holes, locals, depth + 1, site, templateOrigin));
+          var origin = provenance == null ? null : provenance.invocationSite(expr, site);
+          var result = walk(definition.template, definition.scope,
+            bindings, new StringMap<String>(), depth + 1, origin,
+            definition.origin);
+          for (i in definition.params.length...call.args.length) {
+            var extra = walk(call.args[i], scope, holes, locals, depth + 1,
+              site, templateOrigin);
+            result = generated(Apply(result, extra), definition.template,
+              origin, definition.origin);
+          }
           return result;
         }
         switch (expr) {
           case Apply(fn, arg):
-            return Apply(walk(fn, scope, holes, locals, depth + 1), walk(arg, scope, holes, locals, depth + 1));
+            return generated(Apply(
+              walk(fn, scope, holes, locals, depth + 1, site, templateOrigin),
+              walk(arg, scope, holes, locals, depth + 1, site, templateOrigin)),
+              expr, site, templateOrigin);
           case _: return fail('invalid application');
         }
       case Lambda(name, body):
-        if (locals == null) return Lambda(name, walk(body, scope, holes, null, depth + 1));
+        if (locals == null) return generated(
+          Lambda(name, walk(body, scope, holes, null, depth + 1, site,
+            templateOrigin)), expr, site, templateOrigin);
         var fresh = FRESH + serial++ + '_' + name;
         var previous = locals.get(name);
         locals.set(name, fresh);
-        var expanded = walk(body, scope, holes, locals, depth + 1);
+        var expanded = walk(body, scope, holes, locals, depth + 1, site,
+          templateOrigin);
         if (previous == null) locals.remove(name); else locals.set(name, previous);
-        return Lambda(fresh, expanded);
+        return generated(Lambda(fresh, expanded), expr, site, templateOrigin);
       case If(test, yes, no):
-        return If(walk(test, scope, holes, locals, depth + 1), walk(yes, scope, holes, locals, depth + 1),
-          walk(no, scope, holes, locals, depth + 1));
+        return generated(If(
+          walk(test, scope, holes, locals, depth + 1, site, templateOrigin),
+          walk(yes, scope, holes, locals, depth + 1, site, templateOrigin),
+          walk(no, scope, holes, locals, depth + 1, site, templateOrigin)),
+          expr, site, templateOrigin);
       case Var(name):
         if (marker(name)) return fail(switch (name) {
           case QUOTE: 'quote belongs at the start of a macro body';
@@ -262,8 +318,11 @@ class MacroExpander {
         });
         if (locals == null) return expr;
         var binding = locals.get(name);
-        return Var(binding != null ? binding : GLOBAL + name);
-      case Literal(_): return expr;
+        return generated(Var(binding != null ? binding : GLOBAL + name),
+          expr, site, templateOrigin);
+      case Literal(value):
+        return site == null ? expr :
+          generated(Literal(value), expr, site, templateOrigin);
     }
   }
 
