@@ -44,6 +44,15 @@ class RuntimeCoreTestMain {
   }
 
   public static function main():Void {
+    // Only CI's PHP matrix shards select a subset. Unsharded Haxe/Node and
+    // local runs still execute all four independent source/VM parity cases.
+    var requestedShard = Sys.getEnv('NAIL_CI_RUNTIME_CORE_SHARD');
+    var shard:Null<Int> = switch requestedShard {
+      case null: null;
+      case '0': 0;
+      case '1': 1;
+      case _: throw 'Invalid NAIL_CI_RUNTIME_CORE_SHARD: ' + requestedShard;
+    };
     var first = RuntimePrimitives.environment();
     var second = RuntimePrimitives.environment();
     ok(switch first.lookup('+') {
@@ -89,7 +98,10 @@ class RuntimeCoreTestMain {
       'nail 0.49 ; type Choice = No | Yes Int ; match Yes 42 with | No -> 0 | Yes n -> n ;',
       'nail 0.49 ; macro twice x = quote ( unquote x + unquote x ) ; expand twice 21 ;'
     ];
-    for (source in sources) {
+    for (i in 0...sources.length) {
+      if (shard != null && i % 2 != shard) continue;
+      var source = sources[i];
+      // No VM is shared across two different programs, even within a shard.
       var vm = new Vm(60000000);
       var start = Timer.stamp();
       vm.loadStdlib();
@@ -112,6 +124,11 @@ class RuntimeCoreTestMain {
     ok(Json.stringify(RuntimeValues.plainResults(values)) ==
        Json.stringify(Vm.plainResults(values)),
       'shared presentation agrees with development API');
+    var expectedCases = shard == null ? sources.length : Std.int(sources.length / 2);
+    ok(bootInstances == expectedCases,
+      'runtime shard must execute every allocated independent source case');
+    trace('CI profile runtime/shard: ' + (shard == null ? 'all' : Std.string(shard))
+      + ', source_cases=' + bootInstances);
     trace('CI profile runtime/BootRuntime init: count=' + bootInstances
       + ', total_ms=' + Math.round(bootSeconds * 1000));
     trace('CI profile runtime/Vm stdlib load: count=' + bootInstances
