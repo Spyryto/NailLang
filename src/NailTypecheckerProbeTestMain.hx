@@ -1628,7 +1628,7 @@ class NailTypecheckerProbeTestMain {
         SyntaxNode('NMTemplateOwnerRequest',Cons(program,Cons(modules,
           Cons(SyntaxLeaf('Name',owner),
             Cons(SyntaxLeaf('Name',name),Nil))))));
-    var resolvedTemplate=(result:Value):Bool -> switch(result) {
+    var resolvedTemplate=(result:Value) -> switch(result) {
       case SyntaxNode('NMTemplate',Cons(_,Nil)): true;
       case _: false;
     };
