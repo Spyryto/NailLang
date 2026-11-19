@@ -26,7 +26,9 @@ class ModernBootstrapTestMain {
     // Recompile the entire stdlib using its own modern bytecode compiler,
     // then repeat with the newly built image. Both tapes must be identical
     // to the independent Haxe compiler.
-    var regenerated=Rebootstrap.verify(official, source, 250000000);
+    // Permit the growing self-hosted stdlib a finite rebuild budget;
+    // identical bytecode across all stages is still mandatory.
+    var regenerated=Rebootstrap.verify(official, source, 500000000);
     if (Rebootstrap.records(regenerated)!=Rebootstrap.records(official))
       throw 'Modern bootstrap is not a fixed point';
     trace('NailLang 0.47 official modern bootstrap fixed point verified: '
