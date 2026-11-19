@@ -69,7 +69,7 @@ common_suites=(
 )
 
 case "$target" in
-  haxe|haxe-typechecker|node|php-macro|php-runtime-0|php-runtime-1|php-modern-numbers|php-type-lowering|php-exact-rounding|php-rest) ;;
+  haxe|haxe-typechecker|node|php-macro-parity|php-macro-rejections|php-macro-spy|php-runtime-0|php-runtime-1|php-modern-numbers|php-type-lowering|php-exact-rounding|php-rest) ;;
   *) echo "Unknown CI target: $target" >&2; exit 2 ;;
 esac
 
@@ -114,8 +114,10 @@ case "$target" in
     run_node modern-bootstrap
     run_timed "Node/sign-modules" node --test tools/sign-modules.test.mjs
     ;;
-  php-macro)
-    run_php single-pass-macro
+  php-macro-parity|php-macro-rejections|php-macro-spy)
+    # Each shard exercises a distinct part of the full macro regression:
+    # 70 parity checks, 20 rejection checks, 7 single-expansion/diagnostic checks.
+    NAIL_CI_MACRO_PHASE="${target#php-macro-}" run_php single-pass-macro
     ;;
   php-runtime-0|php-runtime-1)
     # Preserve independent Vm/BootRuntime construction per source form.
