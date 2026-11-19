@@ -1584,11 +1584,11 @@ class NailTypecheckerProbeTestMain {
       SyntaxNode('Apply',Cons(
         SyntaxLeaf('Var','#modern+'),Cons(SyntaxLeaf('Var','left'),Nil))),
       Cons(SyntaxLeaf('Var','right'),Nil)));
-    var hintAt=(tree:Value,path:String):Value ->
+    var hintAt=(tree:Value,path:String) ->
       boot.invoke('nmSourceTokenHintAtPath',
         SyntaxNode('NMTokenPathRequest',
           Cons(tree,Cons(SyntaxLeaf('Name',path),Nil))));
-    var hintText=(result:Value):Null<String> -> switch(result) {
+    var hintText=(result:Value) -> switch(result) {
       case SyntaxNode('NMSelectedToken',Cons(
           SyntaxLeaf('Name',word),Nil)): word;
       case _: null;
