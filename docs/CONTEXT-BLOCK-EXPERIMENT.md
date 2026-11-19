@@ -169,12 +169,17 @@ wrongly typed annotated values. All run through the shared Haxe/Node/PHP
 CI probe. These checks validate the experimental subset, not every
 possible row-polymorphism or source-provenance case.
 
-The self-hosted **runtime compilation** path still erases annotations;
-it must not be mistaken for static verification. Before making this
-experimental grammar authoritative for public compilation, enforce
-the checker at the appropriate API boundary and close remaining
-type-inference/diagnostic gaps. The PR remains draft until those
-correctness gates are explicitly met.
+The existing self-hosted `BootRuntime.run` path still erases
+annotations, so it must not be mistaken for static verification.
+The new **opt-in** `BootRuntime.runTypecheckedExperimental(source)`
+runs the Nail-written HM checker first and refuses invalid annotations
+before compiling or executing the program. This is limited to the
+experimentally supported versioned-source subset; it does not replace
+the public compile boundary or support imported source modules.
+Before making this grammar authoritative for public compilation,
+close the remaining type-inference/diagnostic gaps and decide how the
+validated path is integrated. PR #28 remains draft until those correctness
+gates are met.
 
 ## Boundaries deliberately explored
 

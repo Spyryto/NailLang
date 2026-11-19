@@ -46,6 +46,27 @@ class BootRuntime {
   @:keep
   public function run(source:String, ?modules:String->Null<String>):Array<Value> return machine.run(compile(source, modules));
 
+  /** Opt-in correctness gate for the Nail-written experimental HM checker.
+      No source code is executed if the checker rejects it. Unlike run(),
+      this deliberately supports only the checker's current versioned-source
+      subset; imported modules and unsupported types are not silently accepted.
+      The public compiler's checking policy remains unchanged. */
+  @:keep
+  public function runTypecheckedExperimental(source:String):Array<Value> {
+    var checked=invoke('tcCheckSourceTraced', Text(source));
+    if (ResultValue.tag(checked)!=ResultValue.OK) {
+      var fault=ResultValue.get(checked,ResultValue.ERR);
+      var message=switch(fault) {
+        case SyntaxNode('TCFault',Cons(SyntaxLeaf('TCMessage',text),_)):
+          StringTools.trim(text);
+        case Text(text): StringTools.trim(text);
+        case _: throw 'Unexpected Nail type checker diagnostic representation';
+      };
+      throw 'Experimental Nail type checker rejected source: '+message;
+    }
+    return run(source);
+  }
+
   @:keep
   public function runPlain(source:String, ?modules:String->Null<String>):Array<Dynamic> return RuntimeValues.plainResults(run(source, modules));
 

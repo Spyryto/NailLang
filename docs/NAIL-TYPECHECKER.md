@@ -1,7 +1,8 @@
 # Nail-written type checker — staged dogfooding experiment
 
-**Status:** stacked experimental draft PR #29 (based on the contextual DSL
-prototype in PR #28). Neither PR changes the released NailLang 0.54.
+**Status:** the type checker experiment from PR #29 was merged into the
+experimental contextual DSL branch (draft PR #28), not into `main`.
+The released NailLang 0.54 remains unchanged.
 
 ## Purpose
 
@@ -12,6 +13,23 @@ independent reference until parity and diagnostics can be verified.
 The first checker lives in `stdlib.nail`, with functions prefixed `tc`.
 It is compiled to ordinary Nail bytecode during the normal bootstrap. The
 existing VM and primitive boundary are unchanged.
+
+## Opt-in checked execution (experimental)
+
+`BootRuntime.runTypecheckedExperimental(source)` validates a versioned
+source using `tcCheckSourceTraced` (the Nail-written HM checker, compiled
+to bytecode) **before** compiling or executing it. On `Error(TCFault)`,
+it throws the checker's message and does not call `run`. This closes
+the annotation-erasure gap for programs deliberately opting into this
+checked subset. The existing `BootRuntime.run` retains its established
+semantics and is **not** silently typechecked.
+
+This is not a promise of full language type safety: the checker is
+experimental, currently incomplete for some type features and has not
+replaced the authoritative public compilation path. Imported source
+modules are not supported by this one-argument checked entry point.
+Regression tests cover annotated contextual records and negative
+missing-field/type-mismatch cases on Haxe, Node and PHP.
 
 ## Representation
 

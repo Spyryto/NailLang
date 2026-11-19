@@ -550,6 +550,30 @@ class NailTypecheckerProbeTestMain {
       +'def html : Html = { h2 = fun x -> true , div = fun x -> x } ; '
       +'html . h2 " X " ;','Type mismatch');
 
+    // The source-free compiler erases annotations when compiling. The new
+    // opt-in checked execution path must validate in Nail *before* running.
+    var checkedContext='nail 0.54 ; '+htmlContract
+      +'def html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render html " Verified " ;';
+    eq(nail.RuntimeValues.plainResults(
+      boot.runTypecheckedExperimental(checkedContext)),['Verified'],
+      'opt-in checked execution accepts a valid annotated context');
+    for (rejected in [
+      {source:'nail 0.54 ; '+htmlContract
+        +'def html : Html = { h2 = fun x -> x } ; '
+        +'html . h2 " X " ;',reason:'Missing structural field'},
+      {source:'nail 0.54 ; '+htmlContract
+        +'def html : Html = { h2 = fun x -> true , div = fun x -> x } ; '
+        +'html . h2 " X " ;',reason:'Type mismatch'}
+    ]) {
+      var checkError='';
+      try boot.runTypecheckedExperimental(rejected.source)
+      catch(e:Dynamic) checkError=Std.string(e);
+      eq(checkError.indexOf(rejected.reason)>=0,true,
+        'checked execution fails closed before runtime: '+rejected.reason);
+    }
+
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',
       ['Int','Float']);
