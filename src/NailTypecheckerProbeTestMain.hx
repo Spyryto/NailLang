@@ -1702,7 +1702,7 @@ class NailTypecheckerProbeTestMain {
           boot.invoke('nmSourceDiagnosticProjection',
             SyntaxNode('NMSourceProjectionRequest',Cons(body,
               Cons(SyntaxLeaf('Name',path),Cons(fault,Nil)))));
-        case _: SyntaxLeaf('NMNoOrigin',' ');
+        case _: SyntaxLeaf('NMNoOrigin','');
       };
     var fusedOwnerProjection=(ownerRequest:Value,path:String,fault:Value) ->
       boot.invoke('nmSourceOwnerDiagnosticProjection',
