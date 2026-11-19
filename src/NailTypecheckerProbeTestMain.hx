@@ -565,14 +565,37 @@ class NailTypecheckerProbeTestMain {
         +'html . h2 " X " ;',reason:'Missing structural field'},
       {source:'nail 0.54 ; '+htmlContract
         +'def html : Html = { h2 = fun x -> true , div = fun x -> x } ; '
-        +'html . h2 " X " ;',reason:'Type mismatch'}
+        +'html . h2 " X " ;',reason:'Type mismatch'},
+      {source:'nail 0.54 ; 1 + 1.0 ;',
+        reason:'No numeric relation instance'},
+      {source:'1 ;',reason:'requires versioned modern source'}
     ]) {
+      var namesBefore=boot.names();
       var checkError='';
       try boot.runTypecheckedExperimental(rejected.source)
       catch(e:Dynamic) checkError=Std.string(e);
       eq(checkError.indexOf(rejected.reason)>=0,true,
         'checked execution fails closed before runtime: '+rejected.reason);
+      eq(boot.names().length,namesBefore.length,
+        'rejected checked source cannot register new globals: '
+          +rejected.reason);
     }
+    // Rejection must be atomic with respect to program execution. A
+    // successfully typed definition preceding the fault is *not* executed.
+    var forbiddenName='neverBoundByRejectedTypecheck';
+    eq(boot.names().indexOf(forbiddenName),-1,
+      'checked gate fixture begins without forbidden global');
+    var partialSource='nail 0.54 ; '+htmlContract
+      +'def '+forbiddenName+' = 42 ; '
+      +'def html : Html = { h2 = fun x -> x } ; '
+      +'html . h2 " X " ;';
+    var partialError='';
+    try boot.runTypecheckedExperimental(partialSource)
+    catch(e:Dynamic) partialError=Std.string(e);
+    eq(partialError.indexOf('Missing structural field')>=0,true,
+      'checked execution rejects invalid later definition');
+    eq(boot.names().indexOf(forbiddenName),-1,
+      'checked execution must not commit an earlier valid definition');
 
     checkGood(boot,'Add : Int Int Int ; Add : Float Float Float ; '
       +'def add x y : Add = x + y ; add 6 7 ; add 1.25 0.5 ;',

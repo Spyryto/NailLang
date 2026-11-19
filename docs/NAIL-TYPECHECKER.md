@@ -28,8 +28,12 @@ This is not a promise of full language type safety: the checker is
 experimental, currently incomplete for some type features and has not
 replaced the authoritative public compilation path. Imported source
 modules are not supported by this one-argument checked entry point.
-Regression tests cover annotated contextual records and negative
-missing-field/type-mismatch cases on Haxe, Node and PHP.
+Regression tests cover annotated contextual records, missing
+fields, wrong field types, invalid mixed numeric expressions, and rejection
+of unversioned sources on Haxe, Node and PHP. Crucially, the tests also
+verify that rejected source cannot mutate the VM's global namespace,
+even when an earlier top-level definition would have been valid: checking
+completes *before* any application bytecode is executed.
 
 ## Representation
 
