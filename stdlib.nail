@@ -5297,3 +5297,83 @@ def tcCanonicalCheckedDefinition source name =
     if syntaxTag scheme != " TCScheme " then
       Error ( textConcat " No verified exported definition: " name )
     else tcCanonicalRowEvidence scheme ;
+
+
+# Preview-only checked module interface. This is a *selection* over schemes
+# from the atomic Nail HM source checker, not a public module declaration.
+# Ordering and failure policy are authored in Nail; the host serializes only
+# the completed canonical Syntax evidence.
+def tcWireNameAt name index =
+  if index == textLength name then true
+  else let ch = textAt name index in
+    if index == 0 then
+      if isLetter ch then tcWireNameAt name ( index + 1 )
+      else false
+    else if isLetter ch then tcWireNameAt name ( index + 1 )
+    else if isDigit ch then tcWireNameAt name ( index + 1 )
+    else false ;
+
+def tcWireRequestedNamesValid names =
+  match names with
+  | [] -> true
+  | first :: rest ->
+    if textLength first == 0 then false
+    else if tcWireNameAt first 0 == false then false
+    else tcWireRequestedNamesValid rest ;
+
+def tcWireInsertName name names =
+  match names with
+  | [] -> [ name ]
+  | first :: rest ->
+    if tcWireBefore name first 0 then cons name names
+    else cons first ( tcWireInsertName name rest ) ;
+
+def tcWireSortNames names =
+  match names with
+  | [] -> []
+  | first :: rest ->
+    tcWireInsertName first ( tcWireSortNames rest ) ;
+
+def tcWireAdjacentDuplicates names =
+  match names with
+  | [] -> false
+  | first :: rest ->
+    match rest with
+    | [] -> false
+    | second :: remainder ->
+      if first == second then true
+      else tcWireAdjacentDuplicates rest ;
+
+def tcWireSelectSchemes names available reversed =
+  match names with
+  | [] -> Ok ( syntaxNode " TCWireInterface "
+      [ syntaxNode " TCWireExports " ( reverse reversed ) ] )
+  | name :: rest ->
+    let scheme = tcFind name available in
+    if syntaxTag scheme != " TCScheme " then
+      Error ( textConcat " No verified interface definition: " name )
+    else match tcCanonicalRowEvidence scheme with
+    | Error message ->
+      Error ( textConcat
+        ( textConcat " Unsupported interface definition: " name )
+        ( textConcat " : " message ) )
+    | Ok wire ->
+      tcWireSelectSchemes rest available
+        ( cons ( tcBinding name wire ) reversed ) ;
+
+# A whole-program transaction yields a whole-interface preview. Request
+# names cannot come from implicit private bindings. Import/link semantics
+# remain unsupported by this function.
+def tcCanonicalCheckedInterface source names =
+  if isEmpty names then Error " Empty interface selection "
+  else if length names > 128 then Error " Too many interface definitions "
+  else if tcWireRequestedNamesValid names == false then
+    Error " Invalid interface definition name "
+  else let ordered = tcWireSortNames names in
+    if tcWireAdjacentDuplicates ordered then
+      Error " Duplicate interface definition "
+    else match tcCheckSourceSchemes source with
+    | Error message -> Error message
+    | Ok checked ->
+      tcWireSelectSchemes ordered
+        ( syntaxChildren ( tcSecond checked ) ) [] ;
