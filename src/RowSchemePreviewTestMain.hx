@@ -896,7 +896,7 @@ class RowSchemePreviewTestMain {
       admissionEnvelope),'trusted source digest mismatch');
     checkFails(() -> NailCheckedProviderAdmission.compileClosed('Provider',
       admittedSource,haxe.crypto.Sha256.encode(admittedSource),
-      pinnedCompilerDigest,rehashedEnvelope),'digest mismatch');
+      pinnedCompilerDigest,rehashedEnvelope),'differs from pinned source build');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
