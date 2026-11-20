@@ -6,7 +6,7 @@ class LanguageVersion {
   public static inline var CURRENT = '0.55';
 
   public static function supported(version:String):Bool return switch (version) {
-    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51' | '0.52' | '0.53' | CURRENT: true;
+    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51' | '0.52' | '0.53' | '0.54' | CURRENT: true;
     case _: false;
   };
 
