@@ -553,6 +553,136 @@ class RowSchemePreviewTestMain {
       Text(declaredSource))),ResultValue.ERR,
       'ordinary checked-source API still refuses value export directives');
 
+
+    // Import a validated *portable preview*, then let Nail reconstitute
+    // each TCScheme. The importer may not borrow its own internal type
+    // variables across two instantiations, nor drop TCRowQuant negatives.
+    var wireSyntax=NailRowInterfacePreview.decodeSyntax(interfaceJSON);
+    var importedResult=dogfood.invoke('tcImportWireInterface',wireSyntax);
+    eq(ResultValue.tag(importedResult),ResultValue.OK,
+      'canonical wire preview becomes a private imported Nail interface');
+    var imported:Value=ResultValue.get(importedResult,ResultValue.OK);
+    ok(switch(imported) {
+      case SyntaxNode('TCImportedInterface',
+          Cons(SyntaxNode('TCImportedSchemes',_),Nil)): true;
+      case _: false;
+    },'imported interface is a closed private HM scheme table');
+    function importRequest(table:Value,name:String,seed:String):Value {
+      return SyntaxNode('TCImportRequest',Cons(table,
+        Cons(SyntaxLeaf('TCName',name),
+          Cons(SyntaxNode('TCSubstitutions',Nil),
+            Cons(SyntaxLeaf('TCSeed',seed),Nil)))));
+    }
+    var readRequest=importRequest(imported,'readField','#import_one');
+    var one=dogfood.invoke('tcImportWireInstantiate',readRequest);
+    eq(ResultValue.tag(one),ResultValue.OK,
+      'Nail instantiates the imported row-polymorphic type');
+    var firstInstance=ResultValue.get(one,ResultValue.OK);
+    var nextSeed:String=switch(firstInstance) {
+      case SyntaxNode('TCInferResult',
+          Cons(_,Cons(_,Cons(SyntaxLeaf('TCSeed',seed),Nil)))): seed;
+      case _: throw 'ROW SCHEME PREVIEW: missing HM seed after import';
+    };
+    var two=dogfood.invoke('tcImportWireInstantiate',
+      importRequest(imported,'readField',nextSeed));
+    eq(ResultValue.tag(two),ResultValue.OK,
+      'second imported use instantiates with a threaded fresh seed');
+    var typeA:Value=switch(firstInstance) {
+      case SyntaxNode('TCInferResult',Cons(ty,_)): ty;
+      case _: throw 'ROW SCHEME PREVIEW: first import has no type';
+    };
+    var typeB:Value=switch(ResultValue.get(two,ResultValue.OK)) {
+      case SyntaxNode('TCInferResult',Cons(ty,_)): ty;
+      case _: throw 'ROW SCHEME PREVIEW: second import has no type';
+    };
+    ok(Json.stringify(RuntimeValues.toPlain(typeA))
+      !=Json.stringify(RuntimeValues.toPlain(typeB)),
+      'independent uses cannot share the same fresh row/type variables');
+
+    function rowFieldValue(name:String):Value {
+      return SyntaxNode('TCRowField',Cons(SyntaxLeaf('TCName',name),
+        Cons(SyntaxLeaf('TCBase','Int'),
+          Cons(SyntaxNode('TCStruct',Nil),Nil))));
+    }
+    function tailProbe(table:Value,label:String):Value {
+      return dogfood.invoke('tcImportWireProbeTailBinding',
+        SyntaxNode('TCImportTailProbe',Cons(
+          importRequest(table,'readField','#tail_probe'),
+          Cons(rowFieldValue(label),Nil))));
+    }
+    eq(ResultValue.tag(tailProbe(imported,'x')),ResultValue.ERR,
+      'known imported x field remains forbidden inside its row tail');
+    eq(ResultValue.tag(tailProbe(imported,'z')),ResultValue.OK,
+      'fresh unrelated z field is allowed in the imported row tail');
+
+    var augmented:Dynamic=Json.parse(interfaceJSON);
+    var wrapped:Array<Dynamic>=cast augmented;
+    var entries:Array<Dynamic>=cast wrapped[1];
+    var foundExtra=false;
+    for (item in entries) {
+      var pair:Array<Dynamic>=cast item;
+      if (pair[0]=='readField') {
+        var scheme:Array<Dynamic>=cast pair[1];
+        var guards:Array<Dynamic>=cast scheme[4];
+        var guard:Array<Dynamic>=cast guards[0];
+        guard[1]=['reserved','x'];
+        foundExtra=true;
+      }
+    }
+    ok(foundExtra,'readField export has a quantified open-row guard');
+    var extraWire=Json.stringify(augmented);
+    var augmentedSyntax=NailRowInterfacePreview.decodeSyntax(extraWire);
+    var importedExtra=dogfood.invoke('tcImportWireInterface',augmentedSyntax);
+    eq(ResultValue.tag(importedExtra),ResultValue.OK,
+      'additional negative-only row-lacks survives wire import');
+    var extraTable=ResultValue.get(importedExtra,ResultValue.OK);
+    eq(ResultValue.tag(tailProbe(extraTable,'reserved')),ResultValue.ERR,
+      'late duplicate reserved is rejected from extra wire row-lacks');
+    eq(ResultValue.tag(tailProbe(extraTable,'x')),ResultValue.ERR,
+      'ordinary prefix field x is still forbidden after import');
+    eq(ResultValue.tag(tailProbe(extraTable,'z')),ResultValue.OK,
+      'row tail remains open to genuinely new fields');
+
+    // Strict decode and Nail scheme import are separate gates.
+    var tampered:Dynamic=Json.parse(extraWire);
+    var malformed:Array<Dynamic>=cast tampered;
+    var malformedExports:Array<Dynamic>=cast malformed[1];
+    var forged:Array<Dynamic>=cast malformedExports[1];
+    var forgedScheme:Array<Dynamic>=cast forged[1];
+    forgedScheme[4]=[];
+    checkFails(() -> NailRowInterfacePreview.decodeSyntax(
+      Json.stringify(tampered)),'missing row-lacks qualifier');
+    var missingImported=dogfood.invoke('tcImportWireInstantiate',
+      importRequest(imported,'absent','#missing_import'));
+    eq(ResultValue.tag(missingImported),ResultValue.ERR,
+      'unknown imported name is rejected without defaulting to a builtin');
+
+    // Eq evidence must travel through the same imported quantifier map:
+    // a primitive comparable Int is valid; a function value is not.
+    var eqOnlyJSON=Json.stringify([
+      NailRowInterfacePreview.FORMAT,[
+        ['onlyEq',[RowSchemePreview.FORMAT,
+          ['fn',['var',0],['var',0]],[0],[0],[]]]
+      ]]);
+    var eqImportedResult=dogfood.invoke('tcImportWireInterface',
+      NailRowInterfacePreview.decodeSyntax(eqOnlyJSON));
+    eq(ResultValue.tag(eqImportedResult),ResultValue.OK,
+      'strict preview importer accepts an ordinary Eq scheme');
+    var eqTable=ResultValue.get(eqImportedResult,ResultValue.OK);
+    var eqRequest=importRequest(eqTable,'onlyEq','#eq_probe');
+    function eqProbe(candidate:Value):Value {
+      return dogfood.invoke('tcImportWireProbeEquality',
+        SyntaxNode('TCImportEqProbe',Cons(eqRequest,
+          Cons(candidate,Nil))));
+    }
+    eq(ResultValue.tag(eqProbe(SyntaxLeaf('TCBase','Int'))),
+      ResultValue.OK,'imported Eq qualifier allows comparable Int');
+    eq(ResultValue.tag(eqProbe(SyntaxNode('TCFun',Cons(
+      SyntaxLeaf('TCBase','Int'),
+      Cons(SyntaxLeaf('TCBase','Int'),Nil))))),
+      ResultValue.ERR,'imported Eq qualifier rejects function values');
+
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }

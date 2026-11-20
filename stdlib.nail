@@ -5433,3 +5433,164 @@ def tcCanonicalDeclaredInterface source =
           | Ok checked ->
             tcWireSelectSchemes ordered
               ( syntaxChildren ( tcSecond checked ) ) [] ;
+
+
+# Preview-only import of canonical structural-row Syntax evidence.
+# The host decoder must validate an external JSON image *before* handing
+# its Syntax representation here. This does not authorize a public
+# ModuleImage import or bind runtime functions to their claimed types.
+#
+# TCWireLacks encodes negative field-name obligations, NOT field types.
+# The TCMissing field payload below is a marker intentionally used only
+# inside private guard bindings; tcCheckRowShape compares label names.
+def tcImportWireGuardFields names =
+  match names with
+  | [] -> []
+  | item :: rest ->
+    cons ( tcField ( syntaxText item ) tcMissing )
+      ( tcImportWireGuardFields rest ) ;
+
+def tcImportWireGuards entries reversed =
+  match entries with
+  | [] -> syntaxNode " TCImportRowGuards " ( reverse reversed )
+  | entry :: rest ->
+    if syntaxTag entry != " TCWireLacks " then
+      tcFault " Malformed imported row-lacks entry "
+    else let absent = tcSecond entry in
+      let rowTail = tcFirst entry in
+      if syntaxTag rowTail != " TCVar " then
+        tcFault " Malformed imported row-tail variable "
+      else if syntaxTag absent != " TCWireAbsent " then
+        tcFault " Malformed imported row-lacks names "
+      else let fields = tcImportWireGuardFields
+        ( syntaxChildren absent ) in
+        tcImportWireGuards rest
+          ( cons ( tcRowExtend fields rowTail ) reversed ) ;
+
+# Existing tcInstantiate freshens all quantifiers together and reinstates
+# Eq and row-lacks with the same fresh substitution renaming. Use that
+# implementation rather than duplicating the HM algorithm for imports.
+def tcImportWireScheme evidence =
+  if syntaxTag evidence != " TCWireScheme " then
+    Error " Expected canonical wire scheme "
+  else if syntaxTag ( tcSecond evidence ) != " TCWireQuant " then
+    Error " Invalid imported quantifier table "
+  else if syntaxTag ( tcThird evidence ) != " TCWireEq " then
+    Error " Invalid imported Eq qualifiers "
+  else if syntaxTag ( tcFourth evidence ) != " TCWireLacksSet " then
+    Error " Invalid imported row-lacks set "
+  else let guards = tcImportWireGuards
+    ( syntaxChildren ( tcFourth evidence ) ) [] in
+    if syntaxTag guards == " TCFault " then
+      Error ( tcFaultMessage guards )
+    else let scheme = tcSchemeWithRows ( tcFirst evidence )
+      ( syntaxChildren ( tcSecond evidence ) )
+      ( syntaxChildren ( tcThird evidence ) )
+      ( syntaxChildren guards ) in
+      match tcCanonicalRowEvidence scheme with
+      | Error message -> Error message
+      | Ok canonical -> Ok scheme ;
+
+def tcImportWireEntries entries previous reversed =
+  match entries with
+  | [] -> Ok ( syntaxNode " TCImportedInterface "
+      [ syntaxNode " TCImportedSchemes " ( reverse reversed ) ] )
+  | binding :: rest ->
+    if syntaxTag binding != " TCBinding " then
+      Error " Malformed canonical wire binding "
+    else let name = tcBindingName binding in
+      if tcWireNameAt name 0 == false then
+        Error " Invalid imported definition name "
+      else if previous != " " then
+        if tcWireBefore previous name 0 == false then
+          Error " Noncanonical imported definition order "
+        else tcImportWireEntry binding rest name reversed
+      else tcImportWireEntry binding rest name reversed ;
+
+def tcImportWireEntry binding rest name reversed =
+  match tcImportWireScheme ( tcBindingValue binding ) with
+  | Error message ->
+    Error ( textConcat
+      ( textConcat " Invalid imported definition: " name )
+      ( textConcat " : " message ) )
+  | Ok scheme ->
+    tcImportWireEntries rest name
+      ( cons ( tcBinding name scheme ) reversed ) ;
+
+# Consumes validated canonical Syntax; no public runtime or linker state.
+def tcImportWireInterface evidence =
+  if syntaxTag evidence != " TCWireInterface " then
+    Error " Expected canonical wire interface "
+  else let exports = tcFirst evidence in
+    if syntaxTag exports != " TCWireExports " then
+      Error " Missing imported wire exports "
+    else let entries = syntaxChildren exports in
+      if isEmpty entries then
+        Error " Empty imported wire interface "
+      else if length entries > 128 then
+        Error " Too many imported definitions "
+      else tcImportWireEntries entries " " [] ;
+
+# The request contains [TCImportedInterface, TCName, TCSubstitutions,
+# TCSeed]. An importing checker must supply and advance its own HM seed.
+def tcImportWireInstantiate request =
+  if syntaxTag request != " TCImportRequest " then
+    Error " Expected imported-instance request "
+  else let imported = tcFirst request in
+    if syntaxTag imported != " TCImportedInterface " then
+      Error " Expected verified imported interface "
+    else if syntaxTag ( tcThird request ) != " TCSubstitutions " then
+      Error " Expected imported substitutions "
+    else if syntaxTag ( tcFourth request ) != " TCSeed " then
+      Error " Expected imported HM seed "
+    else let name = syntaxText ( tcSecond request ) in
+      let scheme = tcFind name
+        ( syntaxChildren ( tcFirst imported ) ) in
+      if syntaxTag scheme != " TCScheme " then
+        Error ( textConcat " Unknown imported definition: " name )
+      else let instance = tcInstantiate scheme
+        ( syntaxChildren ( tcThird request ) )
+        ( syntaxText ( tcFourth request ) ) in
+        if syntaxTag instance == " TCFault " then
+          Error ( tcFaultMessage instance )
+        else Ok instance ;
+
+# Probe only: bind a newly-instantiated function's structural input tail.
+# It is not a module execution API, only a negative-field correctness test.
+def tcImportWireProbeTailBinding probe =
+  if syntaxTag probe != " TCImportTailProbe " then
+    Error " Expected import row-tail probe "
+  else match tcImportWireInstantiate ( tcFirst probe ) with
+  | Error message -> Error message
+  | Ok instance ->
+    let ty = tcResultType instance in
+    if syntaxTag ty != " TCFun " then
+      Error " Imported type is not a function "
+    else let info = tcRowParts ( tcFirst ty )
+      ( tcResultSubs instance ) [] in
+      let remaining = tcRowTail info in
+      if syntaxTag remaining != " TCVar " then
+        Error " Imported function has no open row tail "
+      else match tcUnify remaining ( tcSecond probe )
+        ( tcResultSubs instance ) with
+      | Error message -> Error message
+      | Ok updated -> Ok ( syntaxNode " TCImportBound "
+          [ tcNormalize ty updated ] ) ;
+
+
+# Probe only: an imported Eq qualifier must reject a later binding of a
+# quantified variable to a noncomparable function type. The same existing
+# tcUnify/tcRequireComparable path handles ordinary local HM schemes.
+def tcImportWireProbeEquality probe =
+  if syntaxTag probe != " TCImportEqProbe " then
+    Error " Expected imported Eq probe "
+  else match tcImportWireInstantiate ( tcFirst probe ) with
+  | Error message -> Error message
+  | Ok instance ->
+    let functionType = tcResultType instance in
+    if syntaxTag functionType != " TCFun " then
+      Error " Imported Eq probe is not a function "
+    else match tcUnify ( tcFirst functionType ) ( tcSecond probe )
+      ( tcResultSubs instance ) with
+    | Error message -> Error message
+    | Ok updated -> Ok ( tcNormalize functionType updated ) ;

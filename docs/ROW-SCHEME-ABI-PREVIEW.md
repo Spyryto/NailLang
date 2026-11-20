@@ -105,8 +105,9 @@ Nail-owned canonical Syntax and validates the resulting bytes.
 
 This is **not** the public module ABI, a signed module interface or a
 promise that the runtime implementation matches a manually provided
-signature. Trusted import/linking, external module exports, nominal
-types and binding freshness remain future stages.
+signature. Trusted module linkage, authenticated provider identity, runtime
+bindings and public import syntax remain future stages; private preview
+instantiation with fresh type variables is covered below.
 
 ### Explicit value exports (opt-in source preview)
 
@@ -140,6 +141,46 @@ The outcome is the same private `TCWireInterface` Syntax already
 implemented for explicit selected-name previews. It can be validated by
 `NailRowInterfacePreview`, but cannot be used as an import contract by
 `ModuleLinker`, and has **no effect** on the public v3 ABI.
+
+### Validated interface consumption (stacked experiment)
+
+A new private consumer can read the preview format, but **it does not
+link or execute an imported module**. The sequence is intentionally
+two-stage:
+
+1. `NailRowInterfacePreview.decodeSyntax(json)` checks the canonical
+   external JSON (including per-scheme quantifiers and all `lacks`
+   requirements) and translates its data, without inference, into the
+   existing `TCWireInterface` Syntax IR. Unknown type constructors
+   unsupported by the Nail importer are rejected.
+2. `tcImportWireInterface wireSyntax`, implemented in Nail, converts
+   verified wire schemes to private `TCScheme` values with `TCRowQuant`
+   obligations. On each use, `tcImportWireInstantiate request` delegates
+   to the **same Nail HM `tcInstantiate`** used by local definitions:
+   it freshens quantified variables together, applies `Eq` and replays
+   negative row constraints into the substitution ledger. The caller must
+   thread the returned seed and substitutions to avoid accidental reuse
+   of variable names.
+
+Imported `lacks` labels do not carry field *types*. The private
+`TCRowQuant` reconstruction therefore uses `TCMissing` in those
+guard-only field slots: `tcCheckRowShape` observes their **names**, not
+their payload types. This marker never appears in a function's inferred
+type or the public module scheme.
+
+Cross-target regressions verify two distinct instantiations, failed late
+bindings of an existing prefix field `x`, rejection of an *extra*
+`lacks reserved` obligation arriving only via wire metadata, acceptance
+of unrelated `z`, **Eq** qualification allowing primitive `Int` but
+rejecting function values, unknown imports, and strict tamper rejection
+before Nail receives the tree.
+
+The result **is not a trusted module import**. A validated format does
+not attest that the supplier implementation has the claimed type. No
+public `ModuleImage` version, runtime binding, import declaration, or
+linker call path invokes this consumer. Provider identity, signed/hash-
+bound interfaces, import-name scoping, and real module linkage require
+a separate correctness gate.
 
 ## Preview wire grammar
 
@@ -181,10 +222,10 @@ also be comparable:
 ## Canonicality and soundness rules
 
 1. **Quantifiers:** numeric variable IDs must be exactly `0..n-1`,
-   without missing or unused IDs (limit: 64). A future producer is
-   responsible for alpha-renaming arbitrary internal variables to these
-   IDs. The current preview validator does **not** perform inference or
-   alpha-renaming for callers.
+   without missing or unused IDs (limit: 64). The Haxe checked-source
+   reference producer and Nail's canonical evidence producer both
+   alpha-rename their respective inferred variables. The strict wire
+   validator does **not** perform inference or alpha-renaming for callers.
 2. **Rows:** fields must be nonempty, unique, valid ASCII identifiers
    and strictly ordered by name. A row tail is either `null` (closed)
    or an explicitly quantified variable (open). The preview uses one
@@ -220,15 +261,18 @@ also be comparable:
 - No nominal type identities, relation-overload ABI, recursive row
   aliases, generalized user-authored row constraints, or independent
   proof of `Eq` dictionary semantics.
-- No import-side row-variable instantiation. This preview validates
-  evidence, but it does **not** establish that the imported provider
-  implementation satisfies that evidence.
+- No **public authenticated import** or runtime linkage. The private
+  experimental import consumer now freshens row/type variables and
+  reinstates `Eq` and `row-lacks` obligations, but it does **not**
+  establish that the provider implementation satisfies its claimed type.
 
-Before enabling a real public row ABI, we need a **trusted encoder** from
-verified types (with alpha-normalization), a strict importer that freshens
-all quantified variables and `Lacks` obligations together, stable module
-signatures and signed-interface compatibility checks, and differential
-compiler/VM tests that demonstrate rejection of late duplicate labels.
+Before enabling a real public row ABI, we need an end-to-end **trusted
+export path** bound to verified provider code, authenticated/versioned
+module interface identity, linker integration, import-name scoping, and
+differential compiler/VM tests against real linked implementations.
+Canonicalization, private fresh instantiation and late duplicate-label
+rejection already have isolated cross-target regression coverage, but
+have not been proven correct in actual public module import/link flows.
 
 ## Reproducible validator tests
 
