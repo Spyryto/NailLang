@@ -56,13 +56,13 @@ class RowSchemePreviewTestMain {
       'wire serialization is byte-for-byte deterministic');
     eq(RowSchemePreview.encode(RowSchemePreview.decode(canonical)),canonical,
       'exact canonical decoding and re-encoding');
-    var closed=[RowSchemePreview.FORMAT,
+    var closed:Dynamic=[RowSchemePreview.FORMAT,
       ["row",[["answer",["Int"]]],null],[],[],[]];
     eq(RowSchemePreview.encode(RowSchemePreview.decode(
       RowSchemePreview.encode(closed))),RowSchemePreview.encode(closed),
       'closed structural rows need no row-lacks constraint');
 
-    var sameTail=[RowSchemePreview.FORMAT,
+    var sameTail:Dynamic=[RowSchemePreview.FORMAT,
       ["fn",
         ["row",[["x",["Int"]]],["var",0]],
         ["row",[["y",["Bool"]]],["var",0]]],
@@ -82,8 +82,6 @@ class RowSchemePreviewTestMain {
       [["x",["Int"]],["x",["Int"]]]);
     fails(duplicated,'duplicate label');
     var invalidName=clone(example());
-    setAt(at(at(unordered,1),1),1,[["a-b",["Int"]]]);
-    // Use a freshly cloned value: reordering has already invalidated above.
     setAt(at(at(invalidName,1),1),1,[["bad-name",["Int"]]]);
     fails(invalidName,'invalid field name');
 
@@ -112,7 +110,7 @@ class RowSchemePreviewTestMain {
     var extraQualifier=clone(example());
     setAt(extraQualifier,4,[[0,["x","y"]],[0,["z"]]]);
     fails(extraQualifier,'noncanonical row-lacks tail order');
-    var orphan=[RowSchemePreview.FORMAT,
+    var orphan:Dynamic=[RowSchemePreview.FORMAT,
       ["var",0],[0],[],[[0,["x"]]]];
     fails(orphan,'orphan row-lacks tail');
 
@@ -122,7 +120,7 @@ class RowSchemePreviewTestMain {
     var invalidRow=clone(example());
     setAt(at(at(invalidRow,1),1),2,["fn",["Int"],["Int"]]);
     fails(invalidRow,'invalid row tail');
-    var emptyOpenRow=[RowSchemePreview.FORMAT,
+    var emptyOpenRow:Dynamic=[RowSchemePreview.FORMAT,
       ["row",[],["var",0]],[0],[],[[0,["x"]]]];
     fails(emptyOpenRow,'invalid row field count');
     var wrongFormat=clone(example());
@@ -133,7 +131,7 @@ class RowSchemePreviewTestMain {
     fails(wrongArity,'invalid format');
 
     var nested:Dynamic=["Int"];
-    for (i in 0...RowSchemePreview.MAX_DEPTH+2)
+    for (i in 0...(RowSchemePreview.MAX_DEPTH+2))
       nested=["list",nested];
     fails([RowSchemePreview.FORMAT,nested,[],[],[]],
       'type size limit exceeded');
