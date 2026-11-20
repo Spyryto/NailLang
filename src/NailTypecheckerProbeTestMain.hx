@@ -574,6 +574,38 @@ class NailTypecheckerProbeTestMain {
     eq(ResultValue.tag(rowProbeVm.run(storedOnlyScheme)[0]),ResultValue.ERR,
       'generalization preserves row guards stored outside the type shape');
 
+    // A tail tied to an enclosing lexical environment is NOT quantified:
+    // its existing guard belongs to that environment, not a polymorphic
+    // copy. Otherwise callers could observe invented constraints.
+    var fixedTailScheme='nail 0.54 ; '
+      +'let recorded = tcRememberRow '
+      +'( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcVar " fixedTail " ) ) [] in '
+      +'match recorded with '
+      +'| Error message -> false '
+      +'| Ok substitutions -> '
+      +'let environment = [ tcBinding " outer " '
+      +'( tcScheme ( tcVar " fixedTail " ) [] ) ] in '
+      +'let scheme = tcGeneralize ( tcVar " fixedTail " ) '
+      +'environment substitutions in '
+      +'isEmpty ( tcSchemeRowGuards scheme ) ;';
+    eq(switch(rowProbeVm.run(fixedTailScheme)[0]) {
+      case Boolean(true): true;
+      case _: false;
+    },true,'an environment-fixed tail must not acquire quantified guards');
+
+    // Row qualifiers nested in a type constructor must also be captured.
+    var nestedScheme='nail 0.54 ; '
+      +'let scheme = tcGeneralize '
+      +'( tcList ( tcRowField " item " ( tcBase " Bool " ) '
+      +'( tcVar " listTail " ) ) ) [] [] in '
+      +'isEmpty ( tcSchemeRowGuards scheme ) ;';
+    eq(switch(rowProbeVm.run(nestedScheme)[0]) {
+      case Boolean(false): true;
+      case _: false;
+    },true,'quantified open-row guard survives inside a list element');
+
+
     // Different calls to a polymorphic accessor receive independent
     // instantiations; Haxe's opt-in structural checker is the oracle.
     checkStructural(boot,
