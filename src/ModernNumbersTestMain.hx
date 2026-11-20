@@ -104,7 +104,25 @@ class ModernNumbersTestMain {
     for (item in negative) fails(() -> new TypeChecker().check(item.code),item.error);
     fails(() -> new Vm().run(header+'1 / 0 ;'),'Division by zero');
     fails(() -> new Vm().run(header+'1 + 2.0 ;'),'Mixed numeric domains');
-    fails(() -> new Parser('nail 0.55 ; 1 ;').parseRaw(),'Unsupported Nail language version');
+    // Version 0.55 uses the same modern numeric domains and portable VM
+    // representation; previous 0.54 relation gates remain valid too.
+    var v055='nail 0.55 ; def answer = 42 ; answer ;';
+    eq(new TypeChecker().check(v055),['Int'],'0.55 HM numeric inference');
+    eq(new Vm().runPlain(v055),['I:42/1'],'0.55 Haxe AST runtime');
+    var v055Host=BytecodeCompiler.compileSource(v055);
+    var v055Nail=boot.compile(v055);
+    eq(BootstrapImage.encode(v055Nail),BootstrapImage.encode(v055Host),
+      '0.55 source-free bytecode matches Haxe stage zero');
+    eq(boot.runBytecode(v055Nail).map(Vm.toPlain),['I:42/1'],
+      '0.55 source-free execution parity');
+    ok(LanguageVersion.hasGeneralRelations('0.54')
+       && LanguageVersion.hasGeneralRelations('0.55'),
+       '0.54 and 0.55 relation semantics remain enabled');
+    ok(LanguageVersion.hasArithmeticRelations('nail 0.54 ; 1 ;')
+       && LanguageVersion.hasArithmeticRelations('nail 0.55 ; 1 ;'),
+       '0.54 and 0.55 arithmetic relations remain enabled');
+    fails(() -> new Parser('nail 0.56 ; 1 ;').parseRaw(),
+      'Unsupported Nail language version');
     fails(() -> new Parser('nail 0.45 ; nail 0.45 ;').parseRaw(),'Unexpected');
     eq(new TypeChecker().preview('0.1 + 0.2 ;'),['Number'],
       'legacy bootstrap source remains unaffected');

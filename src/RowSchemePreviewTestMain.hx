@@ -857,6 +857,19 @@ class RowSchemePreviewTestMain {
       pinnedSourceDigest,pinnedCompilerDigest,checkedEnvelope),
       'trusted source digest mismatch');
 
+    // v0.55 does not alter the prototype wire grammar or public v3
+    // module ABI. The opt-in Nail checker/compiled-provider transaction
+    // accepts the new declared source version with identical semantics.
+    var version055Provider=StringTools.replace(providerSource,
+      'nail 0.54 ;','nail 0.55 ;');
+    var checked055=dogfood.invoke('tcCompileDeclaredModulePreview',
+      Text(version055Provider));
+    eq(ResultValue.tag(checked055),ResultValue.OK,
+      '0.55 typed provider source is checked and compiled in Nail');
+    eq(NailCheckedModuleEnvelope.encode(
+      ResultValue.get(checked055,ResultValue.OK)),checkedEnvelope,
+      '0.55 and 0.54 equivalent sources preserve canonical code/row evidence');
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }

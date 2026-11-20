@@ -1,4 +1,4 @@
-# Nail Cookbook — v0.52
+# Nail Cookbook — v0.55
 
 [Language tour](./LANGUAGE-TOUR.md) · [Esecuzione JS/PHP/browser](./RUNNING.md) · [indice](./docs/README.md)
 

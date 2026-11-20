@@ -121,6 +121,18 @@ jobs:
           node build/tests/modern-module-abi.js
           haxe modern-module-abi-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-modern-module-abi/index.php
+          # 0.55 correctness gate: independent Nail typechecker, macro
+          # diagnostics and provider/interface preview across all targets.
+          haxe nail-typechecker-test-interp.hxml
+          haxe nail-typechecker-test-js.hxml
+          node build/tests/nail-typechecker.js
+          haxe nail-typechecker-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-nail-typechecker/index.php
+          haxe row-scheme-preview-test-interp.hxml
+          haxe row-scheme-preview-test-js.hxml
+          node build/tests/row-scheme-preview.js
+          haxe row-scheme-preview-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-row-scheme-preview/index.php
           haxe modern-bootstrap-test-js.hxml
           node build/tests/modern-bootstrap.js
           haxe rebootstrap-node.hxml
@@ -140,6 +152,10 @@ jobs:
           XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-047.nail
           XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-049.nail
           XDEBUG_MODE=off php build/boot/php/index.php examples/numbers-050.nail
+          # v0.55 must run through both source-free release targets.
+          node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const out=NailSeedBoot.create().runPlain(fs.readFileSync("examples/hello-055.nail","utf8")); if (JSON.stringify(out)!==JSON.stringify(["I:42/1"])) throw Error(JSON.stringify(out));'
+          out=$(XDEBUG_MODE=off php build/boot/php/index.php examples/hello-055.nail)
+          php -r 'if (json_decode($argv[1]) !== "I:42/1") exit(1);' "$out"
       - name: Package versioned distributions
         shell: bash
         run: |

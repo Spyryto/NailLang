@@ -1,4 +1,4 @@
-# Nail Language Tour — v0.54
+# Nail Language Tour — v0.55
 
 [Versioni](./docs/versions.md) · [Cookbook](./COOKBOOK.md) · [Esecuzione](./RUNNING.md) · [Host capabilities](./HOST-CAPABILITIES.md) · [Cookbook Dart → Nail](./COOKBOOK-DART.md) · [Lookbook](./LOOKBOOK.md)
 
@@ -580,3 +580,42 @@ runtime. Non c'è un meccanismo generale di ricerca moduli.
 La notazione `Syntax.leaf` e la forma `use Syntax { ... }` **non**
 sono state introdotte: la semantica di `use` resta intenzionalmente da
 concordare prima di qualsiasi implementazione.
+
+## v0.55 — Verifica autonoma Nail e interfacce compilate sperimentali
+
+L'header `nail 0.55 ;` seleziona le stesse primitive numeriche
+`Int`, `Ratio` e `Float` della 0.54. Il percorso ordinario continua
+a supportare import selettivi da moduli compilati, con controllo delle
+firme polimorfiche e dei vincoli `Eq`. L'ABI pubblico rimane
+`nailseed.runtime-module.v3`: **non** accetta ancora code di record
+aperte nei tipi esportati.
+
+Per sperimentare il checker scritto in Nail si usa invece il percorso
+**esplicitamente opt-in**:
+
+```nail
+nail 0.55 ;
+def readField r = r . x ;
+export readField ;
+```
+
+`tcCompileDeclaredModulePreview source`, invocato dal runtime bootstrap
+Nail, esamina il sorgente, espande le macro, controlla l'intero programma,
+produce le firme canoniche degli export e compila il bytecode dalla
+**stessa** struttura sintattica. Una verifica fallita non produce
+né firma né bytecode. Le variabili polimorfiche importate nel consumer
+sperimentale ricevono istanze fresche; i vincoli di uguaglianza e
+`row-lacks` restano espliciti.
+
+**Attenzione:** la dichiarazione `export` in questo esempio è
+interpretata come export di un valore *solo dal percorso preview*.
+Non è diventata una dichiarazione di modulo runtime ordinaria; gli
+`export` dei moduli macro mantengono il significato precedente.
+L'artefatto preview contiene un hash SHA-256 di integrità ma non
+è una firma autenticata. La verifica per ricompilazione richiede
+impronte **indipendentemente fidate dall'host** di sorgente e compilatore;
+non abilita l'esecuzione di moduli non attendibili.
+
+Per dettagli e test vedi
+[Interfacce strutturali sperimentali](./docs/ROW-SCHEME-ABI-PREVIEW.md)
+e [Rilascio 0.55](./docs/releases/0.55.md).

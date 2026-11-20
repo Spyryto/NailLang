@@ -183,6 +183,29 @@ class ModuleSourceImportsTestMain {
     eq(Vm.toPlain(ModuleLinker.linkImages([shortImage,image])
       .invoke('Short','use',Text('hello'))),
       'hello','import alias defaults to exported name');
+    // v0.55 keeps selectively imported compiled modules supported.
+    // Its opt-in row preview is NOT a newly authorized public module ABI.
+    var syntax055=StringTools.replace(syntax(),'nail 0.54 ;','nail 0.55 ;');
+    var provider055=ModuleImage.encode(ModuleLinker.compilePublic({
+      name:'Syntax55',source:syntax055, exports:['leaf','identity','same']
+    }));
+    var user055Source=StringTools.replace(client(),
+      'nail 0.54 ;','nail 0.55 ;');
+    user055Source=StringTools.replace(user055Source,
+      'from Syntax ;','from Syntax55 ;');
+    var user055=ModuleImage.encode(ModuleLinker.compilePublic({
+      name:'User55',source:user055Source,dependencies:[provider055],
+      exports:['create','compare']
+    }));
+    var modern055Linked=ModuleLinker.linkImages([user055,provider055]);
+    eq(Vm.toPlain(modern055Linked.invoke('User55','create',Text('tree'))),
+      {tag:'Var',value:'tree'},
+      '0.55 selective compiled-module import executes using checked ABI');
+    eq(Vm.toPlain(modern055Linked.invoke('User55','compare',Boolean(true))),
+      true,'0.55 polymorphic Eq imports instantiate on Boolean');
+    eq(ModuleImage.decode(user055).sourceVersion,'0.55',
+      '0.55 source version preserved in unchanged public module format');
+
     trace('NailLang 0.54 source imports: '+checks+' checks passed');
   }
 }

@@ -1,0 +1,6 @@
+nail 0.55 ;
+
+# Portable 0.55 source-free smoke test. The 'export' value preview
+# is intentionally not used in ordinary executable modules.
+def identity x = x ;
+identity 42 ;
