@@ -170,8 +170,9 @@ type or the public module scheme.
 Cross-target regressions verify two distinct instantiations, failed late
 bindings of an existing prefix field `x`, rejection of an *extra*
 `lacks reserved` obligation arriving only via wire metadata, acceptance
-of unrelated `z`, unknown imports, and strict tamper rejection before
-Nail receives the tree.
+of unrelated `z`, **Eq** qualification allowing primitive `Int` but
+rejecting function values, unknown imports, and strict tamper rejection
+before Nail receives the tree.
 
 The result **is not a trusted module import**. A validated format does
 not attest that the supplier implementation has the claimed type. No
