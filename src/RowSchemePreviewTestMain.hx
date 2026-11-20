@@ -382,21 +382,21 @@ class RowSchemePreviewTestMain {
       'a failed transaction cannot poison a later valid check');
     var missing=dogfood.run('nail 0.54 ; '
       +'tcCanonicalCheckedDefinition '
-      +'" nail 0.54 ; def head r = r . x ; " '
+      +'" nail 0.54 ; def readField r = r . x ; " '
       +'" missing " ;');
     eq(missing.length,1,'unknown export probe returns one result');
     eq(ResultValue.tag(missing[0]),ResultValue.ERR,
       'checked source cannot export an absent definition');
     var directlyChecked=dogfood.run('nail 0.54 ; '
       +'tcCanonicalCheckedDefinition '
-      +'" nail 0.54 ; def head r = r . x ; " '
-      +'" head " ;');
+      +'" nail 0.54 ; def readField r = r . x ; " '
+      +'" readField " ;');
     eq(directlyChecked.length,1,'checked source canonical probe returns once');
     eq(ResultValue.tag(directlyChecked[0]),ResultValue.OK,
       'one-pass checked source canonicalizes a named definition');
     eq(NailRowEvidenceAdapter.encode(
       ResultValue.get(directlyChecked[0],ResultValue.OK)),
-      checked('nail 0.54 ; def head r = r . x ;',"head"),
+      checked('nail 0.54 ; def readField r = r . x ;',"readField"),
       'direct checked source canonical output agrees with Haxe');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
