@@ -5377,3 +5377,59 @@ def tcCanonicalCheckedInterface source names =
     | Ok checked ->
       tcWireSelectSchemes ordered
         ( syntaxChildren ( tcSecond checked ) ) [] ;
+
+
+# Experimental *value* export declarations. The modern Nail parser already
+# parses "export name ;" as a private #macro_export_ marker for macro
+# modules. Only this opt-in interface preview treats those parsed markers
+# as checked value exports, removing them BEFORE macro expansion. Ordinary
+# source checking, macro modules and the public module ABI are unchanged.
+def tcPreviewDeclaredExports forms reversed names =
+  match forms with
+  | [] ->
+    syntaxNode " TCDeclaredExports "
+      [ syntaxNode " Program " ( reverse reversed ) ,
+        syntaxNode " TCDeclaredNames " ( reverse names ) ]
+  | form :: rest ->
+    if syntaxTag form != " Define " then
+      tcPreviewDeclaredExports rest ( cons form reversed ) names
+    else let key = syntaxText ( tcFirst form ) in
+      if tcStartsWith key " #macro_export_ " == false then
+        tcPreviewDeclaredExports rest ( cons form reversed ) names
+      else let name = tcDropPrefix key
+        ( textLength " #macro_export_ " ) " " in
+        if tcWireNameAt name 0 == false then
+          tcFault " Invalid typed value export name "
+        else if tcContainsVar name names then
+          tcFault ( textConcat " Duplicate typed value export: " name )
+        else if length names >= 128 then
+          tcFault " Too many typed value exports "
+        else tcPreviewDeclaredExports rest reversed
+          ( cons ( syntaxName name ) names ) ;
+
+# One parse, one expansion, one full inference. The requested declarations
+# cannot be forged from the environment or inferred from unrelated code.
+def tcCanonicalDeclaredInterface source =
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    Error " Nail typechecker currently requires versioned modern source "
+  else let parsed = parseTypedForms ( stripNailHeader tokens ) in
+    if syntaxTag parsed != " Program " then
+      Error ( syntaxText parsed )
+    else let declared = tcPreviewDeclaredExports
+      ( syntaxChildren parsed ) [] [] in
+      if syntaxTag declared == " TCFault " then
+        Error ( tcFaultMessage declared )
+      else let names = map syntaxText
+        ( syntaxChildren ( tcSecond declared ) ) in
+        if isEmpty names then
+          Error " No typed value exports declared "
+        else let ordered = tcWireSortNames names in
+          let expanded = tcExpandTypedMacros ( tcFirst declared ) in
+          if syntaxTag expanded != " Program " then
+            Error ( syntaxText expanded )
+          else match tcCheckSyntaxSchemes ( modernRewrite expanded ) with
+          | Error message -> Error message
+          | Ok checked ->
+            tcWireSelectSchemes ordered
+              ( syntaxChildren ( tcSecond checked ) ) [] ;
