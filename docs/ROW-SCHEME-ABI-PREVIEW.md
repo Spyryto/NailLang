@@ -108,6 +108,39 @@ promise that the runtime implementation matches a manually provided
 signature. Trusted import/linking, external module exports, nominal
 types and binding freshness remain future stages.
 
+### Explicit value exports (opt-in source preview)
+
+A separate entry point, `tcCanonicalDeclaredInterface source`, accepts
+modern, versioned Nail source with explicit declarations such as:
+
+```nail
+nail 0.54 ;
+def readField r = r . x ;
+export readField ;
+```
+
+In **this preview only**, `export readField ;` declares that the verified
+source definition should appear in the canonical interface. The parser
+already recognizes `export name ;` as a macro-module directive; the
+opt-in function recognizes that parsed marker as a typed *value* export,
+removes the directive **before** macro expansion, verifies the complete
+remaining program and selects only the declared names from its
+transactional scheme snapshot. `export` may precede the definition; the
+type checker still traverses source forms in the original order.
+
+This **does not reassign the meaning of `export` in the ordinary Nail
+compiler or in macro modules**. The existing checked-source API continues
+to reject a typed top-level value export directive outside this
+experimental entry point. The type interface preview rejects missing
+definitions, duplicate exports, a source type error after a definition,
+unsupported types, and any unexpected private bindings without emitting
+partial results.
+
+The outcome is the same private `TCWireInterface` Syntax already
+implemented for explicit selected-name previews. It can be validated by
+`NailRowInterfacePreview`, but cannot be used as an import contract by
+`ModuleLinker`, and has **no effect** on the public v3 ABI.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
