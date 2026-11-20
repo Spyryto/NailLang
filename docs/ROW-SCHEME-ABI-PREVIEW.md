@@ -48,12 +48,29 @@ bytes with the Haxe checked-source producer when both support the same
 scheme. A separate test verifies the Nail-only ledger can add a legitimate
 `lacks reserved` qualifier absent from the visible type prefix.
 
-This is a **scheme-level** producer, not yet a public entry point that
-extracts an exported scheme from `tcCheckSource`. The current
-`TCChecked` result includes inferred expression types but does not
-publish the checker’s top-level scheme environment. Exposing that
-environment transactionally, without adding it to runtime bytecode, is a
-subsequent integration step.
+### Transactional checked-source schemes
+
+The Nail checker now has a **separate, opt-in** entry point,
+`tcCheckSourceSchemes source`, returning
+`Ok(TCCheckedSchemes [TCChecked, TCExportSchemes])` only after the
+**entire** source program has typechecked. `TCExportSchemes` contains
+only schemes for explicitly visible `Define`/`AnnotatedDefine` forms
+from the checked syntax; private names created by macro/compiler lowering
+are filtered out. It carries the original generalized `TCScheme`
+(including `TCRowQuant`) from the *same inference pass*, not a
+reconstruction from flattened result types.
+
+`tcCanonicalCheckedDefinition source name` checks the source once,
+looks up the requested definition in that successful snapshot and
+invokes Nail's `tcCanonicalRowEvidence` on the exact recovered scheme.
+Unknown or unsupported exports return `Error`. If a later form fails
+the typecheck, the entire operation returns `Error` with **no
+partial scheme data**.
+
+Existing `tcCheckSource`, `tcCheckSyntax` and traced check APIs
+continue returning `TCChecked` on success: their result shape does not
+change. The new snapshot exposes neither bytecode nor a public
+module interface. It is intentionally an opt-in, type-only API.
 
 ## Preview wire grammar
 
