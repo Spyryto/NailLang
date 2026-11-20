@@ -1,0 +1,3 @@
+-cp src
+-main RowSchemePreviewTestMain
+-php build/tests/php-row-scheme-preview
