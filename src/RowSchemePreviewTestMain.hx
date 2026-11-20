@@ -5,6 +5,7 @@ import nail.TypeChecker;
 import nail.RowSchemePreview;
 import nail.NailRowEvidenceAdapter;
 import nail.NailRowInterfacePreview;
+import nail.NailCheckedModuleEnvelope;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -737,6 +738,75 @@ class RowSchemePreviewTestMain {
     eq(ResultValue.tag(dogfood.invoke('tcCompileDeclaredModulePreview',
       Text(providerSource))),ResultValue.OK,
       'a failed provider transaction cannot poison a later valid provider');
+
+
+    // The portable envelope binds the exact interface and code emitted
+    // by one successful local Nail compiler invocation. This is a content
+    // integrity check, NOT a signature or a typecheck of remote bytecode.
+    var providerWitness=ResultValue.get(compiledProvider,ResultValue.OK);
+    var checkedEnvelope=NailCheckedModuleEnvelope.encode(providerWitness);
+    var decodedEnvelope:Array<Dynamic>=cast
+      NailCheckedModuleEnvelope.decode(checkedEnvelope);
+    eq(decodedEnvelope[0],NailCheckedModuleEnvelope.FORMAT,
+      'checked module preview has explicit unreleased version');
+    eq(Json.stringify(decodedEnvelope),checkedEnvelope,
+      'checked module envelope roundtrips byte-for-byte');
+    eq(decodedEnvelope[1],Json.parse(interfaceJSON),
+      'checked module carries independently verified row interface');
+    var repeatedEnvelope=NailCheckedModuleEnvelope.encode(
+      ResultValue.get(dogfood.invoke('tcCompileDeclaredModulePreview',
+        Text(providerSource)),ResultValue.OK));
+    eq(repeatedEnvelope,checkedEnvelope,
+      'same checked source produces deterministic digest and bytes');
+    var separateOrder='nail 0.54 ; '
+      +'export readField ; export id ; '
+      +'def id x = x ; def readField r = r . x ;';
+    eq(NailCheckedModuleEnvelope.encode(ResultValue.get(
+      dogfood.invoke('tcCompileDeclaredModulePreview',
+        Text(separateOrder)),ResultValue.OK)),checkedEnvelope,
+      'export directive order cannot change checked provider digest');
+
+    var damagedHash:Dynamic=Json.parse(checkedEnvelope);
+    var altered:Array<Dynamic>=cast damagedHash;
+    altered[3]="0000000000000000000000000000000000000000000000000000000000000000";
+    checkFails(() -> NailCheckedModuleEnvelope.decode(
+      Json.stringify(damagedHash)),'digest mismatch');
+
+    var damagedInterface:Dynamic=Json.parse(checkedEnvelope);
+    var outer:Array<Dynamic>=cast damagedInterface;
+    var image:Array<Dynamic>=cast outer[1];
+    var imageExports:Array<Dynamic>=cast image[1];
+    var idEntry:Array<Dynamic>=cast imageExports[0];
+    var changedScheme:Array<Dynamic>=cast idEntry[1];
+    changedScheme[1]=['fn',['Int'],['Int']];
+    changedScheme[2]=[];
+    checkFails(() -> NailCheckedModuleEnvelope.decode(
+      Json.stringify(damagedInterface)),'digest mismatch');
+
+    var damagedCode:Dynamic=Json.parse(checkedEnvelope);
+    var codeOuter:Array<Dynamic>=cast damagedCode;
+    var tree:Array<Dynamic>=cast codeOuter[2];
+    var forms:Array<Dynamic>=cast tree[2];
+    var firstForm:Array<Dynamic>=cast forms[0];
+    var secondForm:Array<Dynamic>=cast forms[1];
+    var firstChildren:Array<Dynamic>=cast firstForm[2];
+    var secondChildren:Array<Dynamic>=cast secondForm[2];
+    var temporary=firstChildren[1];
+    firstChildren[1]=secondChildren[1];
+    secondChildren[1]=temporary;
+    checkFails(() -> NailCheckedModuleEnvelope.decode(
+      Json.stringify(damagedCode)),'digest mismatch');
+
+    // A claimed signature cannot supply a missing definition even if
+    // a host creates a syntactically plausible fake TCVerifiedModulePreview.
+    var missingCode:Value=SyntaxNode('Bytecode',
+      Cons(SyntaxNode('EVAL',Cons(SyntaxNode('Code',Nil),Nil)),Nil));
+    var fakePair=SyntaxNode('TCVerifiedModulePreview',
+      Cons(providerInterface,Cons(missingCode,Nil)));
+    checkFails(() -> NailCheckedModuleEnvelope.encode(fakePair),
+      'export has no compiled provider definition');
+    checkFails(() -> NailCheckedModuleEnvelope.decode(
+      ' '+checkedEnvelope),'noncanonical checked module JSON');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
