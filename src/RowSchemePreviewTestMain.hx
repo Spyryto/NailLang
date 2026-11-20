@@ -6,6 +6,7 @@ import nail.RowSchemePreview;
 import nail.NailRowEvidenceAdapter;
 import nail.NailRowInterfacePreview;
 import nail.NailCheckedModuleEnvelope;
+import nail.NailPinnedProviderRebuild;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -807,6 +808,54 @@ class RowSchemePreviewTestMain {
       'export has no compiled provider definition');
     checkFails(() -> NailCheckedModuleEnvelope.decode(
       ' '+checkedEnvelope),'noncanonical checked module JSON');
+
+
+    // A digest carried by an untrusted envelope is not provenance.
+    // The embedding host must instead pin the source and bootstrap image
+    // independently, then recompile in a fresh no-capabilities Nail VM.
+    var pinnedSourceDigest=haxe.crypto.Sha256.encode(providerSource);
+    var pinnedCompilerDigest=haxe.crypto.Sha256.encode(
+      haxe.Resource.getString('bootstrap_image'));
+    NailPinnedProviderRebuild.verify(providerSource,
+      pinnedSourceDigest,pinnedCompilerDigest,checkedEnvelope);
+    ok(true,'independently pinned source/compiler reproduce provider bytes');
+
+    var invalidSourceDigest='00000000000000000000000000000000'
+      +'00000000000000000000000000000000';
+    checkFails(() -> NailPinnedProviderRebuild.verify(providerSource,
+      invalidSourceDigest,pinnedCompilerDigest,checkedEnvelope),
+      'trusted source digest mismatch');
+    checkFails(() -> NailPinnedProviderRebuild.verify(providerSource,
+      pinnedSourceDigest,invalidSourceDigest,checkedEnvelope),
+      'trusted compiler image digest mismatch');
+
+    // Even if an attacker recomputes SHA-256 for a modified but canonical
+    // bytecode tree, the pinned source's independently rebuilt bytes differ.
+    var substituted:Dynamic=Json.parse(checkedEnvelope);
+    var received:Array<Dynamic>=cast substituted;
+    var receivedTree:Array<Dynamic>=cast received[2];
+    var receivedForms:Array<Dynamic>=cast receivedTree[2];
+    var define0:Array<Dynamic>=cast receivedForms[0];
+    var define1:Array<Dynamic>=cast receivedForms[1];
+    var define0Children:Array<Dynamic>=cast define0[2];
+    var define1Children:Array<Dynamic>=cast define1[2];
+    var swap=define0Children[1];
+    define0Children[1]=define1Children[1];
+    define1Children[1]=swap;
+    received[3]=haxe.crypto.Sha256.encode(
+      Json.stringify([received[0],received[1],received[2]]));
+    var rehashedEnvelope=Json.stringify(received);
+    NailCheckedModuleEnvelope.decode(rehashedEnvelope);
+    ok(true,'attacker-rehashed envelope still passes integrity alone');
+    checkFails(() -> NailPinnedProviderRebuild.verify(providerSource,
+      pinnedSourceDigest,pinnedCompilerDigest,rehashedEnvelope),
+      'differs from pinned source build');
+
+    // The source pin is not silently replaced by the received source.
+    var alternate='nail 0.54 ; def id x = x ; export id ;';
+    checkFails(() -> NailPinnedProviderRebuild.verify(alternate,
+      pinnedSourceDigest,pinnedCompilerDigest,checkedEnvelope),
+      'trusted source digest mismatch');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
