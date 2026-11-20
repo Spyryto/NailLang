@@ -48,6 +48,7 @@ common_suites=(
   host-source-imports
   context-block-probe
   nail-typechecker
+  row-scheme-preview
   module-source-imports
   official-bootstrap
   modern-numbers
