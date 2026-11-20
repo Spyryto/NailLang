@@ -27,6 +27,8 @@ class TypeChecker {
   var constructorOwners:StringMap<String>;
   var nextId:Int;
   var lastModern:Bool = false;
+  // Only names from a successfully checked definition may be previewed.
+  var checkedPreviewDefinitions:StringMap<Bool> = new StringMap<Bool>();
   var relationByName:haxe.ds.StringMap<String>;
   var generalContracts:StringMap<RelationContract> = new StringMap();
   var functionContracts:StringMap<RelationContract> = new StringMap();
@@ -105,6 +107,10 @@ class TypeChecker {
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
+    if (parser.modernMode) for (form in forms) switch(form) {
+      case Define(name, _): checkedPreviewDefinitions.set(name,true);
+      case _:
+    }
     return inferred;
   }
 
@@ -357,6 +363,21 @@ class TypeChecker {
     var found = global.get(name);
     if (found == null) throw 'Public interface: unknown export ' + name;
     return validatePublicScheme(found, allowQualifiedRecords);
+  }
+
+  /** Experimental, non-public preview only. Derives a row-scheme image
+      from a definition after the complete Haxe source-check committed.
+      This does not attest Nail's independent checker or grant module ABI
+      authority to the result. */
+  public function experimentalCheckedRowPreview(name:String):String {
+    if (!lastModern || !checkedPreviewDefinitions.exists(name))
+      throw 'Row scheme preview: definition has not been source-checked';
+    if (relationByName.exists(name) || functionContracts.exists(name))
+      throw 'Row scheme preview: relation-aware types unsupported';
+    var scheme=global.get(name);
+    if (scheme==null)
+      throw 'Row scheme preview: definition unavailable';
+    return RowSchemeProducer.encodeInferred(scheme);
   }
 
   /** Export the complete, verified relation contract rather than an
