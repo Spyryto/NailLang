@@ -118,7 +118,7 @@ class RowSchemePreviewTestMain {
     // A row tail is not an ordinary value-type variable or Eq-qualified
     // type variable. Old preview validation accepted these kind errors.
     var mixedKind=clone(example());
-    setAt(at(at(mixedKind,1),2),1,["var",0]);
+    setAt(at(mixedKind,1),2,["fn",["var",0],["var",1]]);
     fails(mixedKind,"row variable used as ordinary type");
     var eqRow=clone(example());
     setAt(eqRow,3,[0,1]);
