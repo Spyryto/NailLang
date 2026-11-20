@@ -5219,4 +5219,4 @@ def tcCanonicalRowEvidence scheme =
               ( map ( fun item -> tcNormalize item mappings ) ordered ) ,
             syntaxNode " TCWireEq " ( tcWireEqFor ordered eq mappings ) ,
             syntaxNode " TCWireLacksSet "
-              ( tcWireLacksFor tails guards mappings ) ] ) ;
+              ( tcWireLacksFor ordered guards mappings ) ] ) ;
