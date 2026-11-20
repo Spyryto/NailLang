@@ -1834,14 +1834,20 @@ def tcPretty ty =
 
 # Hindley-Milner schemes: a term plus the variables quantified by its scope.
 # Free variables are represented by the same TCVar Syntax leaves as types.
-def tcSchemeQualified ty quantifiers comparable =
+# Quantified row guards are an internal scheme qualifier, alongside Eq.
+# The source-level ABI does not yet export open row schemes.
+def tcSchemeWithRows ty quantifiers comparable rowGuards =
   syntaxNode " TCScheme "
     [ ty , syntaxNode " TCQuant " quantifiers ,
-      syntaxNode " TCEqQuant " comparable ] ;
+      syntaxNode " TCEqQuant " comparable ,
+      syntaxNode " TCRowQuant " rowGuards ] ;
+def tcSchemeQualified ty quantifiers comparable =
+  tcSchemeWithRows ty quantifiers comparable [] ;
 def tcScheme ty quantifiers = tcSchemeQualified ty quantifiers [] ;
 def tcSchemeType scheme = tcFirst scheme ;
 def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
 def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
+def tcSchemeRowGuards scheme = syntaxChildren ( tcFourth scheme ) ;
 
 def tcContainsVar label variables =
   match variables with
@@ -1909,13 +1915,72 @@ def tcFreeEnvironment environment substitutions =
       ( tcSchemeQuantifiers scheme ) in
     tcUnionVars own ( tcFreeEnvironment rest substitutions ) ;
 
+# Preserve the negative row-field obligations of quantified tail
+# variables. Open row prefixes may live inside functions, lists or nominal
+# type arguments, or in a private guard retained by inference. The entire
+# guarded prefix is copied so later tail binding checks are unchanged.
+def tcRowGuardQuantified row quantified =
+  let parts = tcRowParts row [] [] in
+  let tail = tcRowTail parts in
+  if syntaxTag tail != " TCVar " then false
+  else tcContainsVar ( syntaxText tail ) quantified ;
+
+def tcRowGuardsInFields fields quantified =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    append ( tcRowGuardsInType ( tcSecond field ) quantified )
+      ( tcRowGuardsInFields rest quantified ) ;
+
+def tcRowGuardsInTypes types quantified =
+  match types with
+  | [] -> []
+  | first :: rest ->
+    append ( tcRowGuardsInType first quantified )
+      ( tcRowGuardsInTypes rest quantified ) ;
+
+def tcRowGuardsInType ty quantified =
+  let tag = syntaxTag ty in
+  if tag == " TCRowField " then
+    let nested = append
+      ( tcRowGuardsInType ( tcSecond ty ) quantified )
+      ( tcRowGuardsInType ( tcThird ty ) quantified ) in
+    if tcRowGuardQuantified ty quantified then cons ty nested
+    else nested
+  else if tag == " TCFun " then
+    append ( tcRowGuardsInType ( tcFirst ty ) quantified )
+      ( tcRowGuardsInType ( tcSecond ty ) quantified )
+  else if tag == " TCList " then
+    tcRowGuardsInType ( tcFirst ty ) quantified
+  else if tag == " TCNominal " then
+    tcRowGuardsInTypes ( tcNominalArgs ty ) quantified
+  else if tag == " TCStruct " then
+    tcRowGuardsInFields ( syntaxChildren ty ) quantified
+  else [] ;
+
+def tcRowGuardsFromBindings entries substitutions quantified =
+  match entries with
+  | [] -> []
+  | binding :: rest ->
+    let value = tcBindingValue binding in
+    let tag = syntaxTag value in
+    let remaining = tcRowGuardsFromBindings rest substitutions quantified in
+    if tag == " TCRowField " then
+      let row = tcNormalize value substitutions in
+      if tcRowGuardQuantified row quantified then cons row remaining
+      else remaining
+    else remaining ;
+
 def tcGeneralize ty environment substitutions =
   let normalized = tcNormalize ty substitutions in
   let free = tcFreeType normalized [] in
   let fixed = tcFreeEnvironment environment substitutions in
   let quantified = tcExceptVars free fixed in
-  tcSchemeQualified normalized quantified
-    ( tcFindEqQuantifiers quantified substitutions ) ;
+  tcSchemeWithRows normalized quantified
+    ( tcFindEqQuantifiers quantified substitutions )
+    ( append
+      ( tcRowGuardsInType normalized quantified )
+      ( tcRowGuardsFromBindings substitutions substitutions quantified ) ) ;
 
 # The counter is a text string ("t", "tx", "txx", ...), avoiding a native
 # type-variable allocator and keeping generated variable IDs deterministic.
@@ -1941,16 +2006,28 @@ def tcRenameQuantifiers quantifiers seed mappings =
     tcRenameQuantifiers rest ( tcNext seed )
       ( cons ( tcBinding ( syntaxText variable ) ( tcVar seed ) ) mappings ) ;
 
+def tcInstantiateRowGuards guards renaming substitutions =
+  match guards with
+  | [] -> syntaxNode " TCSubstitutions " substitutions
+  | row :: rest ->
+    let fresh = tcNormalize row renaming in
+    match tcRememberRow fresh substitutions with
+    | Error message -> tcFault message
+    | Ok updated -> tcInstantiateRowGuards rest renaming updated ;
+
 def tcInstantiate scheme substitutions seed =
   let renaming = tcRenameQuantifiers
     ( tcSchemeQuantifiers scheme ) seed [] in
-  let instance = tcNormalize
-    ( tcSchemeType scheme ) ( tcRenameSubs renaming ) in
+  let names = tcRenameSubs renaming in
+  let instance = tcNormalize ( tcSchemeType scheme ) names in
   let required = tcInstantiateEq ( tcSchemeComparable scheme )
-    ( tcRenameSubs renaming ) substitutions in
+    names substitutions in
   if syntaxTag required == " TCFault " then required
-  else tcInferResult instance ( syntaxChildren required )
-    ( tcRenameSeed renaming ) ;
+  else let rowRequired = tcInstantiateRowGuards
+    ( tcSchemeRowGuards scheme ) names ( syntaxChildren required ) in
+    if syntaxTag rowRequired == " TCFault " then rowRequired
+    else tcInferResult instance ( syntaxChildren rowRequired )
+      ( tcRenameSeed renaming ) ;
 
 # A deliberately limited typed prelude for the independent checker.
 # Numeric relations and qualified Eq are handled by dedicated inference

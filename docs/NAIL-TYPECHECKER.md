@@ -94,8 +94,11 @@ Unification performs an **occurs check** to reject infinite types.
   When the two tails are already identical, incompatible disjoint fields
   fail closed rather than creating a recursive row. Private row-shape
   guards reject duplicate labels introduced by later tail substitutions;
-  closed rows reject absent required fields. No new runtime representation
-  or bytecode opcode is required.
+  closed rows reject absent required fields. Generalization now carries
+  quantified structural guards in the Nail-only HM scheme as an internal
+  `TCRowQuant` sidecar; instantiation renames and reestablishes those
+  guards before application, independently for every call. No new runtime
+  representation or bytecode opcode is required.
 - **Optional parameter and value annotations**, structural type aliases
   `type Html = { h2 : Text Text , div : Text Text }`, required-field
   validation with allowance for additional implementation fields
@@ -693,12 +696,13 @@ The following are not yet complete:
   ordinary and hygienically macro-renamed sum subjects are recognized,
   including constructor ownership, binding arity and exhaustiveness.
   Generic recursion edges remain deferred
-- Complete structural row-polymorphic ABI and explicit user-authored
-  row-lacks qualifications remain deferred. The experimental internal
-  solver now allocates a fresh shared tail for disjoint open prefixes and
-  guards against duplicate labels across later substitutions, but this
-  is not yet a released, cross-module type-scheme contract; imported open
-  rows remain rejected at the public module boundary
+- Complete structural row-polymorphic **public** ABI and explicit
+  user-authored row-lacks qualifications remain deferred. The Nail HM
+  experiment now retains row-lacks guards through local scheme
+  generalization and fresh instantiation (`TCRowQuant`), in addition to
+  allocating shared residual tails for disjoint prefixes. This private
+  representation is not a released, cross-module type-scheme contract:
+  imported open rows remain rejected at the public module boundary
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
 - Full standard-library primitive signatures and typed module signatures;

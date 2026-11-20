@@ -522,6 +522,99 @@ class NailTypecheckerProbeTestMain {
     eq(ResultValue.tag(rowProbeVm.run(projectedDistinct)[0]),ResultValue.OK,
       'projected row still accepts a distinct late tail field');
 
+    // Generalization must retain a negative field requirement on a
+    // quantified row tail, even if no open-row substitution is active when
+    // the function is later instantiated.
+    var genericRowScheme='nail 0.54 ; '
+      +'let scheme = tcGeneralize '
+      +'( tcFun '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " polyTail " ) ) '
+      +'( tcBase " Int " ) ) [] [] in ';
+    eq(switch(rowProbeVm.run(genericRowScheme
+      +'isEmpty ( tcSchemeRowGuards scheme ) ;')[0]) {
+      case Boolean(false): true;
+      case _: false;
+    },true,'generalized row scheme stores a negative field qualifier');
+
+    var duplicatedInstantiatedTail=genericRowScheme
+      +'let instantiated = tcInstantiate scheme [] " inst " in '
+      +'let domain = tcFirst ( tcResultType instantiated ) in '
+      +'tcUnify ( tcThird domain ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs instantiated ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(duplicatedInstantiatedTail)[0]),
+      ResultValue.ERR,
+      'instantiating a row scheme restores the x-lacks constraint');
+
+    var validInstantiatedTail=genericRowScheme
+      +'let instantiated = tcInstantiate scheme [] " inst " in '
+      +'let domain = tcFirst ( tcResultType instantiated ) in '
+      +'tcUnify ( tcThird domain ) '
+      +'( tcRowField " z " ( tcBase " Bool " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs instantiated ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(validInstantiatedTail)[0]),
+      ResultValue.OK,
+      'instantiated row tail accepts a nonconflicting extra field');
+
+    // A constraint may be in the immutable substitution ledger without
+    // appearing in the generalized type's surface shape. The scheme must
+    // still carry it if its tail variable is quantified.
+    var storedOnlyScheme='nail 0.54 ; '
+      +'let original = tcRememberRow '
+      +'( tcRowField " reserved " ( tcBase " Text " ) '
+      +'( tcVar " onlyTail " ) ) [] in '
+      +'match original with '
+      +'| Error message -> original '
+      +'| Ok originalSubs -> '
+      +'let scheme = tcGeneralize ( tcVar " onlyTail " ) [] originalSubs in '
+      +'let instantiated = tcInstantiate scheme [] " new " in '
+      +'tcUnify ( tcResultType instantiated ) '
+      +'( tcRowField " reserved " ( tcBase " Text " ) '
+      +'( tcStruct [] ) ) ( tcResultSubs instantiated ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(storedOnlyScheme)[0]),ResultValue.ERR,
+      'generalization preserves row guards stored outside the type shape');
+
+    // A tail tied to an enclosing lexical environment is NOT quantified:
+    // its existing guard belongs to that environment, not a polymorphic
+    // copy. Otherwise callers could observe invented constraints.
+    var fixedTailScheme='nail 0.54 ; '
+      +'let recorded = tcRememberRow '
+      +'( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcVar " fixedTail " ) ) [] in '
+      +'match recorded with '
+      +'| Error message -> false '
+      +'| Ok substitutions -> '
+      +'let environment = [ tcBinding " outer " '
+      +'( tcScheme ( tcVar " fixedTail " ) [] ) ] in '
+      +'let scheme = tcGeneralize ( tcVar " fixedTail " ) '
+      +'environment substitutions in '
+      +'isEmpty ( tcSchemeRowGuards scheme ) ;';
+    eq(switch(rowProbeVm.run(fixedTailScheme)[0]) {
+      case Boolean(true): true;
+      case _: false;
+    },true,'an environment-fixed tail must not acquire quantified guards');
+
+    // Row qualifiers nested in a type constructor must also be captured.
+    var nestedScheme='nail 0.54 ; '
+      +'let scheme = tcGeneralize '
+      +'( tcList ( tcRowField " item " ( tcBase " Bool " ) '
+      +'( tcVar " listTail " ) ) ) [] [] in '
+      +'isEmpty ( tcSchemeRowGuards scheme ) ;';
+    eq(switch(rowProbeVm.run(nestedScheme)[0]) {
+      case Boolean(false): true;
+      case _: false;
+    },true,'quantified open-row guard survives inside a list element');
+
+
+    // Different calls to a polymorphic accessor receive independent
+    // instantiations; Haxe's opt-in structural checker is the oracle.
+    checkStructural(boot,
+      'def readX r = r . x ; '
+      +'readX { x = 17 , y = true } ; '
+      +'readX { x = " another " , z = false } ;',
+      ['Int','Text']);
+
+
 
 
 
