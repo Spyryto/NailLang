@@ -58,7 +58,8 @@ class RowSchemePreview {
   }
 
   static function typeTerm(raw:Dynamic,depth:Int,budget:Array<Int>,
-      n:Int,used:IntMap<Bool>,required:IntMap<StringMap<Bool>>):Void {
+      n:Int,used:IntMap<Bool>,required:IntMap<StringMap<Bool>>,
+      asType:IntMap<Bool>,asTail:IntMap<Bool>):Void {
     if (depth>MAX_DEPTH || ++budget[0]>MAX_NODES)
       fail("type size limit exceeded");
     var node=list(raw,"type node");
@@ -70,22 +71,24 @@ class RowSchemePreview {
         | "Bool" | "Text" | "Syntax":
         if (node.length!=1) fail("invalid primitive type");
       case "var":
-        variable(node,n,used,"type variable");
+        asType.set(variable(node,n,used,"type variable"),true);
       case "list" | "vector":
         if (node.length!=2) fail("invalid collection type");
-        typeTerm(node[1],depth+1,budget,n,used,required);
+        typeTerm(node[1],depth+1,budget,n,used,required,asType,asTail);
       case "fn":
         if (node.length!=3) fail("invalid function type");
-        typeTerm(node[1],depth+1,budget,n,used,required);
-        typeTerm(node[2],depth+1,budget,n,used,required);
+        typeTerm(node[1],depth+1,budget,n,used,required,asType,asTail);
+        typeTerm(node[2],depth+1,budget,n,used,required,asType,asTail);
       case "row":
         if (node.length!=3) fail("invalid structural row");
         var fields=list(node[1],"row fields");
         if (fields.length==0 || fields.length>MAX_FIELDS)
           fail("invalid row field count");
         var tail:Null<Int>=null;
-        if (node[2]!=null)
+        if (node[2]!=null) {
           tail=variable(node[2],n,used,"row tail");
+          asTail.set(tail,true);
+        }
         var previous:Null<String>=null;
         for (field in fields) {
           var pair=list(field,"row field");
@@ -94,7 +97,7 @@ class RowSchemePreview {
           if (previous!=null && Reflect.compare(previous,label)>=0)
             fail("noncanonical row field order or duplicate label");
           previous=label;
-          typeTerm(pair[1],depth+1,budget,n,used,required);
+          typeTerm(pair[1],depth+1,budget,n,used,required,asType,asTail);
           if (tail!=null) {
             var names=required.get(tail);
             if (names==null) {
@@ -123,10 +126,15 @@ class RowSchemePreview {
         fail("noncanonical quantifier order");
 
     var used=new IntMap<Bool>();
+    var asType=new IntMap<Bool>();
+    var asTail=new IntMap<Bool>();
     var required=new IntMap<StringMap<Bool>>();
-    typeTerm(envelope[1],0,[0],q.length,used,required);
-    for (i in 0...q.length)
+    typeTerm(envelope[1],0,[0],q.length,used,required,asType,asTail);
+    for (i in 0...q.length) {
       if (!used.exists(i)) fail("unused quantifier");
+      if (asType.exists(i) && asTail.exists(i))
+        fail("row variable used as ordinary type");
+    }
 
     var eq=list(envelope[3],"Eq qualifiers");
     var previousEq=-1;
@@ -134,6 +142,7 @@ class RowSchemePreview {
       var id=intValue(item,"Eq qualifier");
       if (id>=q.length || id<=previousEq)
         fail("noncanonical Eq qualifiers");
+      if (asTail.exists(id)) fail("Eq qualifier on row tail");
       previousEq=id;
     }
 
