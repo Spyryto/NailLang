@@ -105,8 +105,9 @@ Nail-owned canonical Syntax and validates the resulting bytes.
 
 This is **not** the public module ABI, a signed module interface or a
 promise that the runtime implementation matches a manually provided
-signature. Trusted import/linking, external module exports, nominal
-types and binding freshness remain future stages.
+signature. Trusted module linkage, authenticated provider identity, runtime
+bindings and public import syntax remain future stages; private preview
+instantiation with fresh type variables is covered below.
 
 ### Explicit value exports (opt-in source preview)
 
@@ -221,10 +222,10 @@ also be comparable:
 ## Canonicality and soundness rules
 
 1. **Quantifiers:** numeric variable IDs must be exactly `0..n-1`,
-   without missing or unused IDs (limit: 64). A future producer is
-   responsible for alpha-renaming arbitrary internal variables to these
-   IDs. The current preview validator does **not** perform inference or
-   alpha-renaming for callers.
+   without missing or unused IDs (limit: 64). The Haxe checked-source
+   reference producer and Nail's canonical evidence producer both
+   alpha-rename their respective inferred variables. The strict wire
+   validator does **not** perform inference or alpha-renaming for callers.
 2. **Rows:** fields must be nonempty, unique, valid ASCII identifiers
    and strictly ordered by name. A row tail is either `null` (closed)
    or an explicitly quantified variable (open). The preview uses one
@@ -260,15 +261,18 @@ also be comparable:
 - No nominal type identities, relation-overload ABI, recursive row
   aliases, generalized user-authored row constraints, or independent
   proof of `Eq` dictionary semantics.
-- No import-side row-variable instantiation. This preview validates
-  evidence, but it does **not** establish that the imported provider
-  implementation satisfies that evidence.
+- No **public authenticated import** or runtime linkage. The private
+  experimental import consumer now freshens row/type variables and
+  reinstates `Eq` and `row-lacks` obligations, but it does **not**
+  establish that the provider implementation satisfies its claimed type.
 
-Before enabling a real public row ABI, we need a **trusted encoder** from
-verified types (with alpha-normalization), a strict importer that freshens
-all quantified variables and `Lacks` obligations together, stable module
-signatures and signed-interface compatibility checks, and differential
-compiler/VM tests that demonstrate rejection of late duplicate labels.
+Before enabling a real public row ABI, we need an end-to-end **trusted
+export path** bound to verified provider code, authenticated/versioned
+module interface identity, linker integration, import-name scoping, and
+differential compiler/VM tests against real linked implementations.
+Canonicalization, private fresh instantiation and late duplicate-label
+rejection already have isolated cross-target regression coverage, but
+have not been proven correct in actual public module import/link flows.
 
 ## Reproducible validator tests
 
