@@ -3,6 +3,11 @@ import haxe.ds.StringMap;
 import nail.Parser;
 import nail.TypeChecker;
 import nail.RowSchemePreview;
+import nail.NailRowEvidenceAdapter;
+import nail.BootRuntime;
+import nail.ResultValue;
+import nail.Value;
+import nail.RuntimeValues;
 
 /** Standalone cross-target tests for the *unreleased* row scheme preview.
     These are validation and canonically formatted wire-data tests, not
@@ -214,6 +219,85 @@ class RowSchemePreviewTestMain {
       failingParser,failingParser.parse()),"cannot unify");
     checkFails(() -> failingChecker.experimentalCheckedRowPreview("ephemeral"),
       "definition has not been source-checked");
+
+
+    // Dogfood the Nail-written HM scheme/row-qualifier computation.
+    // Haxe below only converts the canonical Syntax shape to JSON; it
+    // must not sort fields, infer types, or manufacture lacks evidence.
+    var dogfood=new BootRuntime(60000000);
+    function nailEvidence(expression:String):Value {
+      var results=dogfood.run('nail 0.54 ; '+expression+' ;');
+      eq(results.length,1,'Nail canonical row producer returns one result');
+      ok(ResultValue.tag(results[0])==ResultValue.OK,
+        'Nail canonical row producer accepts valid scheme');
+      return ResultValue.get(results[0],ResultValue.OK);
+    }
+    function nailRejects(expression:String,fragment:String):Void {
+      var results=dogfood.run('nail 0.54 ; '+expression+' ;');
+      eq(results.length,1,'Nail canonical row rejects once');
+      eq(ResultValue.tag(results[0]),ResultValue.ERR,
+        'Nail canonical producer rejects malformed scheme');
+      var diagnostic=RuntimeValues.toPlain(
+        ResultValue.get(results[0],ResultValue.ERR));
+      ok(Std.string(diagnostic).indexOf(fragment)>=0,
+        'Nail row rejection contains '+fragment);
+    }
+
+    var rowScheme='tcCanonicalRowEvidence ( tcGeneralize '
+      +'( tcFun ( tcRowField " x " ( tcBase " Text " ) '
+      +'( tcVar " rho " ) ) ( tcBase " Text " ) ) [] [] )';
+    var canonicalFromNail=NailRowEvidenceAdapter.encode(
+      nailEvidence(rowScheme));
+    var canonicalFromHaxe=checked('nail 0.54 ; '
+      +'def readText r = textConcat ( r . x ) " suffix " ;',"readText");
+    eq(canonicalFromNail,canonicalFromHaxe,
+      'Nail dogfooded HM scheme matches Haxe checked-source wire preview');
+
+    var leftFirst='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcFun ( tcRowField " x " ( tcBase " Text " ) '
+      +'( tcRowField " y " ( tcBase " Int " ) ( tcVar " r " ) ) ) '
+      +'( tcBase " Text " ) ) [ tcVar " r " ] [] [] )';
+    var rightFirst='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcFun ( tcRowField " y " ( tcBase " Int " ) '
+      +'( tcRowField " x " ( tcBase " Text " ) ( tcVar " r " ) ) ) '
+      +'( tcBase " Text " ) ) [ tcVar " r " ] [] [] )';
+    eq(NailRowEvidenceAdapter.encode(nailEvidence(leftFirst)),
+      NailRowEvidenceAdapter.encode(nailEvidence(rightFirst)),
+      'Nail canonicalizes opposite row-field order itself');
+
+    // TCRowQuant can retain a negative obligation not visible in the
+    // function's type. The Nail-produced image must carry both names.
+    var extraLacks='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcFun ( tcRowField " x " ( tcBase " Text " ) '
+      +'( tcVar " r " ) ) ( tcBase " Int " ) ) '
+      +'[ tcVar " r " ] [] '
+      +'[ tcRowField " reserved " ( tcBase " Bool " ) '
+      +'( tcVar " r " ) ] )';
+    var emitted=NailRowEvidenceAdapter.encode(nailEvidence(extraLacks));
+    ok(emitted.indexOf('[[0,["reserved","x"]]]')>=0,
+      'Nail preserves extra negative TCRowQuant evidence');
+
+    var duplicate='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " r " ) ) ) '
+      +'[ tcVar " r " ] [] [] )';
+    nailRejects(duplicate,'Duplicate');
+    var overlap='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcFun ( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcVar " r " ) ) ( tcVar " r " ) ) '
+      +'[ tcVar " r " ] [] [] )';
+    nailRejects(overlap,'ordinary');
+    var orphan='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcVar " r " ) [ tcVar " r " ] [] '
+      +'[ tcRowField " absent " ( tcBase " Int " ) ( tcVar " r " ) ] )';
+    nailRejects(orphan,'outside');
+    var eqOnTail='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcRowField " x " ( tcBase " Text " ) ( tcVar " r " ) ) '
+      +'[ tcVar " r " ] [ tcVar " r " ] [] )';
+    nailRejects(eqOnTail,'Eq qualifier');
+    var freeVar='tcCanonicalRowEvidence ( tcSchemeWithRows '
+      +'( tcFun ( tcVar " a " ) ( tcVar " a " ) ) [] [] [] )';
+    nailRejects(freeVar,'Free variable');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
