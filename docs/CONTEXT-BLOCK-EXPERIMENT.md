@@ -1,11 +1,11 @@
 # Contextual DSL blocks — parser/type-checker experiment
 
-**Status: exploratory PR, not a released Nail language version or public ABI.**
+**Status: experimental implementation merged into `main` in [PR #28](https://github.com/Spyryto/NailLang/pull/28), not a released Nail language version or stable public ABI.**
 The ordinary Haxe Parser constructor and shipped 0.54 semantics remain unchanged.
 The **self-hosted Nail-written source compiler now has experimental contextual
 syntax and erases structural contracts/parameter annotations**, while the
-runtime AST, VM opcodes and module loader remain unchanged. This is intentionally
-unmerged and not a public-language guarantee.
+runtime AST, VM opcodes and module loader remain unchanged. Merging the
+experiment does not make this syntax or its type checker a public-language guarantee.
 
 ## Motivation
 
@@ -179,8 +179,9 @@ experimentally supported versioned-source subset; it does not replace
 the public compile boundary or support imported source modules.
 Before making this grammar authoritative for public compilation,
 close the remaining type-inference/diagnostic gaps and decide how the
-validated path is integrated. PR #28 remains draft until those correctness
-gates are met.
+validated path is integrated. PR #28 was merged as an **experiment** after
+cross-target correctness checks; the ordinary public checker and compilation
+policy remain authoritative.
 
 ## Boundaries deliberately explored
 
@@ -235,9 +236,10 @@ local shadowing, hygienic macro expansion, successful runtime parameter
 values with open-row static inference, rejection of absent or mistyped
 required fields, malformed context interfaces and unclosed blocks.
 
-**Confirmed design:** `html { expression }`, with inner context field
-shadowing, access to outer members via `html . div`, optional
+**Confirmed experimental design:** `html { expression }`, with inner context
+field shadowing, access to outer members via `html . div`, optional
 `( html : Html )` parameter annotations and structural type aliases.
 Remaining decisions concern full type-ABI support, inference of unknown
 context member sets, source spans and formalized compiler parity. Do not
-merge this draft PR as a shipped feature before resolving those gaps.
+promote this merged experiment to a released, stable language feature until
+those gaps are resolved.
