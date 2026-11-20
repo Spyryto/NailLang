@@ -29,6 +29,32 @@ row prefixes. It does not export a module interface or prove that an
 arbitrary provider obeys its inferred type, and it does not yet translate
 the Nail-written checker's independent `TCRowQuant` ledger.
 
+### Nail-authored canonical Syntax evidence (new experiment)
+
+`tcCanonicalRowEvidence scheme` runs **in Nail bytecode** on the same
+portable VM as the independent HM checker. It canonicalizes structural
+field order, alpha-renames quantified variables, and merges negative field
+obligations from both the inferred type shape and `TCRowQuant` sidecars.
+It rejects free/phantom quantifiers, duplicate fields, mixed ordinary/row
+variable kinds, Eq on a row tail, and guards that cannot be represented by
+the visible quantified row tail.
+
+The result is `Ok(TCWireScheme Syntax)` or `Error(Text)`. A small
+`NailRowEvidenceAdapter` converts this **already canonical Syntax tree**
+into the preview JSON and passes it to `RowSchemePreview` for independent
+format validation. The adapter must not perform type inference, field
+sorting, or invent negative evidence; parity tests compare the resulting
+bytes with the Haxe checked-source producer when both support the same
+scheme. A separate test verifies the Nail-only ledger can add a legitimate
+`lacks reserved` qualifier absent from the visible type prefix.
+
+This is a **scheme-level** producer, not yet a public entry point that
+extracts an exported scheme from `tcCheckSource`. The current
+`TCChecked` result includes inferred expression types but does not
+publish the checker’s top-level scheme environment. Exposing that
+environment transactionally, without adding it to runtime bytecode, is a
+subsequent integration step.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
