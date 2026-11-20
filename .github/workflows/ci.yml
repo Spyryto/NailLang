@@ -7,8 +7,31 @@ on:
 permissions:
   contents: read
 
+# All former regressions are retained. Split by target so expensive PHP
+# VM execution cannot block Haxe, Node, or other PHP regression suites.
 jobs:
-  build-and-test:
+  target-regressions:
+    name: regressions (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [haxe, node, php-macro, php-runtime-0, php-runtime-1, php-rest-numeric, php-rest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run ${{ matrix.target }} regression suite with timings
+        shell: bash
+        run: bash tools/ci-target.sh "${{ matrix.target }}"
+
+  distributions:
+    name: Build and smoke-test source-free distributions
+    needs: target-regressions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,167 +41,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify structured source analysis (Haxe, Node, PHP)
-        run: |
-          haxe source-analysis-test-interp.hxml
-          haxe source-analysis-test-js.hxml
-          node build/tests/source-analysis.js
-          haxe source-analysis-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-source-analysis/index.php
       - name: Generate source-free standard library image
         run: haxe seed-image.hxml
-      - name: Verify typed host functions and short Result variants (Haxe, Node, PHP)
-        run: |
-          haxe host-functions-test-interp.hxml
-          haxe host-functions-test-js.hxml
-          node build/tests/host-functions.js
-          haxe host-functions-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-host-functions/index.php
-      - name: Verify v0.53 source-level typed host imports (Haxe, Node, PHP)
-        run: |
-          haxe host-source-imports-test-interp.hxml
-          haxe host-source-imports-test-js.hxml
-          node build/tests/host-source-imports.js
-          haxe host-source-imports-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-host-source-imports/index.php
-      - name: Verify v0.54 typed module source imports (Haxe, Node, PHP)
-        run: |
-          haxe module-source-imports-test-interp.hxml
-          haxe module-source-imports-test-js.hxml
-          node build/tests/module-source-imports.js
-          haxe module-source-imports-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-module-source-imports/index.php
-      - name: Verify official versioned modern compiler image (Haxe, Node, PHP)
-        run: |
-          haxe official-bootstrap-test-interp.hxml
-          haxe official-bootstrap-test-js.hxml
-          node build/tests/official-bootstrap.js
-          haxe official-bootstrap-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-official-bootstrap/index.php
-      - name: Verify v0.45 Int / Ratio / Float on Haxe, Node and PHP
-        run: |
-          haxe modern-numbers-test-interp.hxml
-          haxe modern-numbers-test-js.hxml
-          node build/tests/modern-numbers.js
-          haxe modern-numbers-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-modern-numbers/index.php
-      - name: Verify v0.46 Add/Sub/Mul explicit relations on Haxe, JS and PHP
-        run: |
-          haxe arithmetic-relations-test-interp.hxml
-          haxe arithmetic-relations-test-js.hxml
-          node build/tests/arithmetic-relations.js
-          haxe arithmetic-relations-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-arithmetic-relations/index.php
-      - name: Probe modern numeric stdlib bootstrap fixed point in Node
-        run: |
-          haxe modern-bootstrap-test-js.hxml
-          node build/tests/modern-bootstrap.js
-      - name: Verify relation-aware module ABI (Haxe, JS, PHP)
-        run: |
-          haxe relation-module-abi-test-interp.hxml
-          haxe relation-module-abi-test-js.hxml
-          node build/tests/relation-module-abi.js
-          haxe relation-module-abi-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-relation-module-abi/index.php
-      - name: Verify single-pass hygienic macros and numeric rewrite parity (Haxe, JS, PHP)
-        run: |
-          haxe single-pass-macro-test-interp.hxml
-          haxe single-pass-macro-test-js.hxml
-          node build/tests/single-pass-macro.js
-          haxe single-pass-macro-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-single-pass-macro/index.php
-      - name: Verify independent runtime primitive core (Haxe, Node, PHP)
-        run: |
-          haxe runtime-core-test-interp.hxml
-          haxe runtime-core-test-js.hxml
-          node build/tests/runtime-core.js
-          haxe runtime-core-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-runtime-core/index.php
-      - name: Verify unified Nail record and sum lowering (Haxe, JS, PHP)
-        run: |
-          haxe type-declaration-lowering-test-interp.hxml
-          haxe type-declaration-lowering-test-js.hxml
-          node build/tests/type-declaration-lowering.js
-          haxe type-declaration-lowering-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-type-declaration-lowering/index.php
-      - name: Verify generic n-ary relations (Haxe, JS, PHP)
-        run: |
-          haxe nary-relations-test-interp.hxml
-          haxe nary-relations-test-js.hxml
-          node build/tests/nary-relations.js
-          haxe nary-relations-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-nary-relations/index.php
-      - name: Verify modern Int/Ratio/Float module ABI (Haxe, Node, PHP)
-        run: |
-          haxe modern-module-abi-test-interp.hxml
-          haxe modern-module-abi-test-js.hxml
-          node build/tests/modern-module-abi.js
-          haxe modern-module-abi-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-modern-module-abi/index.php
-      - name: Run text-write tests on Haxe, JS and PHP
-        run: |
-          haxe host-text-writes-test-interp.hxml
-          haxe host-text-writes-test-js.hxml
-          node build/tests/host-text-writes.js
-          haxe host-text-writes-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-host-text-writes/index.php
-      - name: Verify SHA-256 pinned compiled modules on Haxe, JS and PHP
-        run: |
-          haxe trusted-module-images-test-interp.hxml
-          haxe trusted-module-images-test-js.hxml
-          node build/tests/trusted-module-images.js
-          haxe trusted-module-images-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-trusted-module-images/index.php
-      - name: Verify revocable host capabilities on Haxe, JS and PHP
-        run: |
-          haxe revocable-capabilities-test-interp.hxml
-          haxe revocable-capabilities-test-js.hxml
-          node build/tests/revocable-capabilities.js
-          haxe revocable-capabilities-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-revocable-capabilities/index.php
-      - name: Verify Ed25519 signed manifests on Haxe, Node and PHP
-        run: |
-          haxe signed-manifests-test-interp.hxml
-          haxe signed-manifests-test-js.hxml
-          node build/tests/signed-manifests.js
-          haxe signed-manifests-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-signed-manifests/index.php
-      - name: Check inherited read capability and shared-result ABI
-        run: |
-          haxe host-capabilities-test-interp.hxml
-          haxe shared-result-test-interp.hxml
-          haxe module-host-grants-test-interp.hxml
-          haxe shared-result-test-js.hxml
-          node build/tests/shared-result.js
-          haxe shared-result-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-shared-result/index.php
-      - name: Test offline Ed25519 distribution signing helper
-        run: node --test tools/sign-modules.test.mjs
-      - name: Verify exact rational rounding on Haxe, JS and PHP
-        run: |
-          haxe exact-rounding-test-interp.hxml
-          haxe exact-rounding-test-js.hxml
-          node build/tests/exact-rounding.js
-          haxe exact-rounding-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-exact-rounding/index.php
-      - name: Verify explicitly declared numerical relations (Haxe, JS, PHP)
-        run: |
-          haxe explicit-relations-test-interp.hxml
-          haxe explicit-relations-test-js.hxml
-          node build/tests/explicit-relations.js
-          haxe explicit-relations-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-explicit-relations/index.php
-      - name: Check Nail-written modern compiler fixed point on Node
+      - name: Verify self-hosted bootstrap and generate distributable image
+        shell: bash
         run: |
           haxe rebootstrap-node.hxml
           node build/tests/rebootstrap-node.js
-      - name: Test distributed source-free bootstrap runtime (Haxe, Node, PHP)
-        run: |
-          haxe boot-test-interp.hxml
-          haxe boot-test-js.hxml
-          node build/tests/boot.js
-          haxe boot-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-boot/index.php
+          test -s build/bootstrap/self-image.json
       - name: Compile full VM and self-hosted source-free JS/PHP distributions
         run: |
           haxe js.hxml
@@ -213,3 +83,19 @@ jobs:
             build/boot/js/nailseed-boot.js
             build/boot/php/**
           if-no-files-found: error
+
+  # Preserve the historical required check name while gating on *all* targets.
+  build-and-test:
+    name: build-and-test
+    if: ${{ always() }}
+    needs: [target-regressions, distributions]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all regression targets and distributions to pass
+        shell: bash
+        env:
+          REGRESSION_RESULT: ${{ needs.target-regressions.result }}
+          DISTRIBUTION_RESULT: ${{ needs.distributions.result }}
+        run: |
+          test "$REGRESSION_RESULT" = success
+          test "$DISTRIBUTION_RESULT" = success

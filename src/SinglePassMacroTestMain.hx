@@ -1,4 +1,5 @@
 import haxe.Json;
+import haxe.Timer;
 import nail.Value;
 import nail.Vm;
 import nail.BootRuntime;
@@ -12,6 +13,48 @@ import nail.TypeChecker;
     hygienic template macros. */
 class SinglePassMacroTestMain {
   static var checks = 0;
+  // Observational timing only: do not change the production compiler or VM.
+  static var bootInstances = 0;
+  static var bootSeconds = 0.0;
+  static var hostStdlibLoads = 0;
+  static var hostStdlibSeconds = 0.0;
+  static var referenceCompileSeconds = 0.0;
+  static var hostNailCompileSeconds = 0.0;
+  static var bootNailCompileSeconds = 0.0;
+  // Comparison compilation is pure: reuse one loaded AST host across cases.
+  // Negative probes and macro-spy tests retain separate VM instances.
+  static var parityHost:Vm = null;
+  static var parityCases = 0;
+
+  static function comparisonHost():Vm {
+    if (parityHost == null) {
+      parityHost = new Vm(40000000);
+      prepareHost(parityHost);
+    }
+    parityCases++;
+    return parityHost;
+  }
+
+  static function freshBoot(?steps:Int):BootRuntime {
+    var start = Timer.stamp();
+    var runtime = steps == null ? new BootRuntime() : new BootRuntime(steps);
+    bootSeconds += Timer.stamp() - start;
+    bootInstances++;
+    return runtime;
+  }
+
+  static function prepareHost(vm:Vm):Void {
+    var start = Timer.stamp();
+    vm.loadStdlib();
+    hostStdlibSeconds += Timer.stamp() - start;
+    hostStdlibLoads++;
+  }
+
+  static function profile(label:String, count:Int, seconds:Float):Void {
+    trace('CI profile ' + label + ': count=' + count
+      + ', total_ms=' + Math.round(seconds * 1000));
+  }
+
   static function ok(good:Bool, title:String):Void {
     if (!good) throw 'SINGLE PASS MACROS: ' + title;
     checks++;
@@ -20,18 +63,24 @@ class SinglePassMacroTestMain {
     ok(BootstrapImage.encode(a) == BootstrapImage.encode(b), title);
   }
   static function output(source:String, ?modules:String->Null<String>):Array<Dynamic> {
-    return new BootRuntime(40000000).runPlain(source, modules);
+    return freshBoot(40000000).runPlain(source, modules);
   }
 
   static function runCase(source:String, expected:Array<Dynamic>,
       ?modules:String->Null<String>):Void {
-    var host = new Vm(40000000);
-    host.loadStdlib();
-    var boot = new BootRuntime(40000000);
+    var host = comparisonHost();
+    var namesBefore = host.names().join("\n");
+    var boot = freshBoot(40000000);
 
+    var start = Timer.stamp();
     var reference = BytecodeCompiler.compileSource(source, modules);
+    referenceCompileSeconds += Timer.stamp() - start;
+    start = Timer.stamp();
     var self = host.compileWithNail(source, modules);
+    hostNailCompileSeconds += Timer.stamp() - start;
+    start = Timer.stamp();
     var standalone = boot.compile(source, modules);
+    bootNailCompileSeconds += Timer.stamp() - start;
     eq(reference, self, 'host and Nail compiler bytecode parity: ' + source);
     eq(reference, standalone, 'source-free bytecode parity: ' + source);
 
@@ -42,6 +91,10 @@ class SinglePassMacroTestMain {
       'public Syntax compiler still produces reference output: ' + source);
     eq(reference, boot.compileSyntax(parsed),
       'source-free Syntax compiler still produces reference output: ' + source);
+    // Do not trade isolation for speed: compilation of any form must leave
+    // global bindings unchanged before the next independent source is tested.
+    ok(host.names().join("\n") == namesBefore,
+      'source compilation must not mutate AST VM global names: ' + source);
 
     var actual = output(source, modules);
     ok(Json.stringify(actual) == Json.stringify(expected),
@@ -67,8 +120,8 @@ class SinglePassMacroTestMain {
       phrase:String):Void {
     if (rejectingVm == null) {
       rejectingVm = new Vm(40000000);
-      rejectingVm.loadStdlib();
-      rejectingBoot = new BootRuntime(40000000);
+      prepareHost(rejectingVm);
+      rejectingBoot = freshBoot(40000000);
     }
     fails(() -> BytecodeCompiler.compileSource(source, modules), phrase);
     fails(() -> new TypeChecker().check(source, modules), phrase);
@@ -154,7 +207,7 @@ class SinglePassMacroTestMain {
     // Count invocations rather than merely comparing outputs: an unnecessary
     // second pass returns equal bytecode but still traverses the complete AST.
     var probe = new Vm(40000000);
-    probe.loadStdlib();
+    prepareHost(probe);
     var calls = 0;
     probe.bytecodeRoot().bind('macroExpandSyntax',
       HostFunction('single-pass-spy', tree -> {
@@ -186,11 +239,17 @@ class SinglePassMacroTestMain {
     probe.compileSyntaxWithNail(raw);
     ok(calls == 1, 'public compileSyntax expands raw Syntax exactly once');
 
-    fails(() -> new BootRuntime().run(
+    fails(() -> freshBoot().run(
       'nail 0.49 ; macro broken x = quote ( unquote typo ) ;'),
       'unknown unquote parameter');
-    fails(() -> new BootRuntime().run(
+    fails(() -> freshBoot().run(
       'nail 0.49 ; expand absent 12 ;'), 'unknown macro absent');
+    profile('macro/BootRuntime init', bootInstances, bootSeconds);
+    profile('macro/Vm stdlib load', hostStdlibLoads, hostStdlibSeconds);
+    trace('CI profile macro/parity cases per reused host: ' + parityCases);
+    profile('macro/Haxe reference compile', 1, referenceCompileSeconds);
+    profile('macro/Vm Nail compile', 1, hostNailCompileSeconds);
+    profile('macro/BootRuntime Nail compile', 1, bootNailCompileSeconds);
     trace('Single-pass macro compiler: ' + checks + ' checks passed');
   }
 }

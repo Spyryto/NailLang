@@ -1,4 +1,5 @@
 import haxe.Json;
+import haxe.Timer;
 import nail.Value;
 import nail.RuntimePrimitives;
 import nail.RuntimeValues;
@@ -10,6 +11,20 @@ import numeric.FastNumber;
     Run the same cases on Haxe, JavaScript, and PHP. */
 class RuntimeCoreTestMain {
   static var checks = 0;
+  static var bootInstances = 0;
+  static var bootSeconds = 0.0;
+  static var hostStdlibSeconds = 0.0;
+  static var hostRunSeconds = 0.0;
+  static var bootRunSeconds = 0.0;
+
+  static function freshBoot(steps:Int):BootRuntime {
+    var start = Timer.stamp();
+    var boot = new BootRuntime(steps);
+    bootSeconds += Timer.stamp() - start;
+    bootInstances++;
+    return boot;
+  }
+
 
   static function ok(good:Bool, label:String):Void {
     if (!good) throw 'RUNTIME CORE: ' + label;
@@ -29,6 +44,20 @@ class RuntimeCoreTestMain {
   }
 
   public static function main():Void {
+    // Only CI's PHP matrix shards select a subset. Unsharded Haxe/Node and
+    // local runs still execute all four independent source/VM parity cases.
+    // PHP CI shards are intentionally opt-in. JS/Haxe always run all cases.
+    #if php
+    var requestedShard:Null<String> = Sys.getEnv('NAIL_CI_RUNTIME_CORE_SHARD');
+    #else
+    var requestedShard:Null<String> = null;
+    #end
+    var shard:Null<Int> = switch requestedShard {
+      case null: null;
+      case '0': 0;
+      case '1': 1;
+      case _: throw 'Invalid NAIL_CI_RUNTIME_CORE_SHARD: ' + requestedShard;
+    };
     var first = RuntimePrimitives.environment();
     var second = RuntimePrimitives.environment();
     ok(switch first.lookup('+') {
@@ -74,11 +103,22 @@ class RuntimeCoreTestMain {
       'nail 0.49 ; type Choice = No | Yes Int ; match Yes 42 with | No -> 0 | Yes n -> n ;',
       'nail 0.49 ; macro twice x = quote ( unquote x + unquote x ) ; expand twice 21 ;'
     ];
-    for (source in sources) {
+    for (i in 0...sources.length) {
+      if (shard != null && i % 2 != shard) continue;
+      var source = sources[i];
+      // No VM is shared across two different programs, even within a shard.
       var vm = new Vm(60000000);
+      var start = Timer.stamp();
       vm.loadStdlib();
-      var boot = new BootRuntime(60000000);
-      ok(Json.stringify(vm.runPlain(source)) == Json.stringify(boot.runPlain(source)),
+      hostStdlibSeconds += Timer.stamp() - start;
+      var boot = freshBoot(60000000);
+      start = Timer.stamp();
+      var hostResult = vm.runPlain(source);
+      hostRunSeconds += Timer.stamp() - start;
+      start = Timer.stamp();
+      var bootResult = boot.runPlain(source);
+      bootRunSeconds += Timer.stamp() - start;
+      ok(Json.stringify(hostResult) == Json.stringify(bootResult),
         'AST and source-free VM parity: ' + source);
     }
 
@@ -89,6 +129,19 @@ class RuntimeCoreTestMain {
     ok(Json.stringify(RuntimeValues.plainResults(values)) ==
        Json.stringify(Vm.plainResults(values)),
       'shared presentation agrees with development API');
+    var expectedCases = shard == null ? sources.length : Std.int(sources.length / 2);
+    ok(bootInstances == expectedCases,
+      'runtime shard must execute every allocated independent source case');
+    trace('CI profile runtime/shard: ' + (shard == null ? 'all' : Std.string(shard))
+      + ', source_cases=' + bootInstances);
+    trace('CI profile runtime/BootRuntime init: count=' + bootInstances
+      + ', total_ms=' + Math.round(bootSeconds * 1000));
+    trace('CI profile runtime/Vm stdlib load: count=' + bootInstances
+      + ', total_ms=' + Math.round(hostStdlibSeconds * 1000));
+    trace('CI profile runtime/Vm execute: count=' + bootInstances
+      + ', total_ms=' + Math.round(hostRunSeconds * 1000));
+    trace('CI profile runtime/BootRuntime compile-and-execute: count=' + bootInstances
+      + ', total_ms=' + Math.round(bootRunSeconds * 1000));
     trace('Runtime core extraction: ' + checks + ' checks passed');
   }
 }

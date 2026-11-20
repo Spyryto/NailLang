@@ -74,8 +74,12 @@ class TypeChecker {
     }
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
-      newTables, functionContracts);
+      newTables, functionContracts, parser.experimentalContexts);
     solver.declarations = parser.declaredRelations;
+    if (parser.experimentalContexts) {
+      solver.parameterConstraints=parser.parameterConstraints;
+      solver.valueConstraints=parser.valueConstraints;
+    }
     if (parser.modernMode)
       for (name in parser.declaredRelations.keys()) {
         var relation=parser.declaredRelations.get(name);
@@ -167,6 +171,7 @@ class TypeChecker {
           throw 'Module type error: invalid structural record interface';
         for (field in fields) pending.push(field.type);
       case TFunction(a, b): pending.push(b); pending.push(a);
+      case TOpenStructural(_, _): throw 'Module type error: experimental open rows cannot be imported';
       case TVariable(_):
         throw 'Module type error: polymorphic import signatures are not yet supported';
       case TSum('CoreResult', args) if (args.length == 2):
@@ -197,6 +202,7 @@ class TypeChecker {
           throw 'Public interface: invalid structural record fields';
         for (field in fields) work.push(field.type);
       case TFunction(a, b): work.push(b); work.push(a);
+      case TOpenStructural(_, _): throw 'Public interface: experimental open rows cannot be exported';
       case TVariable(_):
         throw 'Public interface: unconstrained type variable in export ' + name;
       case TSum('CoreResult', args) if (args.length == 2):
@@ -243,6 +249,7 @@ class TypeChecker {
             throw 'Public interface: invalid structural record fields';
           for (field in fields) pending.push(field.type);
         case TFunction(a, b): pending.push(b); pending.push(a);
+        case TOpenStructural(_, _): throw 'Public interface: experimental open rows cannot be exported';
         case TVariable(id):
           if (!quantified.exists(id))
             throw 'Public interface: free type variable in public scheme';
@@ -300,6 +307,14 @@ class TypeChecker {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case _: throw 'Public interface: malformed type scheme';
         }
       } else switch (frame.type) {
@@ -319,6 +334,11 @@ class TypeChecker {
           work.push({type:frame.type, end:true});
           var i = fields.length;
           while (i > 0) work.push({type:fields[--i].type, end:false});
+        case TOpenStructural(fields,rest):
+          work.push({type:frame.type,end:true});
+          work.push({type:rest,end:false});
+          var i=fields.length;
+          while (i>0) work.push({type:fields[--i].type,end:false});
         case TRecord(name): results.push(TRecord(name));
         case TSum(_, _):
           throw 'Public interface: algebraic public type identity is not implemented';
@@ -471,13 +491,18 @@ private class Inference {
   public final modernMode:Bool;
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
+  final openRows:Bool;
+  public var parameterConstraints:StringMap<Array<{name:String,type:NType}>>=new StringMap();
+  public var valueConstraints:StringMap<NType>=new StringMap();
 
   public function new(start:Int, initial:StringMap<TypeScheme>, knownRecords:StringMap<Int>,
       knownSums:StringMap<Int>, knownCases:StringMap<Array<{name:String, arity:Int}>>,
       knownOwners:StringMap<String>, ?knownRelations:haxe.ds.StringMap<String>,
       modernMode:Bool = false,
       ?knownTables:StringMap<RelationContract>,
-      ?knownContracts:StringMap<RelationContract>) {
+      ?knownContracts:StringMap<RelationContract>,
+      openRows:Bool = false) {
+    this.openRows=openRows;
     nextId = start;
     generalContracts = new StringMap();
     if (knownTables != null)
@@ -670,6 +695,9 @@ private class Inference {
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TStructural(fields): for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -685,6 +713,9 @@ private class Inference {
         case TList(a) | TVector(a): stack.push(a);
         case TSum(_, items) | TRecordApplied(_, items): for (item in items) stack.push(item);
         case TStructural(fields): for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TVariable(id): eqRequired.set(id, true);
         case TFunction(_, _): throw 'Type error: functions cannot be compared for equality';
       }
@@ -702,6 +733,76 @@ private class Inference {
     substitutions.set(id, normalized);
   }
 
+  /** Flatten required fields; tail is null only for a closed row. */
+  function rowParts(type:NType):{fields:Array<nail.NType.StructuralField>,rest:Null<NType>} {
+    var fields:Array<nail.NType.StructuralField>=[];
+    var seen=new StringMap<Bool>();
+    var current=type;
+    while(true) switch(prune(current)) {
+      case TStructural(items):
+        for (item in items) {
+          if (seen.exists(item.name)) throw 'Type error: duplicate row field '+item.name;
+          seen.set(item.name,true); fields.push(item);
+        }
+        fields.sort((x,y)->Reflect.compare(x.name,y.name));
+        return {fields:fields,rest:null};
+      case TOpenStructural(items,tail):
+        for (item in items) {
+          if (seen.exists(item.name)) throw 'Type error: duplicate row field '+item.name;
+          seen.set(item.name,true); fields.push(item);
+        }
+        current=tail;
+      case TVariable(_):
+        fields.sort((x,y)->Reflect.compare(x.name,y.name));
+        return {fields:fields,rest:current};
+      case _: throw 'Type error: expected structural record row';
+    }
+    return {fields:fields,rest:null};
+  }
+
+  function addRow(fields:Array<nail.NType.StructuralField>,rest:NType):NType
+    return fields.length==0 ? rest : TOpenStructural(fields,rest);
+
+  /** Unify shared fields and distribute disjoint fields into open tails. */
+  function unifyRows(a:NType,b:NType,work:Array<{a:NType,b:NType}>):Void {
+    var x=rowParts(a),y=rowParts(b);
+    var xm=new StringMap<NType>(),ym=new StringMap<NType>();
+    for (field in x.fields) xm.set(field.name,field.type);
+    for (field in y.fields) ym.set(field.name,field.type);
+    var onlyX:Array<nail.NType.StructuralField>=[];
+    var onlyY:Array<nail.NType.StructuralField>=[];
+    for (field in x.fields)
+      if (ym.exists(field.name)) work.push({a:field.type,b:ym.get(field.name)});
+      else onlyX.push(field);
+    for (field in y.fields) if (!xm.exists(field.name)) onlyY.push(field);
+    if (x.rest==null && y.rest==null) {
+      if (onlyX.length!=0 || onlyY.length!=0)
+        throw 'Type error: cannot unify '+describe(a)+' with '+describe(b);
+      return;
+    }
+    if (x.rest==null) {
+      if (onlyY.length!=0) throw 'Type error: missing structural record fields';
+      work.push({a:y.rest,b:TStructural(onlyX)});
+      return;
+    }
+    if (y.rest==null) {
+      if (onlyX.length!=0) throw 'Type error: missing structural record fields';
+      work.push({a:x.rest,b:TStructural(onlyY)});
+      return;
+    }
+    var p=prune(x.rest),q=prune(y.rest);
+    switch([p,q]) {
+      case [TVariable(i),TVariable(j)] if (i==j):
+        if (onlyX.length!=0 || onlyY.length!=0)
+          throw 'Type error: incompatible shared row tail';
+        return;
+      case _:
+    }
+    var shared=fresh();
+    work.push({a:x.rest,b:addRow(onlyY,shared)});
+    work.push({a:y.rest,b:addRow(onlyX,shared)});
+  }
+
   function unify(left:NType, right:NType):Void {
     var stack:Array<{a:NType, b:NType}> = [{a:left, b:right}];
     while (stack.length > 0) {
@@ -717,14 +818,11 @@ private class Inference {
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
-        case [TStructural(xs), TStructural(ys)]:
-          if (xs.length != ys.length)
-            throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
-          for (i in 0...xs.length) {
-            if (xs[i].name != ys[i].name)
-              throw 'Type error: cannot unify ' + describe(a) + ' with ' + describe(b);
-            stack.push({a:xs[i].type, b:ys[i].type});
-          }
+        case [TStructural(_), TStructural(_)]
+          | [TOpenStructural(_, _), TStructural(_)]
+          | [TStructural(_), TOpenStructural(_, _)]
+          | [TOpenStructural(_, _), TOpenStructural(_, _)]:
+          unifyRows(a,b,stack);
         case [TList(x), TList(y)] | [TVector(x), TVector(y)]: stack.push({a:x, b:y});
         case [TSum(nx, xs), TSum(ny, ys)] if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
@@ -761,6 +859,14 @@ private class Inference {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -778,6 +884,11 @@ private class Inference {
           stack.push({type:frame.type, finish:true});
           var i = fields.length;
           while (i > 0) stack.push({type:fields[--i].type, finish:false});
+        case TOpenStructural(fields,rest):
+          stack.push({type:frame.type,finish:true});
+          stack.push({type:rest,finish:false});
+          var i=fields.length;
+          while (i>0) stack.push({type:fields[--i].type,finish:false});
         case TList(a) | TVector(a):
           stack.push({type:frame.type, finish:true});
           stack.push({type:a, finish:false});
@@ -811,6 +922,9 @@ private class Inference {
           for (item in types) stack.push(item);
         case TStructural(fields):
           for (field in fields) stack.push(field.type);
+        case TOpenStructural(fields,rest):
+          for (field in fields) stack.push(field.type);
+          stack.push(rest);
         case TFunction(a, b): stack.push(b); stack.push(a);
         case _:
       }
@@ -842,6 +956,14 @@ private class Inference {
             for (i in 0...fields.length)
               rebuilt.push({name:fields[i].name, type:types[i]});
             results.push(TStructural(rebuilt));
+          case TOpenStructural(fields,_):
+            var tail=results.pop();
+            var types:Array<NType>=[];
+            for (i in 0...fields.length) types.push(results.pop());
+            types.reverse();
+            var rebuilt:Array<nail.NType.StructuralField>=[];
+            for (i in 0...fields.length) rebuilt.push({name:fields[i].name,type:types[i]});
+            results.push(TOpenStructural(rebuilt,tail));
           case TFunction(_, _):
             var b = results.pop(), a = results.pop();
             results.push(TFunction(a, b));
@@ -858,6 +980,11 @@ private class Inference {
             stack.push({type:normalized, finish:true});
             var i = fields.length;
             while (i > 0) stack.push({type:fields[--i].type, finish:false});
+          case TOpenStructural(fields,rest):
+            stack.push({type:normalized,finish:true});
+            stack.push({type:rest,finish:false});
+            var i=fields.length;
+            while (i>0) stack.push({type:fields[--i].type,finish:false});
           case TList(a) | TVector(a):
             stack.push({type:normalized, finish:true});
             stack.push({type:a, finish:false});
@@ -929,7 +1056,15 @@ private class Inference {
       case TStructural(fields):
         for (item in fields) if (item.name == field) return item.type;
         throw 'Type error: structural record has no field ' + field;
+      case TOpenStructural(fields,rest):
+        for (item in fields) if (item.name == field) return item.type;
+        return projectField(rest,field);
       case TVariable(_):
+        if (openRows) {
+          var output=fresh();
+          unify(receiver,TOpenStructural([{name:field,type:output}],fresh()));
+          return output;
+        }
         var matches:Array<String> = [];
         for (name in records.keys()) if (globals.exists(name + '.' + field)) matches.push(name);
         if (matches.length == 0) throw 'Type error: unknown record field ' + field;
@@ -1351,6 +1486,7 @@ private class Inference {
             if (!TypeChecker.validStructural(fields))
               throw 'Generated type contract: invalid structural record type';
             for (field in fields) pending.push(field.type);
+          case TOpenStructural(_, _): throw 'Generated type contract: experimental open rows forbidden';
           case _:
         }
       }
@@ -1534,6 +1670,47 @@ private class Inference {
         env.set(name, mono(provisional));
         validateMatches(expr);
         var t = infer(expr, env, {name:name, scheme:mono(provisional)});
+        // Optional contracts narrow inference. They never change the core
+        // expression or its runtime behavior; surplus record fields remain
+        // accepted through open structural tails.
+        var requirements=parameterConstraints.get(name);
+        if (requirements!=null) {
+          var currentType=t;
+          var currentBody=expr;
+          for (item in requirements) {
+            // Find the correct annotated binder in the curried source order.
+            // Every binder is checked at the exact parameter position.
+            var cursor=currentBody;
+            var typeCursor=t;
+            var found=false;
+            while(true) switch(cursor) {
+              case Lambda(param,rest):
+                var arg=fresh(),ret=fresh();
+                unify(typeCursor,TFunction(arg,ret));
+                if (param==item.name) {
+                  switch(item.type) {
+                    case TStructural(fields):
+                      unify(arg,TOpenStructural(fields,fresh()));
+                    case _:
+                      unify(arg,item.type);
+                  }
+                  found=true;
+                  break;
+                }
+                cursor=rest; typeCursor=ret;
+              case _:
+                break;
+            }
+            if (!found) throw 'Parameter annotation: missing parameter '+item.name;
+          }
+        }
+        var requiredValue=valueConstraints.get(name);
+        if (requiredValue!=null) switch(requiredValue) {
+          case TStructural(fields):
+            unify(t,TOpenStructural(fields,fresh()));
+          case _:
+            unify(t,requiredValue);
+        }
         unify(provisional, t);
         globals.set(name, generalize(t, globals));
       case Evaluate(expr):
@@ -1585,6 +1762,18 @@ private class Inference {
         case TBoolean: output.add('Bool');
         case TText: output.add('Text');
         case TRecord(name): output.add(name);
+        case TOpenStructural(fields,rest):
+          stack.push({type:null,text:'}',parens:false});
+          stack.push({type:rest,text:null,parens:false});
+          stack.push({type:null,text:' | ',parens:false});
+          var i=fields.length;
+          while(i>0) {
+            i--;
+            stack.push({type:fields[i].type,text:null,parens:false});
+            stack.push({type:null,text:fields[i].name+': ',parens:false});
+            if (i>0) stack.push({type:null,text:', ',parens:false});
+          }
+          stack.push({type:null,text:'{',parens:false});
         case TStructural(fields):
           stack.push({type:null, text:'}', parens:false});
           var i = fields.length;

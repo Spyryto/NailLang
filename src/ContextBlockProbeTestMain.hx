@@ -1,0 +1,334 @@
+import haxe.Json;
+import haxe.ds.StringMap;
+import nail.Parser;
+import nail.TypeChecker;
+import nail.ContextInterfaces;
+import nail.BytecodeCompiler;
+import nail.ByteVm;
+import nail.BootRuntime;
+import nail.SyntaxEncoder;
+import nail.Vm;
+
+/** Experimental parser/typechecker study, deliberately not user-visible in
+    ordinary Nail 0.54 compilation. No sixth core AST case or VM opcode.
+    Known checked field names are supplied to Parser by the caller. */
+class ContextBlockProbeTestMain {
+  static var passed=0;
+  static function ok(value:Bool, message:String):Void {
+    if (!value) throw 'CONTEXT BLOCK PROBE: '+message;
+    passed++;
+  }
+  static function equal(a:Dynamic,b:Dynamic,label:String):Void
+    ok(Json.stringify(a)==Json.stringify(b),
+      label+' expected '+Json.stringify(b)+' got '+Json.stringify(a));
+  static function fails(f:Void->Void,needle:String,?label:String):Void {
+    var error='';
+    try f() catch(e:Dynamic) error=Std.string(e);
+    ok(error.indexOf(needle)>=0,
+      (label==null?'':label+': ')+'expected "'+needle+'" got "'+error+'"');
+  }
+  static function contexts():StringMap<Array<String>> {
+    var result=new StringMap<Array<String>>();
+    result.set('Html',['h2','div']);
+    result.set('Svg',['circle','div']);
+    result.set('html',['h2','div']);
+    return result;
+  }
+  static function types(source:String,ctx:StringMap<Array<String>>):Array<String> {
+    var forms=new Parser(source,ctx).parse();
+    var checker=new TypeChecker();
+    return checker.checkSyntax(SyntaxEncoder.program(forms));
+  }
+  /** Opt-in checker reuses the originating parser and infers open row tails. */
+  static function typeRows(source:String,ctx:StringMap<Array<String>>)
+      :{types:Array<String>,checker:TypeChecker} {
+    var parser=new Parser(source,ctx);
+    var checker=new TypeChecker();
+    var types=checker.checkParsed(parser,parser.parse());
+    return {types:types,checker:checker};
+  }
+
+  static function run(source:String,ctx:StringMap<Array<String>>):Array<Dynamic> {
+    var forms=new Parser(source,ctx).parse();
+    return new ByteVm(15000000).runPlain(BytecodeCompiler.compile(forms));
+  }
+  static var setup='def Html = { '
+      +'h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x '
+      +'} ; ';
+  static var svg='def Svg = { '
+      +'circle = fun x -> textConcat " C: " x , '
+      +'div = fun x -> textConcat " S: " x '
+      +'} ; ';
+
+  public static function main():Void {
+    var ctx=contexts();
+    var simple=setup
+      +'def view title text = Html { [ h2 title , div text ] } ; '
+      +'view " One " " Two " ;';
+    equal(types(simple,ctx),['[Text]'],
+      'record of closures opens as a lexical typed context');
+    equal(run(simple,ctx),[['H:One','D:Two']],
+      'same lowered five-constructor AST executes in original VM');
+    fails(() -> new Parser(simple).parse(),'Expected named record field',
+      'feature must remain opt-in for the source parser');
+
+    // Contextual syntax never relies on identifier capitalization.
+    // Derive field names from actual checked structural *values* rather
+    // than handwritten interface lists in the parser.
+    var caseDeclarations=setup
+      +'def html = { h2 = fun x -> textConcat " lower: " x , '
+      +'div = fun x -> textConcat " lower-div: " x } ; ';
+    var caseChecker=new TypeChecker();
+    caseChecker.check(caseDeclarations);
+    var derived=ContextInterfaces.fromChecked(caseChecker,['Html','html']);
+    equal(derived.get('Html'),['div','h2'],
+      'uppercase context exposes the checked structural fields');
+    equal(derived.get('html'),['div','h2'],
+      'lowercase context exposes the same fields without a syntax rule');
+    var mixedCase=caseDeclarations
+      +'Html { h2 " Case " } ; '
+      +'html { h2 " Case " } ; '
+      +'Html { div " Case " } ; '
+      +'html { div " Case " } ;';
+    equal(types(mixedCase,derived),['Text','Text','Text','Text'],
+      'capitalization has no bearing on contextual type resolution');
+    equal(run(mixedCase,derived),
+      ['H:Case','lower:Case','D:Case','lower-div:Case'],
+      'Html and html are distinct values, not case-folded identifiers');
+    // Typed structural aliases and per-parameter constraints are compile-time
+    // only. A parameter without an annotation still gets its type inferred.
+    var typedHeader='type Html = { h2 : Text Text , div : Text Text } ; ';
+    var typedFunctions=typedHeader
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render htmlValue " Typed " ;';
+    equal(typeRows(typedFunctions,new StringMap()).types,['Text'],
+      'optional parameter annotations resolve context names statically');
+    equal(run(typedFunctions,new StringMap()),['H:Typed'],
+      'structural type aliases and binder annotations erase at runtime');
+    var typedSignature=typeRows(typedFunctions,new StringMap()).checker.signature('render');
+    ok(typedSignature.indexOf('h2:')>=0 && typedSignature.indexOf('div:')>=0,
+      'annotated structural contract requires both declared capabilities');
+    var partial=typedHeader
+      +'def render ( html : Html ) ( title : Text ) = html { h2 title } ; '
+      +'def htmlValue = { div = fun x -> x , h2 = fun x -> x } ; '
+      +'render htmlValue " Both " ;';
+    equal(typeRows(partial,new StringMap()).types,['Text'],
+      'two individually annotated parameters are type-checked');
+    equal(run(partial,new StringMap()),['Both'],
+      'curried annotations do not alter function evaluation');
+    var valueAlias=typedHeader
+      +'def htmlValue : Html = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'htmlValue . h2 " Value " ;';
+    equal(typeRows(valueAlias,new StringMap()).types,['Text'],
+      'value annotation gives the checker a named structural contract');
+    // The parser only opens contextual names that were explicitly annotated
+    // in the function; bare values are not automatically opened here.
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Missing ) title = html { h2 title } ;',
+      new StringMap()), 'unknown type',
+      'unknown parameter contract rejected');
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x } " No div " ;',
+      new StringMap()), 'missing structural record fields',
+      'annotated API rejects implementations lacking required fields');
+    fails(() -> typeRows(typedHeader+
+      'def render ( html : Html ) title = html { h2 title } ; '
+      +'render { h2 = fun x -> x + 1 , div = fun x -> x } " Wrong " ;',
+      new StringMap()), 'cannot unify',
+      'annotated API checks function types, not only member names');
+    fails(() -> typeRows(
+      'type Html = { h2 : MissingType Text } ; '
+      +'def x ( html : Html ) = html { h2 " X " } ;',
+      new StringMap()), 'unknown type',
+      'structural alias fields use known types');
+
+    // End-to-end source-free compiler: parse the same surface language
+    // in Nail, then run its existing bytecode output on each runtime target.
+    var selfHostSource=typedHeader
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def render ( html : Html ) title = html { h2 title } ; '
+      +'render htmlValue " Selfhost " ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostSource),
+      ['H:Selfhost'], 'self-hosted parser compiles an annotated contextual DSL');
+    var selfHostNested='type Html = { h2 : Text Text , div : Text Text } ; '
+      +'type Math = { div : Text Text } ; '
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " HTML: " x } ; '
+      +'def mathValue = { div = fun x -> textConcat " Math: " x } ; '
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { [ h2 ( math { div " Nested " } ) , '
+      +'h2 ( math { html . div " Explicit " } ) ] } ; '
+      +'render htmlValue mathValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostNested),
+      [['H:Math:Nested','H:HTML:Explicit']],
+      'self-hosted nested contexts prefer inner field; explicit outer access works');
+    var selfHostFallback='type Html = { h2 : Text Text , div : Text Text } ; '
+      +'type Math = { circle : Text Text } ; '
+      +'def htmlValue = { h2 = fun x -> textConcat " H: " x , '
+      +'div = fun x -> textConcat " D: " x } ; '
+      +'def mathValue = { circle = fun x -> x } ; '
+      +'def render ( html : Html ) ( math : Math ) = '
+      +'html { h2 ( math { div " Outer " } ) } ; '
+      +'render htmlValue mathValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+selfHostFallback),
+      ['H:D:Outer'],
+      'self-hosted context falls back to outer field when inner lacks name');
+    var localSelfHost=typedHeader
+      +'def htmlValue = { h2 = fun x -> x , div = fun x -> x } ; '
+      +'def render ( html : Html ) = '
+      +'html { let h2 = fun x -> textConcat " Local: " x in h2 " X " } ; '
+      +'render htmlValue ;';
+    equal(new BootRuntime(55000000).runPlain('nail 0.54 ; '+localSelfHost),
+      ['Local:X'], 'self-hosted lexical let shadows context field');
+
+    var officialExample=haxe.Resource.getString('contextual_example');
+    ok(officialExample!=null,'contextual DSL example bundled for all targets');
+    equal(typeRows(officialExample,new StringMap()).types,['[Text]'],
+      'bundled example is statically checked with optional contracts');
+    equal(run(officialExample,new StringMap()),
+      [['H:Math:Nail','H:HTML:Nail']],
+      'bundled example executes in original Haxe bytecode VM');
+    equal(new BootRuntime(55000000).runPlain(officialExample),
+      [['H:Math:Nail','H:HTML:Nail']],
+      'bundled example compiles and runs from Nail-written source parser');
+
+    var nonRecordChecker=new TypeChecker();
+    nonRecordChecker.check('def Html = 4 ;');
+    fails(() -> ContextInterfaces.fromChecked(nonRecordChecker,['Html']),
+      'expected closed structural record value',
+      'an uppercase identifier is not automatically a DSL module');
+    fails(() -> ContextInterfaces.fromChecked(caseChecker,['Html','Html']),
+      'invalid or duplicate value name',
+      'duplicate context interface request rejected');
+
+    var nested=setup+svg
+      +'Html { [ h2 " First " , Svg { div ( circle " Inner " ) } ] } ;';
+    equal(types(nested,ctx),['[Text]'],
+      'inner and outer contexts retain ordinary lexical types');
+    equal(run(nested,ctx),[['H:First','S:C:Inner']],
+      'inner context shadows an outer field with the same name');
+
+    var onlyOuterH2='def Html = { '
+      +'h2 = fun x -> textConcat " H: " x } ; '+svg
+      +'Html { [ h2 " Outer " , Svg { div ( circle " Inner " ) } ] } ;';
+    equal(typeRows(onlyOuterH2,ctx).types,['[Text]'],
+      'nested context shadows outer div without requiring its field');
+    equal(run(onlyOuterH2,ctx),[['H:Outer','S:C:Inner']],
+      'nested contexts only project actually referenced fields');
+
+    var global='def h2 x = textConcat " Global: " x ; '+setup
+      +'Html { h2 " Selected " } ;';
+    equal(run(global,ctx),['H:Selected'],
+      'context field shadows a global binding');
+    var local=setup
+      +'Html { let h2 = fun x -> textConcat " Local: " x in h2 " Selected " } ;';
+    equal(run(local,ctx),['Local:Selected'],
+      'explicit local binding inside block shadows its context');
+
+    var record=setup
+      +'type Person { name Text } ; '
+      +'Html { ( Person { name = h2 " N " } ) . name } ;';
+    equal(types(record,ctx),['Text'],
+      'nested named record construction retains distinct grammar');
+    equal(run(record,ctx),['H:N'],
+      'record constructor and context expression coexist');
+    var anonymous=setup
+      +'Html { ( { value = div " A " } ) . value } ;';
+    equal(types(anonymous,ctx),['Text'],
+      'anonymous record construction retains distinct grammar');
+    equal(run(anonymous,ctx),['D:A'],
+      'anonymous record field can use contextual names');
+
+    var macroCase=setup
+      +'macro identity x = quote ( unquote x ) ; '
+      +'Html { expand identity ( h2 " M " ) } ;';
+    equal(run(macroCase,ctx),['H:M'],
+      'macro expansion works after contextual lowering to core AST');
+
+    // A context value is a parameter: the opt-in solver infers only fields
+    // referenced in the block, without a named interface or new VM opcode.
+    var param=setup
+      +'def display html title = html { h2 title } ; '
+      +'display Html " Dynamic " ;';
+    equal(run(param,ctx),['H:Dynamic'],
+      'runtime record parameter is already executable without new VM opcodes');
+    equal(typeRows(param,ctx).types,['Text'],
+      'open row constraints type-check a contextual record argument');
+    ok(typeRows(param,ctx).checker.signature('display').indexOf('h2:')>=0,
+      'context parameter signature requires h2 without an interface');
+
+    var onlyH2=setup
+      +'def small = { h2 = fun x -> textConcat " Small: " x } ; '
+      +'def display html title = html { h2 title } ; '
+      +'display small " Minimal " ;';
+    equal(typeRows(onlyH2,ctx).types,['Text'],
+      'contextual DSL accepts a smaller structural record with h2 only');
+    equal(run(onlyH2,ctx),['Small:Minimal'],
+      'unused interface fields are not eagerly projected at runtime');
+
+    var plain='def getH2 renderer title = renderer . h2 title ; '
+      +setup
+      +'def alt = { h2 = fun x -> textConcat " Alt: " x } ; '
+      +'getH2 Html " Full " ; getH2 alt " Small " ;';
+    equal(typeRows(plain,ctx).types,['Text','Text'],
+      'closed records with different field sets satisfy the same open row');
+    equal(run(plain,ctx),['H:Full','Alt:Small'],
+      'row inference only changes static typing, not runtime calls');
+    var multiple='def readBoth renderer = [ renderer . h2 " One " , '
+      +'renderer . div " Two " ] ; '+setup+'readBoth Html ;';
+    equal(typeRows(multiple,ctx).types,['[Text]'],
+      'multiple projections from one unknown parameter compose row constraints');
+    equal(run(multiple,ctx),[['H:One','D:Two']],
+      'multiple required record fields execute without new VM opcodes');
+    var missing='def extract renderer = renderer . h2 " Missing " ; '
+      +'extract { div = fun x -> x } ;';
+    fails(() -> typeRows(missing,ctx),
+      'missing structural record fields',
+      'missing required field is rejected during inference');
+    var wrong='def extract renderer = renderer . h2 " Bad " ; '
+      +'extract { h2 = fun x -> x + 1 } ;';
+    fails(() -> typeRows(wrong,ctx),'cannot unify',
+      'structurally matching field must also have compatible function type');
+
+    // The parser chooses by the tokens after '{', never by a type lookup.
+    var disambiguated='type Html { h2 Text } ; '
+      +'def constructed = Html { h2 = " Named " } ; '
+      +'constructed . h2 ;';
+    equal(run(disambiguated,ctx),['Named'],
+      'Name { field = value } still means named constructor');
+    equal(types(disambiguated,ctx),['Text'],
+      'the constructor type is verified normally');
+
+    // Lowercase f { field = expr } is already ordinary application to an
+    // anonymous record. The contextual syntax must not hijack that form.
+    var applied='def html options = if options == { value = " Applied " } '
+      +'then " Applied " else " Missing " ; '
+      +'html { value = " Applied " } ;';
+    equal(run(applied,ctx),['Applied'],
+      'lowercase function application to a structural record is preserved');
+    equal(types(applied,ctx),['Text'],
+      'record argument grammar is selected without any type lookup');
+
+    var bad=contexts();
+    bad.set('Html',['h2','h2']);
+    fails(() -> new Parser(simple,bad).parse(),
+      'invalid or duplicate field h2','reject malformed context interface');
+    var missing=contexts();
+    missing.set('Html',['h2','missing']);
+    equal(types(setup+'Html { h2 " Used " } ;',missing),['Text'],
+      'unused context interface fields are not projected');
+    fails(() -> types(setup+'Html { missing " X " } ;',missing),
+      'structural record has no field missing',
+      'referenced context field must be present in the actual record');
+    fails(() -> new Parser(setup+'Html { [ h2 " X " ] ;',ctx).parse(),
+      'Expected }','missing context terminator is reported');
+
+    trace('NailLang context block parser experiment: '+passed
+      +' checks passed (opt-in; dynamic parameter type inference deferred)');
+  }
+}

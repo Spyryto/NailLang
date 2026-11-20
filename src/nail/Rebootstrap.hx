@@ -9,6 +9,9 @@ import nail.BootstrapImage;
     All compilation below goes through the Nail-written compileSource function.
     No Haxe parser/compiler is invoked here. */
 class Rebootstrap {
+  // A finite execution guard for rebuilding the entire growing Nail stdlib.
+  // Success still requires exact stage-0/1/2 bytecode equality; this is not
+  // a performance target or a relaxation of that semantic correctness check.
   public static function records(image:String):String {
     // Canonical comparison of ordered postfix instructions rather than JSON
     // object member order (which could vary across compilation targets).
@@ -22,7 +25,7 @@ class Rebootstrap {
     return Sha256.encode(records(image));
   }
 
-  public static function regenerate(seedImage:String, source:String, maxSteps:Int = 250000000):String {
+  public static function regenerate(seedImage:String, source:String, maxSteps:Int = 500000000):String {
     var runtime = new BootRuntime(maxSteps, seedImage);
     var program = runtime.compile(source);
     switch (program) {
@@ -45,7 +48,7 @@ class Rebootstrap {
   /** Rebuild using Nail once, then rebuild again from the newly built image.
       At a valid fixed point, Haxe stage zero, Nail stage one and Nail stage two
       have exactly the same ordered tape (and SHA-256 fingerprint). */
-  public static function verify(seedImage:String, source:String, maxSteps:Int = 250000000):String {
+  public static function verify(seedImage:String, source:String, maxSteps:Int = 500000000):String {
     BootstrapImage.decode(seedImage);
     var next = regenerate(seedImage, source, maxSteps);
     var firstTape = records(seedImage);

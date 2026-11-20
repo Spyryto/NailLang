@@ -8,6 +8,19 @@ import nail.SumLowering;
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
   final tokens:Array<String>;
+  /** Experimental opt-in contextual DSL interfaces. This deliberately
+      does not change the normal 0.54 parser or language version. The
+      caller supplies visible field names (from a checked interface). */
+  final contextFields:Null<haxe.ds.StringMap<Array<String>>>;
+  /** Experimental type declarations are erased, but preserved as
+      checker-facing metadata until type analysis has completed. */
+  public final typeAliases:haxe.ds.StringMap<nail.NType>;
+  public final parameterConstraints:haxe.ds.StringMap<Array<{name:String, type:nail.NType}>>;
+  public final valueConstraints:haxe.ds.StringMap<nail.NType>;
+  /** Explicitly opted-in, experimental contextual + open-row inference.
+      Normal versioned 0.54 programs retain their current type semantics. */
+  public final experimentalContexts:Bool;
+  var nextContext:Int = 0;
   /** Original token coordinates, parallel to tokens. */
   public final tokenPositions:Array<nail.SourcePositions.SourceToken>;
   /** Optional original-source spans for the parser's core nodes. */
@@ -30,7 +43,13 @@ class Parser {
   public final generalRows:haxe.ds.StringMap<Array<Array<String>>>;
 
 
-  public function new(source:String) {
+  public function new(source:String,
+      ?contextFields:haxe.ds.StringMap<Array<String>>) {
+    this.contextFields=contextFields;
+    this.experimentalContexts=contextFields!=null;
+    typeAliases=new haxe.ds.StringMap<nail.NType>();
+    parameterConstraints=new haxe.ds.StringMap<Array<{name:String,type:nail.NType}>>();
+    valueConstraints=new haxe.ds.StringMap<nail.NType>();
     languageVersion = numeric.LanguageVersion.declared(source);
     modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
@@ -271,6 +290,75 @@ class Parser {
       namedList(names)), namedList(values));
   }
 
+  /** Open only fields that are free in the block's core expression.
+      Lambda/let binders and nested contexts shadow those field names; this
+      keeps inferred rows minimal without querying runtime values or types.
+      All interface names are still validated, including unused ones. */
+  function usedContextMembers(inner:Expr, allowed:haxe.ds.StringMap<Bool>,
+      members:Array<String>):Array<String> {
+    var used=new haxe.ds.StringMap<Bool>();
+    var pending:Array<{tree:Expr,bound:haxe.ds.StringMap<Bool>}>=[
+      {tree:inner,bound:new haxe.ds.StringMap<Bool>()}
+    ];
+    while(pending.length>0) {
+      var current=pending.pop();
+      switch(current.tree) {
+        case Var(name):
+          if (allowed.exists(name) && !current.bound.exists(name))
+            used.set(name,true);
+        case Lambda(param,body):
+          var local=new haxe.ds.StringMap<Bool>();
+          for (name in current.bound.keys()) local.set(name,true);
+          local.set(param,true);
+          pending.push({tree:body,bound:local});
+        case Apply(fn,arg):
+          pending.push({tree:fn,bound:current.bound});
+          pending.push({tree:arg,bound:current.bound});
+        case If(condition,yes,no):
+          pending.push({tree:condition,bound:current.bound});
+          pending.push({tree:yes,bound:current.bound});
+          pending.push({tree:no,bound:current.bound});
+        case Literal(_):
+      }
+    }
+    return [for (member in members) if (used.exists(member)) member];
+  }
+
+  /** A context block and a record literal have disjoint openings:
+      Name { field = expr ... } is an existing named-record constructor;
+      Name { expression } opens a context if the experimental caller
+      supplied a checked interface for Name.
+      No new AST constructor or VM opcode: lower to nested lexical let
+      bindings with a single receiver evaluation. */
+  function parseContext(name:String):Expr {
+    expect('{');
+    var members=contextFields.get(name);
+    if (members==null)
+      throw 'Context probe: missing checked interface for '+name;
+    if (members.length==0 || members.length>128)
+      throw 'Context probe: invalid field count for '+name;
+    var seen=new haxe.ds.StringMap<Bool>();
+    for (member in members) {
+      if (!isName(member) || member=='_' || seen.exists(member))
+        throw 'Context probe: invalid or duplicate field '+member;
+      seen.set(member,true);
+    }
+    var inner=expression();
+    expect('}');
+    var referenced=usedContextMembers(inner,seen,members);
+    // The internal name cannot be written by Nail source code.
+    var receiver='#nail_context_'+(nextContext++);
+    var i=referenced.length;
+    while(i>0) {
+      i--;
+      var member=referenced[i];
+      var projection:Expr=Apply(Apply(Var('#recordGet'),
+        Var(receiver)),Literal(Text(member)));
+      inner=Apply(Lambda(member,inner),projection);
+    }
+    return Apply(Lambda(receiver,inner),Var(name));
+  }
+
   function atom():Expr {
     var first = at;
     return provenance.expression(atomUntracked(), first, at);
@@ -349,8 +437,24 @@ class Parser {
     }
     if (token == 'true' || token == 'false') return Literal(Boolean(token == 'true'));
     if (isName(token)) {
-      if (recordTypePattern.match(token) && peek() == '{')
-        return parseNamedRecord(token);
+      if (peek() == '{') {
+        // Syntactic lookahead only; never consult the type checker.
+        // Uppercase Person { field = value } is a nominal constructor.
+        // Lowercase render { field = value } remains *ordinary function
+        // application* to an anonymous structural record, even when the
+        // receiver has a contextual interface.
+        var namedField=at+2<tokens.length && isName(tokens[at+1])
+          && tokens[at+2]=='=';
+        if (namedField) {
+          if (recordTypePattern.match(token))
+            return parseNamedRecord(token);
+        } else {
+          if (contextFields!=null && contextFields.exists(token))
+            return parseContext(token);
+          if (recordTypePattern.match(token))
+            return parseNamedRecord(token);
+        }
+      }
       return Var(modernMode ? modernBuiltinName(token) : exactMode ? exactBuiltinName(token) : token);
     }
     throw 'Unexpected token ' + token + ' at token ' + at;
@@ -387,6 +491,63 @@ class Parser {
       if (first >= 0) left = provenance.expression(left, first, at);
     }
     return left;
+  }
+
+  /** Experimental structural type aliases: type Html = {
+      h2 : Text Text , div : Text Text } ;
+      This is a compile-time contract only, not a nominal runtime record.
+      Function types use the existing whitespace-delimited arity convention. */
+  function typeAtom(name:String):nail.NType {
+    return switch(name) {
+      case 'Text': nail.NType.TText;
+      case 'Bool': nail.NType.TBoolean;
+      case 'Number': nail.NType.TNumber;
+      case 'Int': nail.NType.TInt;
+      case 'Float': nail.NType.TFloat;
+      case 'Ratio': nail.NType.TRatio;
+      case 'Exact': nail.NType.TExact;
+      case 'Syntax': nail.NType.TSyntax;
+      case _:
+        var alias=typeAliases.get(name);
+        if (alias==null) throw 'Type alias: unknown type '+name;
+        alias;
+    };
+  }
+
+  function parseStructuralAlias(typeName:String):Void {
+    if (!experimentalContexts)
+      throw 'Type alias: structural aliases are experimental';
+    if (typeAliases.exists(typeName))
+      throw 'Type alias: duplicate alias '+typeName;
+    expect('='); expect('{');
+    var fields:Array<nail.NType.StructuralField>=[];
+    var seen=new haxe.ds.StringMap<Bool>();
+    if (peek()=='}') throw 'Type alias: expected at least one field';
+    while(true) {
+      var field=take();
+      if (!isName(field) || seen.exists(field))
+        throw 'Type alias: invalid or duplicate field';
+      seen.set(field,true);
+      expect(':');
+      var types:Array<nail.NType>=[];
+      while(peek()!=',' && peek()!='}' && peek()!=null) {
+        var word=take();
+        if (!isName(word)) throw 'Type alias: expected type name';
+        types.push(typeAtom(word));
+        if (types.length>17) throw 'Type alias: too many function types';
+      }
+      if (types.length==0) throw 'Type alias: missing field type';
+      var t=types.pop();
+      while(types.length>0) t=nail.NType.TFunction(types.pop(),t);
+      fields.push({name:field,type:t});
+      if (fields.length>128) throw 'Type alias: too many fields';
+      if (peek()=='}') break;
+      expect(',');
+      if (peek()=='}') throw 'Type alias: trailing comma';
+    }
+    expect('}'); expect(';');
+    fields.sort((a,b)->Reflect.compare(a.name,b.name));
+    typeAliases.set(typeName,nail.NType.TStructural(fields));
   }
 
   /** Only simple named fields and previously declared record types in v0.17. */
@@ -494,6 +655,11 @@ class Parser {
         var cursor = at;
         while (cursor < tokens.length && tokens[cursor] != '{' &&
             tokens[cursor] != '=' && tokens[cursor] != ';') cursor++;
+        if (experimentalContexts && peek()=='=' && at+1<tokens.length
+            && tokens[at+1]=='{') {
+          parseStructuralAlias(typeName);
+          continue;
+        }
         forms.push(cursor < tokens.length && tokens[cursor] == '{'
           ? parseRecordType(typeName) : parseSumType(typeName));
       } else if (peek() == 'import' || peek() == 'export') {
@@ -515,14 +681,43 @@ class Parser {
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
         var positions:Array<Int> = [];
+        var constraints:Array<{name:String,type:nail.NType}>=[];
+        var bindings:Array<{name:String, previous:Null<Array<String>>}>=[];
+        var declaredValue:Null<nail.NType>=null;
 
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
-          var p = take();
-          if (!isName(p) || params.indexOf(p) >= 0)
-            throw 'Invalid or duplicate definition parameter';
+          var p:String;
+          if (experimentalContexts && peek()=='(') {
+            take();
+            p=take();
+            if (!isName(p) || params.indexOf(p)>=0)
+              throw 'Parameter annotation: invalid or duplicate name';
+            expect(':');
+            var typeName=take();
+            if (!isName(typeName))
+              throw 'Parameter annotation: expected type name';
+            var t=typeAtom(typeName);
+            expect(')');
+            constraints.push({name:p,type:t});
+            if (contextFields!=null) switch(t) {
+              case nail.NType.TStructural(fields):
+                bindings.push({name:p,previous:contextFields.get(p)});
+                contextFields.set(p,[for (field in fields) field.name]);
+              case _:
+            }
+          } else {
+            p=take();
+            if (!isName(p) || params.indexOf(p) >= 0)
+              throw 'Invalid or duplicate definition parameter';
+          }
           params.push(p);
           positions.push(atParameter);
+        }
+        if (peek()==':' && experimentalContexts && params.length==0
+            && at+1<tokens.length && typeAliases.exists(tokens[at+1])) {
+          take();
+          declaredValue=typeAliases.get(take());
         }
         if (peek() == ':') {
           take();
@@ -549,6 +744,12 @@ class Parser {
         expect('=');
         var body = lambdas(params, expression(), positions);
         expect(';');
+        for (entry in bindings) {
+          if (entry.previous==null) contextFields.remove(entry.name);
+          else contextFields.set(entry.name,entry.previous);
+        }
+        if (constraints.length>0) parameterConstraints.set(name,constraints);
+        if (declaredValue!=null) valueConstraints.set(name,declaredValue);
         forms.push(Define(macroDeclaration ? MacroExpander.DECL + name : name, body));
       } else {
         var body = expression(); expect(';'); forms.push(Evaluate(body));

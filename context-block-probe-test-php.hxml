@@ -1,0 +1,6 @@
+-cp src
+-main ContextBlockProbeTestMain
+-resource stdlib.nail@stdlib
+-resource examples/experimental-contextual-records.nail@contextual_example
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-php build/tests/php-context-block-probe
