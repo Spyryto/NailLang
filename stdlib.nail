@@ -1751,18 +1751,30 @@ def tcUnify left right substitutions =
     else tcUnifyTypes ( tcNominalArgs a ) ( tcNominalArgs b ) substitutions
   else if aTag == " TCStruct " then
     if bTag == " TCStruct " then
-      tcUnifyStructs ( syntaxChildren a ) ( syntaxChildren b ) substitutions
+      match tcCheckRowShape a substitutions with
+      | Error message -> Error message
+      | Ok _ ->
+        match tcCheckRowShape b substitutions with
+        | Error message -> Error message
+        | Ok _ ->
+          tcUnifyStructs ( syntaxChildren a ) ( syntaxChildren b ) substitutions
     else if bTag == " TCRowField " then
-      tcUnifyOpenStruct b a substitutions
+      match tcRememberRow b substitutions with
+      | Error message -> Error message
+      | Ok guarded -> tcUnifyOpenStruct b a guarded
     else Error " Type mismatch "
   else if aTag == " TCRowField " then
-    if bTag == " TCStruct " then tcUnifyOpenStruct a b substitutions
+    if bTag == " TCStruct " then
+      match tcRememberRow a substitutions with
+      | Error message -> Error message
+      | Ok guarded -> tcUnifyOpenStruct a b guarded
     else if bTag == " TCRowField " then
-      if syntaxText ( tcFirst a ) == syntaxText ( tcFirst b ) then
-        match tcUnify ( tcSecond a ) ( tcSecond b ) substitutions with
+      match tcRememberRow a substitutions with
+      | Error message -> Error message
+      | Ok leftGuard ->
+        match tcRememberRow b leftGuard with
         | Error message -> Error message
-        | Ok next -> tcUnify ( tcThird a ) ( tcThird b ) next
-      else Error " Open row ordering is not yet supported "
+        | Ok rightGuard -> tcUnifyOpenRows a b rightGuard
     else Error " Type mismatch "
   else if aTag != bTag then Error " Type mismatch "
   else if aTag == " TCBase " then
@@ -2161,11 +2173,13 @@ def tcContractFields fields aliases reversed =
   | [] -> tcStruct ( reverse reversed )
   | field :: rest ->
     let name = syntaxText ( tcFirst field ) in
-    let signature = tcSurfaceFunction
+    if syntaxTag ( tcFindField name reversed ) != " TCMissing " then
+      tcFault ( textConcat " Duplicate structural field: " name )
+    else let signature = tcSurfaceFunction
       ( syntaxChildren ( tcSecond field ) ) aliases in
-    if syntaxTag signature == " TCFault " then signature
-    else tcContractFields rest aliases
-      ( cons ( tcField name signature ) reversed ) ;
+      if syntaxTag signature == " TCFault " then signature
+      else tcContractFields rest aliases
+        ( cons ( tcField name signature ) reversed ) ;
 
 # Explicit structural annotations require *at least* the listed fields.
 # A function accepting only h2 may still receive a record with div etc.
@@ -2722,11 +2736,12 @@ def tcCheckSourceTraced source =
       ( tcExpandTypedMacros
         ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 
-# Structural rows: a closed record is TCStruct(fields); a receiver whose
-# fields are being inferred uses TCRowField(name,type,tail). This first
-# implementation handles field projections and matching against closed
-# records. Cross-row reordering and explicit row-lacks constraints are
-# deliberately rejected rather than guessed.
+# Structural rows: TCStruct(fields) is closed; TCRowField(name,type,tail)
+# describes an open record. Reorder only *explicitly known* row prefixes.
+# Keep a private row guard in the substitution ledger so later tail bindings
+# cannot reintroduce a field from the prefix (row-lacks invariant). A field
+# absent from both explicit prefixes is not invented: that case still fails
+# closed until row-tail freshening and full lacks quantification are available.
 def tcFindField name fields =
   match fields with
   | [] -> tcMissing
@@ -2767,6 +2782,109 @@ def tcUnifyOpenStruct row record substitutions =
   | Ok updated ->
     tcUnify ( tcThird row )
       ( tcStruct ( tcWithoutField name fields ) ) updated ;
+
+# Search and remove only *known* row fields. An unresolved tail is
+# deliberately not assumed to contain a missing name.
+def tcOpenRowMember name row substitutions =
+  let resolved = tcFollow row substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCRowField " then
+    if syntaxText ( tcFirst resolved ) == name then tcSecond resolved
+    else tcOpenRowMember name ( tcThird resolved ) substitutions
+  else if tag == " TCStruct " then
+    tcFindField name ( syntaxChildren resolved )
+  else tcMissing ;
+
+def tcOpenRowRemove name row substitutions =
+  let resolved = tcFollow row substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCRowField " then
+    if syntaxText ( tcFirst resolved ) == name then tcThird resolved
+    else tcRowField ( syntaxText ( tcFirst resolved ) )
+      ( tcSecond resolved )
+      ( tcOpenRowRemove name ( tcThird resolved ) substitutions )
+  else if tag == " TCStruct " then
+    tcStruct ( tcWithoutField name ( syntaxChildren resolved ) )
+  else resolved ;
+
+def tcDuplicateClosedField fields =
+  match fields with
+  | [] -> tcMissing
+  | first :: rest ->
+    let name = syntaxText ( tcFirst first ) in
+    if syntaxTag ( tcFindField name rest ) != " TCMissing " then
+      syntaxLeaf " TCName " name
+    else tcDuplicateClosedField rest ;
+
+# Return the first repeated explicit label, including labels introduced
+# through a later substitution of a previously open tail.
+def tcDuplicateRowField row substitutions =
+  let resolved = tcFollow row substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCRowField " then
+    let name = syntaxText ( tcFirst resolved ) in
+    if syntaxTag
+      ( tcOpenRowMember name ( tcThird resolved ) substitutions )
+      != " TCMissing " then syntaxLeaf " TCName " name
+    else tcDuplicateRowField ( tcThird resolved ) substitutions
+  else if tag == " TCStruct " then
+    tcDuplicateClosedField ( syntaxChildren resolved )
+  else tcMissing ;
+
+def tcRowTailIsValid row substitutions =
+  let resolved = tcFollow row substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCRowField " then
+    tcRowTailIsValid ( tcThird resolved ) substitutions
+  else if tag == " TCVar " then true
+  else tag == " TCStruct " ;
+
+def tcCheckRowShape row substitutions =
+  let repeated = tcDuplicateRowField row substitutions in
+  if syntaxTag repeated != " TCMissing " then
+    Error ( textConcat " Duplicate structural field: " ( syntaxText repeated ) )
+  else if tcRowTailIsValid row substitutions then Ok substitutions
+  else Error " Invalid structural row tail " ;
+
+# Every substitution is checked against retained open-row prefixes.
+# Guard bindings have a private name that cannot collide with tcVar IDs
+# or user names; the ordinary tcFind and scheme generalizer ignore them.
+def tcCheckAllRowGuards entries substitutions =
+  match entries with
+  | [] -> Ok substitutions
+  | binding :: rest ->
+    let value = tcBindingValue binding in
+    let tag = syntaxTag value in
+    if tag == " TCRowField " then
+      match tcCheckRowShape value substitutions with
+      | Error message -> Error message
+      | Ok _ -> tcCheckAllRowGuards rest substitutions
+    else if tag == " TCStruct " then
+      match tcCheckRowShape value substitutions with
+      | Error message -> Error message
+      | Ok _ -> tcCheckAllRowGuards rest substitutions
+    else tcCheckAllRowGuards rest substitutions ;
+
+def tcEnforceRowGuards substitutions =
+  tcCheckAllRowGuards substitutions substitutions ;
+
+def tcRememberRow row substitutions =
+  tcEnforceRowGuards
+    ( cons ( tcBinding " #tc_row_guard " row ) substitutions ) ;
+
+# Only exchange labels already present in the other explicit row.
+# Extending both unresolved row tails would require a fresh shared tail and
+# quantified lacks constraints; do not silently fabricate either.
+def tcUnifyOpenRows left right substitutions =
+  let name = syntaxText ( tcFirst left ) in
+  let member = tcOpenRowMember name right substitutions in
+  if syntaxTag member == " TCMissing " then
+    Error ( textConcat " Open row field not explicitly known: " name )
+  else match tcUnify ( tcSecond left ) member substitutions with
+  | Error message -> Error message
+  | Ok updated ->
+    let remaining = tcOpenRowRemove name right updated in
+    tcUnify ( tcThird left ) remaining updated ;
 
 # Recognize the existing, lowered #recordMake/#recordGet primitive calls
 # *before* generic application typing, exactly as the host checker does.
@@ -2898,7 +3016,10 @@ def tcProjectField receiver field environment substitutions seed =
   else if tag == " TCRowField " then
     if syntaxText ( tcFirst ty ) == field then
       tcInferResult ( tcSecond ty ) substitutions seed
-    else tcProjectField ( tcThird ty ) field environment substitutions seed
+    else match tcRememberRow ty substitutions with
+    | Error message -> tcFault message
+    | Ok guarded ->
+      tcProjectField ( tcThird ty ) field environment guarded seed
   else if tag == " TCVar " then
     let owner = tcNominalOwnerForField field environment tcMissing in
     if syntaxTag owner == " TCAmbiguousOwner " then
@@ -3044,8 +3165,8 @@ def tcBindDifferentType variable ty substitutions =
     match tcRequireComparable ty substitutions with
     | Error message -> Error message
     | Ok updated ->
-      Ok ( cons ( tcBinding variable ty ) updated )
-  else Ok ( cons ( tcBinding variable ty ) substitutions ) ;
+      tcEnforceRowGuards ( cons ( tcBinding variable ty ) updated )
+  else tcEnforceRowGuards ( cons ( tcBinding variable ty ) substitutions ) ;
 
 # Instantiate qualifiers using the *same* fresh renaming as their scheme
 # body. Generic equality thus remains checked at every call site.

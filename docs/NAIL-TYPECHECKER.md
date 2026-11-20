@@ -87,6 +87,12 @@ Unification performs an **occurs check** to reject infinite types.
   lowering, checks each constructor's owner and binding arity, rejects
   missing cases and mixed owners, then uses ordinary HM inference for the
   bound values and branch results. No new core AST constructor or VM opcode
+- **Conservative explicit open-row exchange**: independently inferred
+  record requirements containing the same known fields may use different
+  lexical projection orders. The substitution ledger records private
+  row-shape guards, rejecting duplicate fields introduced by later tail
+  bindings and invalid row tails. Unknown fields in both disjoint open
+  prefixes are *not* synthesized; such unification fails closed.
 - **Optional parameter and value annotations**, structural type aliases
   `type Html = { h2 : Text Text , div : Text Text }`, required-field
   validation with allowance for additional implementation fields
@@ -684,8 +690,11 @@ The following are not yet complete:
   ordinary and hygienically macro-renamed sum subjects are recognized,
   including constructor ownership, binding arity and exhaustiveness.
   Generic recursion edges remain deferred
-- Complete structural row algebra: open-row **reordering**, row-lacks
-  constraints and row-polymorphic ABI
+- Full structural row algebra: the experimental Nail checker now
+  exchanges **already-explicit** row fields and retains internal row-lacks
+  guards against later duplicate-label tail bindings. Disjoint open prefixes
+  that would need a fresh shared tail, generalized row-lacks qualifications
+  and the cross-module row-polymorphic ABI remain deferred
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
 - Full standard-library primitive signatures and typed module signatures;
