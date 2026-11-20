@@ -1,8 +1,14 @@
 # Nail-written type checker — staged dogfooding experiment
 
-**Status:** the type checker experiment from PR #29 was merged into the
-experimental contextual DSL branch (draft PR #28), not into `main`.
-The released NailLang 0.54 remains unchanged.
+**Status:** the Nail-written checker and contextual syntax experiments
+were integrated into `main` in [PR #28](https://github.com/Spyryto/NailLang/pull/28).
+Experimental open-row unification and quantified row-lacks followed in
+[PR #37](https://github.com/Spyryto/NailLang/pull/37),
+[PR #38](https://github.com/Spyryto/NailLang/pull/38) and
+[PR #39](https://github.com/Spyryto/NailLang/pull/39).
+These additions remain opt-in where documented; they are **not** a
+promise of complete public source typechecking or a stable row-polymorphic
+module ABI.
 
 ## Purpose
 
@@ -56,7 +62,7 @@ completes *before* any application bytecode is executed.
 | Closed structural record | `syntaxNode "TCStruct" fields` |
 | Open structural requirement | `syntaxNode "TCRowField" [name, type, rest]` |
 | Nominal record/sum | `syntaxNode "TCNominal" [kind, owner, typeArguments]` |
-| Polymorphic scheme | `syntaxNode "TCScheme" [term, quantifiers, EqQuantifiers]` |
+| Polymorphic scheme (internal) | `syntaxNode "TCScheme" [term, quantifiers, EqQuantifiers, RowQuantifiers]` |
 | Substitutions / environments | Persistent association lists |
 | Inference outcome | `Ok(TCChecked)` or `Error(Text)` |
 
@@ -64,6 +70,21 @@ Type variables are generated using a deterministic textual counter. The
 algorithm is purely functional: substitutions and the next variable label
 are returned through ordinary `Syntax` data rather than mutable VM state.
 Unification performs an **occurs check** to reject infinite types.
+
+### Public module type boundary
+
+A Nail-written `TCScheme` is **not** the portable public module scheme.
+The current public module image carries exactly `term`, `quantified`
+and `comparable`. Its validator rejects open structural rows. The
+decoder also rejects unknown scheme properties (for example `rowLacks`
+or `rowQuant`) instead of discarding constraints it does not understand.
+This prevents a future module producer from accidentally exporting an
+apparently unconstrained type when row-lacks obligations are present.
+
+A future public row ABI will need an explicit version transition, a
+canonical encoding of row tails and lacks sets, validation of binder
+ownership/uniqueness and rejection of cyclic or duplicate-label rows.
+Those are **design requirements**, not implemented export support.
 
 ## Present scope
 
