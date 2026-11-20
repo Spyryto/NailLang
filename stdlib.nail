@@ -2668,11 +2668,14 @@ def tcCheckSyntaxTraced program =
 # entries: that excludes global aliases, private metadata, nominal
 # constructor helpers and inherited bindings.
 def tcCheckedDefinitionScheme name rest environment reversed =
-  let scheme = tcFind name environment in
-  if syntaxTag scheme != " TCScheme " then
-    tcFault ( textConcat " Missing checked definition scheme: " name )
-  else tcCheckedDefinitionSchemes rest environment
-    ( cons ( tcBinding name scheme ) reversed ) ;
+  # Compiler/macro-generated private bindings never cross this boundary.
+  if tcStartsWith name " # " then
+    tcCheckedDefinitionSchemes rest environment reversed
+  else let scheme = tcFind name environment in
+    if syntaxTag scheme != " TCScheme " then
+      tcFault ( textConcat " Missing checked definition scheme: " name )
+    else tcCheckedDefinitionSchemes rest environment
+      ( cons ( tcBinding name scheme ) reversed ) ;
 
 def tcCheckedDefinitionSchemes forms environment reversed =
   match forms with
