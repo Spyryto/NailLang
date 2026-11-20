@@ -7,6 +7,8 @@ import nail.NailRowEvidenceAdapter;
 import nail.NailRowInterfacePreview;
 import nail.NailCheckedModuleEnvelope;
 import nail.NailPinnedProviderRebuild;
+import nail.NailCheckedProviderAdmission;
+import nail.ModuleLinker;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -869,6 +871,32 @@ class RowSchemePreviewTestMain {
     eq(NailCheckedModuleEnvelope.encode(
       ResultValue.get(checked055,ResultValue.OK)),checkedEnvelope,
       '0.55 and 0.54 equivalent sources preserve canonical code/row evidence');
+
+    // v0.56: the transport preview is not independently executable.
+    // The only admission path uses trusted source/compiler SHA-256 pins,
+    // a fresh Nail rebuild, independent Haxe export schemes, and recompilation.
+    var admittedSource='nail 0.55 ; def identity x = x ; export identity ;';
+    var admissionWitness=dogfood.invoke('tcCompileDeclaredModulePreview',
+      Text(admittedSource));
+    eq(ResultValue.tag(admissionWitness),ResultValue.OK,
+      'closed HM provider is checked and compiled by Nail');
+    var admissionEnvelope=NailCheckedModuleEnvelope.encode(
+      ResultValue.get(admissionWitness,ResultValue.OK));
+    var admitted=NailCheckedProviderAdmission.compileClosed('Provider',
+      admittedSource,haxe.crypto.Sha256.encode(admittedSource),
+      pinnedCompilerDigest,admissionEnvelope);
+    eq(admitted.exports.length,1,
+      'verified provider produces a single public closed-ABI export');
+    var admittedBundle=ModuleLinker.link([admitted]);
+    eq(RuntimeValues.toPlain(admittedBundle.invoke('Provider','identity',
+      Boolean(true))),true,
+      'verified Nail provider exports execute through the ordinary linker');
+    checkFails(() -> NailCheckedProviderAdmission.compileClosed('Provider',
+      admittedSource,invalidSourceDigest,pinnedCompilerDigest,
+      admissionEnvelope),'trusted source digest mismatch');
+    checkFails(() -> NailCheckedProviderAdmission.compileClosed('Provider',
+      admittedSource,haxe.crypto.Sha256.encode(admittedSource),
+      pinnedCompilerDigest,rehashedEnvelope),'differs from pinned source build');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
