@@ -204,6 +204,17 @@ class RowSchemePreviewTestMain {
     var broken='nail 0.54 ; def wrong = if true then 1 else false ;';
     checkFails(() -> checked(broken,"wrong"),"cannot unify");
 
+    // A rejected later form must not make earlier definitions eligible for
+    // attestation: the ordinary checker commits only whole programs.
+    var failingSource='nail 0.54 ; def ephemeral x = x ; '
+      +'if true then 1 else false ;';
+    var failingParser=new Parser(failingSource,new StringMap<Array<String>>());
+    var failingChecker=new TypeChecker();
+    checkFails(() -> failingChecker.checkParsed(
+      failingParser,failingParser.parse()),"cannot unify");
+    checkFails(() -> failingChecker.experimentalCheckedRowPreview("ephemeral"),
+      "definition has not been source-checked");
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }
