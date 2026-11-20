@@ -141,6 +141,45 @@ implemented for explicit selected-name previews. It can be validated by
 `NailRowInterfacePreview`, but cannot be used as an import contract by
 `ModuleLinker`, and has **no effect** on the public v3 ABI.
 
+### Validated interface consumption (stacked experiment)
+
+A new private consumer can read the preview format, but **it does not
+link or execute an imported module**. The sequence is intentionally
+two-stage:
+
+1. `NailRowInterfacePreview.decodeSyntax(json)` checks the canonical
+   external JSON (including per-scheme quantifiers and all `lacks`
+   requirements) and translates its data, without inference, into the
+   existing `TCWireInterface` Syntax IR. Unknown type constructors
+   unsupported by the Nail importer are rejected.
+2. `tcImportWireInterface wireSyntax`, implemented in Nail, converts
+   verified wire schemes to private `TCScheme` values with `TCRowQuant`
+   obligations. On each use, `tcImportWireInstantiate request` delegates
+   to the **same Nail HM `tcInstantiate`** used by local definitions:
+   it freshens quantified variables together, applies `Eq` and replays
+   negative row constraints into the substitution ledger. The caller must
+   thread the returned seed and substitutions to avoid accidental reuse
+   of variable names.
+
+Imported `lacks` labels do not carry field *types*. The private
+`TCRowQuant` reconstruction therefore uses `TCMissing` in those
+guard-only field slots: `tcCheckRowShape` observes their **names**, not
+their payload types. This marker never appears in a function's inferred
+type or the public module scheme.
+
+Cross-target regressions verify two distinct instantiations, failed late
+bindings of an existing prefix field `x`, rejection of an *extra*
+`lacks reserved` obligation arriving only via wire metadata, acceptance
+of unrelated `z`, unknown imports, and strict tamper rejection before
+Nail receives the tree.
+
+The result **is not a trusted module import**. A validated format does
+not attest that the supplier implementation has the claimed type. No
+public `ModuleImage` version, runtime binding, import declaration, or
+linker call path invokes this consumer. Provider identity, signed/hash-
+bound interfaces, import-name scoping, and real module linkage require
+a separate correctness gate.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
