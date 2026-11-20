@@ -20,6 +20,15 @@ internal `TCRowQuant` metadata, but that is not public ABI evidence.
 The proof-of-concept below proposes an explicitly versioned wire shape,
 without yet changing the public module envelope.
 
+A checked-definition-only *reference producer* is available through
+`TypeChecker.experimentalCheckedRowPreview(name)`. It is callable only
+after the Haxe checker has successfully committed an explicitly defined
+modern source symbol; it canonicalizes its inferred type variables by
+first occurrence and derives mandatory `lacks` sets from the flattened
+row prefixes. It does not export a module interface or prove that an
+arbitrary provider obeys its inferred type, and it does not yet translate
+the Nail-written checker's independent `TCRowQuant` ledger.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
@@ -73,9 +82,11 @@ also be comparable:
    row prefix using that tail**. Additional negative obligations are
    allowed. A `Lacks` entry for a variable never used as an open tail
    is invalid. Thus no row qualifier can be discarded accidentally.
-4. **Eq evidence:** comparable quantifier IDs must be in scope,
-   strictly increasing and unique. No unconstrained/free variables may
-   appear anywhere inside the type.
+4. **Eq and kind evidence:** comparable quantifier IDs must be in
+   scope, strictly increasing and unique. A quantified variable used as
+   an open row tail cannot also be an ordinary type variable or be
+   directly Eq-qualified. No unconstrained/free variables may appear
+   anywhere inside the type.
 5. **Limits:** maximum nested type depth 48, 2048 type nodes, 128
    fields per row or `Lacks` entry, 64 quantified variables; unknown
    tags, nested row-tail expressions, nominal types, unsupported
@@ -89,8 +100,11 @@ also be comparable:
 
 - No public `runtime-module.v4` version, module signature change,
   exported row schemes, linker support or release commitment.
-- No derivation of `TCRowQuant` from untrusted source or conversion of
-  the Nail checker’s internal syntax tree into wire evidence.
+- No conversion of the Nail-written checker’s `TCRowQuant` sidecar
+  into independently attested wire evidence. The Haxe reference producer
+  derives obligations visible in its checked row prefixes but does not
+  capture negative constraints that exist **only** in the Nail checker’s
+  substitution ledger.
 - No nominal type identities, relation-overload ABI, recursive row
   aliases, generalized user-authored row constraints, or independent
   proof of `Eq` dictionary semantics.
@@ -121,3 +135,10 @@ The CI harness adds the `row-scheme-preview` suite to the existing
 cross-target regression matrix. Malformed, tampered, out-of-order, too-deep,
 free-variable, duplicate-label, orphan-lacks, missing-lacks, and
 noncanonical JSON fixtures must all be rejected.
+
+The same suite exercises checked-source-derived schemes via the Haxe
+reference checker, compares alpha-equivalent sources after unrelated
+binder allocation, and verifies that the ordinary public module ABI still
+refuses open structural exports. The producer path is experimental and
+does not accept a caller-supplied `TypeScheme` through its checked entry
+point.
