@@ -252,6 +252,15 @@ class RowSchemePreviewTestMain {
       +'def readText r = textConcat ( r . x ) " suffix " ;',"readText");
     eq(canonicalFromNail,canonicalFromHaxe,
       'Nail dogfooded HM scheme matches Haxe checked-source wire preview');
+    // Tail and value-type variables are different kinds. Compare exact
+    // canonical IDs for a fully polymorphic structural projection.
+    var genericAccessor='tcCanonicalRowEvidence ( tcGeneralize '
+      +'( tcFun ( tcRowField " x " ( tcVar " a " ) '
+      +'( tcVar " rho " ) ) ( tcVar " a " ) ) [] [] )';
+    var genericHaxe=checked('nail 0.54 ; '
+      +'def takeX r = r . x ;',"takeX");
+    eq(NailRowEvidenceAdapter.encode(nailEvidence(genericAccessor)),
+      genericHaxe,'Nail/Haxe canonical ID order agrees for row tails and field types');
 
     var leftFirst='tcCanonicalRowEvidence ( tcSchemeWithRows '
       +'( tcFun ( tcRowField " x " ( tcBase " Text " ) '
