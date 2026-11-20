@@ -431,6 +431,24 @@ class NailTypecheckerProbeTestMain {
     eq(disjointValues.length,1,'disjoint open rows produce one result');
     eq(ResultValue.tag(disjointValues[0]),ResultValue.OK,
       'disjoint open rows unify through a fresh shared tail');
+    var sharedIdentity='nail 0.54 ; '
+      +'let unified = tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+      +'[] in match unified with '
+      +'| Error message -> false '
+      +'| Ok substitutions -> '
+      +'let left = tcThird ( tcFollow ( tcVar " leftTail " ) substitutions ) in '
+      +'let right = tcThird ( tcFollow ( tcVar " rightTail " ) substitutions ) in '
+      +'if syntaxTag left == " TCVar " then '
+      +'if syntaxTag right == " TCVar " then '
+      +'syntaxText left == syntaxText right '
+      +'else false else false ;';
+    eq(switch(rowProbeVm.run(sharedIdentity)[0]) {
+      case Boolean(true): true;
+      case _: false;
+    },true,'disjoint rows share one identical fresh residual variable');
+
 
     // Both residual tails must refer to the same new variable. Binding it
     // to either original field would duplicate a label on one row.
