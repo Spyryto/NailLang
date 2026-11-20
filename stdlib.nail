@@ -5594,3 +5594,53 @@ def tcImportWireProbeEquality probe =
       ( tcResultSubs instance ) with
     | Error message -> Error message
     | Ok updated -> Ok ( tcNormalize functionType updated ) ;
+
+
+# Checked-and-compiled provider *preview*, still not a public module.
+# A verified export table and its Bytecode are emitted from the exact
+# same parsed/expanded Syntax, after one complete Nail HM inference.
+# Do not accept a separately supplied "verified" type image or run
+# the inferred code before the successful typecheck/compile boundary.
+def tcCompileDeclaredModulePreview source =
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    Error " Nail typechecker currently requires versioned modern source "
+  else let parsed = parseTypedForms ( stripNailHeader tokens ) in
+    if syntaxTag parsed != " Program " then
+      Error ( syntaxText parsed )
+    else let declared = tcPreviewDeclaredExports
+      ( syntaxChildren parsed ) [] [] in
+      if syntaxTag declared == " TCFault " then
+        Error ( tcFaultMessage declared )
+      else let names = map syntaxText
+        ( syntaxChildren ( tcSecond declared ) ) in
+        if isEmpty names then
+          Error " No typed value exports declared "
+        else let ordered = tcWireSortNames names in
+          let prepared = tcPrepareTypedMacros
+            ( syntaxChildren ( tcFirst declared ) ) " m " [] [] in
+          # Numeric literals must retain modern spelling before macro
+          # expansion, just as in tcCompileCheckedSource.
+          let expanded = macroExpandSyntax
+            ( modernRewrite ( tcFirst prepared ) ) in
+          if syntaxTag expanded != " Program " then
+            if syntaxTag expanded == " MacroError " then
+              Error ( syntaxText expanded )
+            else Error " Module preview macro expansion failed "
+          else let restored = tcRestoreTypedMacros
+            ( syntaxChildren expanded )
+            ( syntaxChildren ( tcSecond prepared ) ) [] in
+            match tcCheckSyntaxSchemes restored with
+            | Error message -> Error message
+            | Ok checked ->
+              match tcWireSelectSchemes ordered
+                ( syntaxChildren ( tcSecond checked ) ) [] with
+              | Error message -> Error message
+              | Ok verified ->
+                let executable = tcExecutableForms
+                  ( syntaxChildren expanded ) [] in
+                let code = compileExpandedSyntax executable in
+                if syntaxTag code != " Bytecode " then
+                  Error " Checked module preview compilation failed "
+                else Ok ( syntaxNode " TCVerifiedModulePreview "
+                  [ verified , code ] ) ;
