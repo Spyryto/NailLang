@@ -434,7 +434,7 @@ class NailTypecheckerProbeTestMain {
 
     // Both residual tails must refer to the same new variable. Binding it
     // to either original field would duplicate a label on one row.
-    for (duplicate in [' x ',' y ']) {
+    for (duplicate in [{name:'x',ty:'Int'}, {name:'y',ty:'Bool'}]) {
       var lateSharedDuplicate='nail 0.54 ; '
         +'let unified = tcUnify '
         +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
@@ -445,11 +445,12 @@ class NailTypecheckerProbeTestMain {
         +'let residual = tcFollow ( tcVar " leftTail " ) substitutions in '
         +'let shared = tcThird residual in '
         +'tcUnify shared '
-        +'( tcRowField " '+duplicate+' " ( tcBase " Int " ) '
+        +'( tcRowField " '+duplicate.name+' " '
+        +'( tcBase " '+duplicate.ty+' " ) '
         +'( tcStruct [] ) ) substitutions ;';
       var duplicateValues=rowProbeVm.run(lateSharedDuplicate);
       eq(ResultValue.tag(duplicateValues[0]),ResultValue.ERR,
-        'shared tail cannot duplicate prior field: '+duplicate);
+        'shared tail cannot duplicate prior field: '+duplicate.name);
     }
     var lateSharedDistinct='nail 0.54 ; '
       +'let unified = tcUnify '
