@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.50
+# Eseguire NailLang — v0.55
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -388,3 +388,37 @@ haxe module-source-imports-test-php.hxml && php build/tests/php-module-source-im
 
 `use Module { ... }` non è ancora stato implementato; la scelta della
 sua sintassi e del suo scope è sospesa in attesa di discussione.
+
+## v0.55 — Verifica del compilatore Nail e del provider sperimentale
+
+Il percorso pubblico resta `BootRuntime.compile` o
+`ModuleLinker.compilePublic`, con le stesse regole dell'ABI v3. Per
+l'esperimento autonomo (senza accesso ad alcuna capability host):
+
+```haxe
+var boot = new nail.BootRuntime(60000000);
+var source = "nail 0.55 ; def identity x = x ; export identity ;";
+var result = boot.invoke("tcCompileDeclaredModulePreview", nail.Value.Text(source));
+// result = Ok(TCVerifiedModulePreview [TCWireInterface, Bytecode])
+```
+
+L'API sperimentale restituisce `Error` se la verifica fallisce e **non**
+esegue automaticamente il bytecode. Un verificatore host separato,
+`NailPinnedProviderRebuild.verify`, richiede l'impronta di sorgente e
+quella dell'immagine bootstrap ottenute tramite un canale attendibile
+indipendente, quindi ricompila in una VM nuova senza grant per confrontare
+le firme e il bytecode esattamente. Questo non autentica un publisher
+sconosciuto e non concede accesso al linker.
+
+Controlli differenziali e di portabilità:
+
+```sh
+haxe seed-image.hxml
+haxe nail-typechecker-test-interp.hxml
+haxe row-scheme-preview-test-interp.hxml
+haxe row-scheme-preview-test-js.hxml && node build/tests/row-scheme-preview.js
+haxe row-scheme-preview-test-php.hxml && php build/tests/php-row-scheme-preview/index.php
+```
+
+Per il contratto esatto e le limitazioni si veda
+[ROW-SCHEME-ABI-PREVIEW.md](./docs/ROW-SCHEME-ABI-PREVIEW.md).
