@@ -5576,3 +5576,21 @@ def tcImportWireProbeTailBinding probe =
       | Error message -> Error message
       | Ok updated -> Ok ( syntaxNode " TCImportBound "
           [ tcNormalize ty updated ] ) ;
+
+
+# Probe only: an imported Eq qualifier must reject a later binding of a
+# quantified variable to a noncomparable function type. The same existing
+# tcUnify/tcRequireComparable path handles ordinary local HM schemes.
+def tcImportWireProbeEquality probe =
+  if syntaxTag probe != " TCImportEqProbe " then
+    Error " Expected imported Eq probe "
+  else match tcImportWireInstantiate ( tcFirst probe ) with
+  | Error message -> Error message
+  | Ok instance ->
+    let functionType = tcResultType instance in
+    if syntaxTag functionType != " TCFun " then
+      Error " Imported Eq probe is not a function "
+    else match tcUnify ( tcFirst functionType ) ( tcSecond probe )
+      ( tcResultSubs instance ) with
+    | Error message -> Error message
+    | Ok updated -> Ok ( tcNormalize functionType updated ) ;
