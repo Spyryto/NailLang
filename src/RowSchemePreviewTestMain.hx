@@ -657,6 +657,32 @@ class RowSchemePreviewTestMain {
     eq(ResultValue.tag(missingImported),ResultValue.ERR,
       'unknown imported name is rejected without defaulting to a builtin');
 
+    // Eq evidence must travel through the same imported quantifier map:
+    // a primitive comparable Int is valid; a function value is not.
+    var eqOnlyJSON=Json.stringify([
+      NailRowInterfacePreview.FORMAT,[
+        ['onlyEq',[RowSchemePreview.FORMAT,
+          ['fn',['var',0],['var',0]],[0],[0],[]]]
+      ]]);
+    var eqImportedResult=dogfood.invoke('tcImportWireInterface',
+      NailRowInterfacePreview.decodeSyntax(eqOnlyJSON));
+    eq(ResultValue.tag(eqImportedResult),ResultValue.OK,
+      'strict preview importer accepts an ordinary Eq scheme');
+    var eqTable=ResultValue.get(eqImportedResult,ResultValue.OK);
+    var eqRequest=importRequest(eqTable,'onlyEq','#eq_probe');
+    function eqProbe(candidate:Value):Value {
+      return dogfood.invoke('tcImportWireProbeEquality',
+        SyntaxNode('TCImportEqProbe',Cons(eqRequest,
+          Cons(candidate,Nil))));
+    }
+    eq(ResultValue.tag(eqProbe(SyntaxLeaf('TCBase','Int'))),
+      ResultValue.OK,'imported Eq qualifier allows comparable Int');
+    eq(ResultValue.tag(eqProbe(SyntaxNode('TCFun',Cons(
+      SyntaxLeaf('TCBase','Int'),
+      Cons(SyntaxLeaf('TCBase','Int'),Nil))))),
+      ResultValue.ERR,'imported Eq qualifier rejects function values');
+
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }
