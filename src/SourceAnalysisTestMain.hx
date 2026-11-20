@@ -108,7 +108,7 @@ class SourceAnalysisTestMain {
       && supported055.evaluations.length == 1
       && supported055.evaluations[0].type == 'Int',
       '0.55 source analysis accepts its new versioned header');
-    var unsupported = SourceAnalysis.analyze('nail 0.56 ; 1 ;');
+    var unsupported = SourceAnalysis.analyze('nail 0.61 ; 1 ;');
     ok(!unsupported.ok &&
       unsupported.diagnostics[0].phase == 'parse' &&
       unsupported.diagnostics[0].span != null &&
