@@ -176,7 +176,7 @@ class RowSchemePreview {
 
   /** Rejects whitespace/alternate escape spellings as noncanonical text. */
   public static function decode(text:String):Dynamic {
-    var value:Dynamic;
+    var value:Dynamic=null;
     try value=Json.parse(text)
     catch (error:Dynamic) fail("invalid JSON");
     validate(value);
