@@ -182,6 +182,44 @@ linker call path invokes this consumer. Provider identity, signed/hash-
 bound interfaces, import-name scoping, and real module linkage require
 a separate correctness gate.
 
+### One-transaction checked-and-compiled provider witness
+
+`tcCompileDeclaredModulePreview source` is the first *provider-side*
+entry point that produces both a typed interface and executable bytecode
+from **one Nail source transaction**. It is entirely implemented in
+Nail and performs one source parse, one hygienic macro expansion, one
+complete HM check and one compilation of the **same expanded program**.
+It strips opt-in typed `export name ;` directives before expansion;
+all user definitions and typed metadata remain available to the checker.
+
+The successful payload is the private Syntax value:
+
+```text
+Ok(TCVerifiedModulePreview [
+  TCWireInterface(TCWireExports([...]),
+  Bytecode([...])
+])
+```
+
+The two children are a pair issued by **one successful compiler
+invocation**, not a separately supplied or manually declared signature.
+If any typecheck, export selection or compilation step fails, the entire
+result is `Error`, with no partial interface or bytecode. Generated
+export schemes retain `TCRowQuant` via the existing Nail checker
+and canonical encoder. The emitted executable is the same expanded
+Syntax used by the checker (compiler-only static placeholders are
+removed consistently with `tcCompileCheckedSource`).
+
+This is **local provenance**, not cryptographic attestation. The Syntax
+pair is currently an in-process output of a trusted compiler invocation;
+it is not yet a portable signed module artifact. It does not authorize
+arbitrary third-party JSON interfaces, does not import executable code
+through `ModuleLinker`, and does not add a public ABI version.
+Tests compare the bytecode part to `tcCompileCheckedSource` run
+independently on the equivalent executable definitions, assert the
+canonical interface matches the existing producer, and reject
+missing, duplicate and invalid exports and later type failures.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
