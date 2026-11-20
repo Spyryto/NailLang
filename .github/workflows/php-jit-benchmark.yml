@@ -1,0 +1,67 @@
+name: PHP CLI OPcache/JIT benchmark (experimental)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/php-jit-benchmark.yml'
+
+permissions:
+  contents: read
+
+# A/B measurement on one runner with the same PHP binary, generated Nail
+# bytecode and two independent runtime-core cases in every mode.
+# This does not change required CI checks or production runtime settings.
+jobs:
+  php-jit-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - name: Print PHP runtime settings
+        shell: bash
+        run: |
+          php -v
+          php --ini
+          php -r 'if (!extension_loaded("Zend OPcache")) exit(1);'
+      - name: Build the identical Nail runtime parity fixture
+        shell: bash
+        run: |
+          haxe seed-image.hxml
+          haxe runtime-core-test-php.hxml
+      - name: Compare PHP interpreter, OPcache and tracing JIT
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f build/tests/php-runtime-core/index.php
+          printf '### Two independent PHP runtime-core parity cases per mode\n\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '| PHP mode | Seconds |\n|---|---:|\n' >> "$GITHUB_STEP_SUMMARY"
+
+          # Keep Xdebug inactive in all three modes, matching normal CI.
+          run_mode() {
+            local mode="$1"
+            shift
+            local start=$SECONDS
+            echo "::group::PHP runtime-core mode: $mode"
+            NAIL_CI_RUNTIME_CORE_SHARD=0 XDEBUG_MODE=off php "$@" build/tests/php-runtime-core/index.php
+            local elapsed=$((SECONDS - start))
+            echo "::endgroup::"
+            printf '| %s | %s |\n' "$mode" "$elapsed" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=PHP A/B timing::$mode: ${elapsed}s"
+          }
+
+          # Identical 2 parity sources, independent fresh Vm/BootRuntime for
+          # each case. The test itself checks the exact executed case count.
+          run_mode baseline
+          run_mode opcache -d opcache.enable_cli=1 -d opcache.jit=disable
+          XDEBUG_MODE=off php -d opcache.enable_cli=1 -d opcache.jit=tracing \
+            -d opcache.jit_buffer_size=64M -r '
+            $jit = opcache_get_status(false)["jit"] ?? null;
+            if (!($jit["enabled"] ?? false) || !($jit["on"] ?? false)) {
+              fwrite(STDERR, "Tracing JIT failed to activate\n");
+              exit(1);
+            }
+            echo "JIT enabled and running\n";
+          '
+          run_mode jit-tracing -d opcache.enable_cli=1 -d opcache.jit=tracing -d opcache.jit_buffer_size=64M
