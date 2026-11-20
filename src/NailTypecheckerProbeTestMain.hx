@@ -500,6 +500,29 @@ class NailTypecheckerProbeTestMain {
     eq(ResultValue.tag(rowProbeVm.run(incompatibleCommon)[0]),ResultValue.ERR,
       'shared structural labels must agree on their types');
 
+    // Even a projection that immediately finds the first field must store
+    // a row-lacks guard: open-row schemes can be instantiated without a
+    // pre-existing substitution entry for that structural prefix.
+    var projectedDuplicate='nail 0.54 ; '
+      +'let projected = tcProjectField '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " freeTail " ) ) '
+      +'" x " [] [] " seed " in '
+      +'tcUnify ( tcVar " freeTail " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs projected ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(projectedDuplicate)[0]),ResultValue.ERR,
+      'projecting the first field retains the late duplicate-label guard');
+    var projectedDistinct='nail 0.54 ; '
+      +'let projected = tcProjectField '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " freeTail " ) ) '
+      +'" x " [] [] " seed " in '
+      +'tcUnify ( tcVar " freeTail " ) '
+      +'( tcRowField " z " ( tcBase " Bool " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs projected ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(projectedDistinct)[0]),ResultValue.OK,
+      'projected row still accepts a distinct late tail field');
+
+
 
 
     rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
