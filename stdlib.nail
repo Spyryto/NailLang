@@ -5032,8 +5032,10 @@ def tcWireTypeVars ty =
       ( tcWireTypeVars ( tcSecond ty ) )
   else if tag == " TCRowField " then
     let info = tcRowParts ty [] [] in
-    append ( tcWireFieldVars ( tcRowKnown info ) )
-      ( tcWireTypeVars ( tcRowTail info ) )
+    # Follow the reference producer: an open row's residual tail is
+    # allocated before variables found inside the row's field types.
+    append ( tcWireTypeVars ( tcRowTail info ) )
+      ( tcWireFieldVars ( tcRowKnown info ) )
   else if tag == " TCStruct " then
     tcWireFieldVars ( syntaxChildren ty )
   else [] ;
