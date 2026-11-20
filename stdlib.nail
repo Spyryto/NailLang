@@ -4472,6 +4472,14 @@ def nailMacroExpandSyntaxBudgeted program fuel =
 def nailMacroExpandSyntax program =
   nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 
+# v0.59 experimental: local hygienic macros are expanded by Nail itself
+# before the existing, Nail-owned modern numeric lowering/codegen path.
+# The public compiler still uses the independent Haxe expansion oracle.
+# Imported macro-module resolution is not admitted by this entry point.
+def compileModernSourceNailMacros source =
+  compileExpandedSyntax
+    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
+
 # Low-budget entry point exercises the failure path on every runtime target.
 def nailMacroExpandSyntaxTinyBudget program =
   nailMacroExpandSyntaxBudgeted program 50 ;
