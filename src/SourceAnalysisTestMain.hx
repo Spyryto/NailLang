@@ -103,7 +103,12 @@ class SourceAnalysisTestMain {
       syntaxFail.diagnostics[0].span.end == badSyntax.length,
       'missing final semicolon is a zero-width insertion at EOF');
 
-    var unsupported = SourceAnalysis.analyze('nail 0.55 ; 1 ;');
+    var supported055 = SourceAnalysis.analyze('nail 0.55 ; def answer = 42 ; answer ;');
+    ok(supported055.ok && supported055.version == '0.55'
+      && supported055.evaluations.length == 1
+      && supported055.evaluations[0].type == 'Int',
+      '0.55 source analysis accepts its new versioned header');
+    var unsupported = SourceAnalysis.analyze('nail 0.56 ; 1 ;');
     ok(!unsupported.ok &&
       unsupported.diagnostics[0].phase == 'parse' &&
       unsupported.diagnostics[0].span != null &&
