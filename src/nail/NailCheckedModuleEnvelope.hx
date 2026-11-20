@@ -162,6 +162,13 @@ class NailCheckedModuleEnvelope {
     return Json.stringify([FORMAT,interfaceRaw,bytecode,digest(signed)]);
   }
 
+  /** Compare a freshly compiled program with a validated provider witness.
+      No received bytecode is decoded as an executable Value or run here. */
+  public static function codeMatches(envelope:String,compiled:Value):Bool {
+    var payload:Array<Dynamic>=cast decode(envelope);
+    return Json.stringify(payload[2])==Json.stringify(writeTree(compiled,0,[0]));
+  }
+
   /** Validate canonical transport bytes and structural export-code pairing.
       A hash alone never establishes provider authenticity or trust. */
   public static function decode(source:String):Dynamic {
