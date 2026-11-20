@@ -40,10 +40,10 @@ class NailPinnedProviderRebuild {
     if(!validPin(expectedSourceSha256) ||
        !validPin(expectedCompilerSha256))
       fail("invalid independent trust pins");
-    if(source==null || source.length==0 || source.length>MAX_SOURCE_BYTES)
+    if(source==null || source.length==0 || haxe.io.Bytes.ofString(source).length>MAX_SOURCE_BYTES)
       fail("invalid trusted source size");
     if(receivedEnvelope==null || receivedEnvelope.length==0 ||
-       receivedEnvelope.length>MAX_ENVELOPE_BYTES)
+       haxe.io.Bytes.ofString(receivedEnvelope).length>MAX_ENVELOPE_BYTES)
       fail("invalid received envelope size");
 
     // Host-controlled source is checked before ever invoking untrusted
