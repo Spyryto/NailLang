@@ -489,6 +489,70 @@ class RowSchemePreviewTestMain {
     checkFails(() -> NailRowInterfacePreview.decode(
       '{"format":"not-an-interface"}'),'invalid interface envelope');
 
+
+    // Opt-in typed value exports reuse the already parsed export directive
+    // while preserving its existing macro-module semantics outside this API.
+    // Export directives are removed prior to ordinary macro expansion; only
+    // full-program success authorizes the selected source definitions.
+    function declaredPreview(source:String):Value {
+      return dogfood.invoke('tcCanonicalDeclaredInterface',Text(source));
+    }
+    var declaredSource='nail 0.54 ; '
+      +'def id x = x ; export id ; '
+      +'def readField r = r . x ; export readField ;';
+    var declared=declaredPreview(declaredSource);
+    eq(ResultValue.tag(declared),ResultValue.OK,
+      'explicit value exports are accepted only by the opt-in preview');
+    eq(NailRowInterfacePreview.encode(
+      ResultValue.get(declared,ResultValue.OK)),interfaceJSON,
+      'source-declared exports match checked selected interface');
+
+    var declaredBefore='nail 0.54 ; '
+      +'export readField ; export id ; '
+      +'def readField r = r . x ; def id x = x ;';
+    var beforeResult=declaredPreview(declaredBefore);
+    eq(ResultValue.tag(beforeResult),ResultValue.OK,
+      'export declarations may precede verified definitions');
+    eq(NailRowInterfacePreview.encode(
+      ResultValue.get(beforeResult,ResultValue.OK)),interfaceJSON,
+      'declaration order does not affect canonical public preview');
+
+    var onlyId=declaredPreview('nail 0.54 ; '
+      +'def id x = x ; export id ; def readField r = r . x ;');
+    eq(ResultValue.tag(onlyId),ResultValue.OK,
+      'non-exported definitions may still be checked internally');
+    var onlyIdData:Array<Dynamic>=cast Json.parse(
+      NailRowInterfacePreview.encode(ResultValue.get(onlyId,ResultValue.OK)));
+    var selected:Array<Dynamic>=cast onlyIdData[1];
+    eq(selected.length,1,'only explicitly exported names appear');
+    eq((cast selected[0]:Array<Dynamic>)[0],'id',
+      'unlisted name does not leak from type environment');
+
+    for (invalid in [
+      {source:'nail 0.54 ; def id x = x ;',why:'No typed value exports'},
+      {source:'nail 0.54 ; def id x = x ; export id ; export id ;',
+        why:'Duplicate typed value export'},
+      {source:'nail 0.54 ; export unseen ; def id x = x ;',
+        why:'No verified interface definition'},
+      {source:'nail 0.54 ; def id x = x ; export id ; 1 + 1.0 ;',
+        why:''}
+    ]) {
+      var invalidResult=declaredPreview(invalid.source);
+      eq(ResultValue.tag(invalidResult),ResultValue.ERR,
+        'bad declared interface must return Error atomically');
+      if(invalid.why!='') {
+        var diagnostic=Std.string(RuntimeValues.toPlain(
+          ResultValue.get(invalidResult,ResultValue.ERR)));
+        ok(diagnostic.indexOf(invalid.why)>=0,
+          'declared interface failure contains: '+invalid.why);
+      }
+    }
+    eq(ResultValue.tag(declaredPreview(declaredSource)),ResultValue.OK,
+      'failed declared-interface transaction does not pollute later checks');
+    eq(ResultValue.tag(dogfood.invoke('tcCheckSource',
+      Text(declaredSource))),ResultValue.ERR,
+      'ordinary checked-source API still refuses value export directives');
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }
