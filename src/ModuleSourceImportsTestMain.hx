@@ -3,6 +3,8 @@ import nail.HostImportDeclarations;
 import nail.ModuleImage;
 import nail.ModuleLinker;
 import nail.ModuleLinker.PublicSourceModuleSpec;
+import nail.PublicSchemeImage;
+import nail.NType;
 import nail.Value;
 import nail.Vm;
 
@@ -113,6 +115,33 @@ class ModuleSourceImportsTestMain {
     Reflect.setField(exports[0],'signature','Text -> Text');
     fails(() -> ModuleImage.decode(Json.stringify(altered)),
       'canonical signature mismatch');
+
+    // Portable v3 public schemes are a closed metadata vocabulary. If a
+    // producer advertises unknown row-lacks or future qualifiers, the
+    // decoder must reject rather than silently discard static obligations.
+    for (field in ['rowLacks','rowQuant','TCRowQuant','futureQualifier']) {
+      var extended:Dynamic=Json.parse(image);
+      var publicExports:Array<Dynamic>=cast Reflect.field(extended,'exports');
+      var portable=Reflect.field(publicExports[1],'scheme');
+      Reflect.setField(portable,field,
+        [{tail:0,lacks:['x']}]);
+      fails(() -> ModuleImage.decode(Json.stringify(extended)),
+        'unsupported scheme field '+field);
+    }
+    // The existing public ABI cannot represent open rows by inventing
+    // a type tag or by serializing an unqualified row-shaped type.
+    var forgedOpenRow:Dynamic=Json.parse(image);
+    var openExports:Array<Dynamic>=cast Reflect.field(forgedOpenRow,'exports');
+    var openScheme=Reflect.field(openExports[1],'scheme');
+    Reflect.setField(openScheme,'term',
+      ['open-struct',[{name:'x',type:['Int']}],['var',0]]);
+    fails(() -> ModuleImage.decode(Json.stringify(forgedOpenRow)),
+      'invalid type tag open-struct');
+    fails(() -> PublicSchemeImage.encode({
+      term:TOpenStructural([{name:'x',type:TInt}],TVariable(0)),
+      quantified:[0],comparable:[]
+    }), 'experimental open rows');
+
 
     var missingScheme:Dynamic=Json.parse(image);
     var omitted:Array<Dynamic>=cast Reflect.field(missingScheme,'exports');
