@@ -683,6 +683,61 @@ class RowSchemePreviewTestMain {
       ResultValue.ERR,'imported Eq qualifier rejects function values');
 
 
+
+    // Provider-side evidence must be emitted in the SAME successful
+    // parse/expand/check/compile transaction as executable Bytecode.
+    // A manually provided wire signature alone is not this witness.
+    var providerSource='nail 0.54 ; '
+      +'def id x = x ; export id ; '
+      +'def readField r = r . x ; export readField ;';
+    var compiledProvider=dogfood.invoke('tcCompileDeclaredModulePreview',
+      Text(providerSource));
+    eq(ResultValue.tag(compiledProvider),ResultValue.OK,
+      'Nail compiles a typed provider and its exports atomically');
+    var providerInterface:Value=Nil;
+    var providerBytecode:Value=Nil;
+    switch(ResultValue.get(compiledProvider,ResultValue.OK)) {
+      case SyntaxNode('TCVerifiedModulePreview',
+          Cons(interfaceTree,Cons(SyntaxNode('Bytecode',ops),Nil))):
+        providerInterface=interfaceTree;
+        providerBytecode=SyntaxNode('Bytecode',ops);
+      case _:
+        throw 'ROW SCHEME PREVIEW: expected interface + executable Bytecode';
+    }
+    eq(NailRowInterfacePreview.encode(providerInterface),
+      interfaceJSON,'compiled provider exports exact canonical checked interface');
+
+    var executableSource='nail 0.54 ; '
+      +'def id x = x ; def readField r = r . x ;';
+    var independentCompilation=dogfood.invoke('tcCompileCheckedSource',
+      Text(executableSource));
+    eq(ResultValue.tag(independentCompilation),ResultValue.OK,
+      'reference checked compiler accepts the same executable definitions');
+    eq(Json.stringify(RuntimeValues.toPlain(providerBytecode)),
+      Json.stringify(RuntimeValues.toPlain(
+        ResultValue.get(independentCompilation,ResultValue.OK))),
+      'provider witness Bytecode matches independently checked compilation');
+
+    function badProvider(source:String,label:String):Void {
+      var response=dogfood.invoke('tcCompileDeclaredModulePreview',Text(source));
+      eq(ResultValue.tag(response),ResultValue.ERR,
+        'provider publishes no type/code pair for '+label);
+    }
+    badProvider('nail 0.54 ; def id x = x ;',
+      'missing export directives');
+    badProvider('nail 0.54 ; def id x = x ; export id ; export id ;',
+      'duplicate exports');
+    badProvider('nail 0.54 ; def id x = x ; export absent ;',
+      'unknown export');
+    badProvider('nail 0.54 ; def id x = x ; export id ; 1 + 1.0 ;',
+      'later type mismatch');
+    badProvider('nail 0.54 ; def id x = x ; '
+      +'export id ; def missing = notDefined ;',
+      'late unresolved name');
+    eq(ResultValue.tag(dogfood.invoke('tcCompileDeclaredModulePreview',
+      Text(providerSource))),ResultValue.OK,
+      'a failed provider transaction cannot poison a later valid provider');
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }
