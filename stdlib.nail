@@ -4943,3 +4943,280 @@ def tcCheckSourceNailMacrosTraced source =
   else let expanded = nailMacroExpandSyntax ( tcFirst prepared ) in
     tcCheckExpandedTypedTraced
       ( syntaxNode " TCExpansionRequest " [ prepared , expanded ] ) ;
+
+
+# Canonical row evidence, authored entirely in Nail (experimental).
+# The result is a pure Syntax tree, not a public module ABI or JSON encoder.
+# A future, intentionally dumb adapter may serialize this checked shape.
+def tcWireCharRank char index =
+  let alphabet = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz " in
+  if index == textLength alphabet then 999
+  else if textAt alphabet index == char then index
+  else tcWireCharRank char ( index + 1 ) ;
+
+def tcWireBefore left right index =
+  if index == textLength left then index < textLength right
+  else if index == textLength right then false
+  else let l = tcWireCharRank ( textAt left index ) 0 in
+    let r = tcWireCharRank ( textAt right index ) 0 in
+    if l == r then tcWireBefore left right ( index + 1 )
+    else l < r ;
+
+def tcWireInsertField field fields =
+  match fields with
+  | [] -> [ field ]
+  | first :: rest ->
+    if tcWireBefore ( syntaxText ( tcFirst field ) )
+      ( syntaxText ( tcFirst first ) ) 0 then cons field fields
+    else cons first ( tcWireInsertField field rest ) ;
+
+def tcWireSortFields fields =
+  match fields with
+  | [] -> []
+  | first :: rest ->
+    tcWireInsertField first ( tcWireSortFields rest ) ;
+
+def tcWireCanonicalFields fields =
+  map ( fun field ->
+    tcField ( syntaxText ( tcFirst field ) )
+      ( tcWireCanonicalType ( tcSecond field ) ) ) fields ;
+
+def tcWireFieldFault fields =
+  match fields with
+  | [] -> false
+  | first :: rest ->
+    if syntaxTag ( tcSecond first ) == " TCFault " then true
+    else tcWireFieldFault rest ;
+
+def tcWireCanonicalType ty =
+  let tag = syntaxTag ty in
+  if tag == " TCBase " then ty
+  else if tag == " TCVar " then ty
+  else if tag == " TCList " then
+    let item = tcWireCanonicalType ( tcFirst ty ) in
+    if syntaxTag item == " TCFault " then item
+    else tcList item
+  else if tag == " TCFun " then
+    let a = tcWireCanonicalType ( tcFirst ty ) in
+    let b = tcWireCanonicalType ( tcSecond ty ) in
+    if syntaxTag a == " TCFault " then a
+    else if syntaxTag b == " TCFault " then b
+    else tcFun a b
+  else if tag == " TCStruct " then
+    let fields = tcWireCanonicalFields ( syntaxChildren ty ) in
+    if tcWireFieldFault fields then tcFault " Unsupported field type "
+    else if syntaxTag ( tcDuplicateClosedField fields ) != " TCMissing " then
+      tcFault " Duplicate structural field "
+    else tcStruct ( tcWireSortFields fields )
+  else if tag == " TCRowField " then
+    let info = tcRowParts ty [] [] in
+    let fields = tcWireCanonicalFields ( tcRowKnown info ) in
+    let rest = tcRowTail info in
+    if tcWireFieldFault fields then tcFault " Unsupported row field type "
+    else if syntaxTag ( tcDuplicateClosedField fields ) != " TCMissing " then
+      tcFault " Duplicate structural field "
+    else if syntaxTag rest == " TCVar " then
+      tcRowExtend ( tcWireSortFields fields ) rest
+    else if syntaxTag rest == " TCMissing " then
+      tcStruct ( tcWireSortFields fields )
+    else tcFault " Invalid open row tail "
+  else tcFault " Unsupported row scheme type " ;
+
+# Left-to-right variable traversal follows the canonicalized type shape.
+def tcWireTypeVars ty =
+  let tag = syntaxTag ty in
+  if tag == " TCVar " then [ ty ]
+  else if tag == " TCList " then tcWireTypeVars ( tcFirst ty )
+  else if tag == " TCFun " then
+    append ( tcWireTypeVars ( tcFirst ty ) )
+      ( tcWireTypeVars ( tcSecond ty ) )
+  else if tag == " TCRowField " then
+    let info = tcRowParts ty [] [] in
+    append ( tcWireFieldVars ( tcRowKnown info ) )
+      ( tcWireTypeVars ( tcRowTail info ) )
+  else if tag == " TCStruct " then
+    tcWireFieldVars ( syntaxChildren ty )
+  else [] ;
+
+def tcWireFieldVars fields =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    append ( tcWireTypeVars ( tcSecond field ) )
+      ( tcWireFieldVars rest ) ;
+
+def tcWireUniqueVars variables seen =
+  match variables with
+  | [] -> seen
+  | first :: rest ->
+    if tcContainsVar ( syntaxText first ) seen then
+      tcWireUniqueVars rest seen
+    else tcWireUniqueVars rest ( append seen [ first ] ) ;
+
+def tcWireBound variables quantified =
+  match variables with
+  | [] -> true
+  | first :: rest ->
+    if tcContainsVar ( syntaxText first ) quantified then
+      tcWireBound rest quantified
+    else false ;
+
+def tcWireRename variables seed =
+  match variables with
+  | [] -> []
+  | first :: rest ->
+    cons ( tcBinding ( syntaxText first ) ( tcVar seed ) )
+      ( tcWireRename rest ( tcNext seed ) ) ;
+
+# Type variables and row variables have different kinds; a row-tail
+# variable cannot simultaneously appear in an ordinary type position.
+def tcWireTailVars ty =
+  let tag = syntaxTag ty in
+  if tag == " TCRowField " then
+    let info = tcRowParts ty [] [] in
+    let rest = tcRowTail info in
+    let own = if syntaxTag rest == " TCVar " then [ rest ] else [] in
+    append own ( tcWireFieldTails ( tcRowKnown info ) )
+  else if tag == " TCStruct " then
+    tcWireFieldTails ( syntaxChildren ty )
+  else if tag == " TCFun " then
+    append ( tcWireTailVars ( tcFirst ty ) )
+      ( tcWireTailVars ( tcSecond ty ) )
+  else if tag == " TCList " then tcWireTailVars ( tcFirst ty )
+  else [] ;
+
+def tcWireFieldTails fields =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    append ( tcWireTailVars ( tcSecond field ) )
+      ( tcWireFieldTails rest ) ;
+
+def tcWireOrdinaryVars ty =
+  let tag = syntaxTag ty in
+  if tag == " TCVar " then [ ty ]
+  else if tag == " TCRowField " then
+    tcWireFieldOrdinary ( tcRowKnown ( tcRowParts ty [] [] ) )
+  else if tag == " TCStruct " then
+    tcWireFieldOrdinary ( syntaxChildren ty )
+  else if tag == " TCFun " then
+    append ( tcWireOrdinaryVars ( tcFirst ty ) )
+      ( tcWireOrdinaryVars ( tcSecond ty ) )
+  else if tag == " TCList " then tcWireOrdinaryVars ( tcFirst ty )
+  else [] ;
+
+def tcWireFieldOrdinary fields =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    append ( tcWireOrdinaryVars ( tcSecond field ) )
+      ( tcWireFieldOrdinary rest ) ;
+
+def tcWireOverlap left right =
+  match left with
+  | [] -> false
+  | first :: rest ->
+    if tcContainsVar ( syntaxText first ) right then true
+    else tcWireOverlap rest right ;
+
+# Merge negative row labels from the type *and* the TCRowQuant ledger.
+def tcWireInsertLabel label labels =
+  match labels with
+  | [] -> [ label ]
+  | first :: rest ->
+    if label == first then labels
+    else if tcWireBefore label first 0 then cons label labels
+    else cons first ( tcWireInsertLabel label rest ) ;
+
+def tcWireMergeLabels fields labels =
+  match fields with
+  | [] -> labels
+  | first :: rest ->
+    tcWireMergeLabels rest
+      ( tcWireInsertLabel ( syntaxText ( tcFirst first ) ) labels ) ;
+
+def tcWireLabelsFor variable guards labels =
+  match guards with
+  | [] -> labels
+  | row :: rest ->
+    let info = tcRowParts row [] [] in
+    let tail = tcRowTail info in
+    if syntaxTag tail == " TCVar " then
+      if syntaxText tail == variable then
+        tcWireLabelsFor variable rest
+          ( tcWireMergeLabels ( tcRowKnown info ) labels )
+      else tcWireLabelsFor variable rest labels
+    else tcWireLabelsFor variable rest labels ;
+
+def tcWireGuardTailsValid guards tails =
+  match guards with
+  | [] -> true
+  | guard :: rest ->
+    if syntaxTag guard != " TCRowField " then false
+    else let info = tcRowParts guard [] [] in
+      let tail = tcRowTail info in
+      if syntaxTag tail != " TCVar " then false
+      else if tcContainsVar ( syntaxText tail ) tails == false then false
+      else if syntaxTag
+        ( tcDuplicateClosedField ( tcRowKnown info ) )
+        != " TCMissing " then false
+      else tcWireGuardTailsValid rest tails ;
+
+def tcWireLacksFor variables guards renaming =
+  match variables with
+  | [] -> []
+  | first :: rest ->
+    let labels = tcWireLabelsFor ( syntaxText first ) guards [] in
+    let remaining = tcWireLacksFor rest guards renaming in
+    if isEmpty labels then remaining
+    else cons ( syntaxNode " TCWireLacks "
+      [ tcNormalize first renaming ,
+        syntaxNode " TCWireAbsent "
+          ( map ( fun name -> syntaxLeaf " TCName " name ) labels ) ] )
+      remaining ;
+
+def tcWireEqFor variables comparable renaming =
+  match variables with
+  | [] -> []
+  | first :: rest ->
+    if tcContainsVar ( syntaxText first ) comparable then
+      cons ( tcNormalize first renaming )
+        ( tcWireEqFor rest comparable renaming )
+    else tcWireEqFor rest comparable renaming ;
+
+# The Nail-authored canonical Syntax IR deliberately remains private:
+# the current public module image still cannot encode row-polymorphic types.
+def tcCanonicalRowEvidence scheme =
+  if syntaxTag scheme != " TCScheme " then
+    Error " Expected a Nail HM type scheme "
+  else let original = tcWireCanonicalType ( tcSchemeType scheme ) in
+    if syntaxTag original == " TCFault " then
+      Error ( tcFaultMessage original )
+    else let ordered = tcWireUniqueVars ( tcWireTypeVars original ) [] in
+      let quantified = tcSchemeQuantifiers scheme in
+      let eq = tcSchemeComparable scheme in
+      let tails = tcWireUniqueVars ( tcWireTailVars original ) [] in
+      let ordinary = tcWireUniqueVars ( tcWireOrdinaryVars original ) [] in
+      let guards = append
+        ( tcRowGuardsInType original ordered )
+        ( tcSchemeRowGuards scheme ) in
+      if tcWireBound ordered quantified == false then
+        Error " Free variable in row scheme "
+      else if tcWireBound quantified ordered == false then
+        Error " Phantom quantifier in row scheme "
+      else if tcWireBound eq ordered == false then
+        Error " Invalid Eq qualifier "
+      else if tcWireOverlap tails ordinary then
+        Error " Row tail used as ordinary type variable "
+      else if tcWireOverlap tails eq then
+        Error " Eq qualifier on row tail "
+      else if tcWireGuardTailsValid guards tails == false then
+        Error " Row-lacks guard outside quantified open tail "
+      else let mappings = tcWireRename ordered " #wire_ " in
+        Ok ( syntaxNode " TCWireScheme "
+          [ tcNormalize original mappings ,
+            syntaxNode " TCWireQuant "
+              ( map ( fun item -> tcNormalize item mappings ) ordered ) ,
+            syntaxNode " TCWireEq " ( tcWireEqFor ordered eq mappings ) ,
+            syntaxNode " TCWireLacksSet "
+              ( tcWireLacksFor tails guards mappings ) ] ) ;
