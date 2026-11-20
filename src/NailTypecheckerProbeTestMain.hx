@@ -382,6 +382,37 @@ class NailTypecheckerProbeTestMain {
     eq(ResultValue.tag(exchangedResults[0]),ResultValue.OK,
       'row order does not affect explicit-field unification');
 
+    // The crucial row-lacks case: a prefix is initially well-formed and
+    // only becomes invalid *after* an independent tail variable is bound.
+    var lateDuplicate='nail 0.54 ; '
+      +'let guarded = tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " openTail " ) ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " otherTail " ) ) '
+      +'[] in match guarded with '
+      +'| Error message -> guarded '
+      +'| Ok substitutions -> tcUnify ( tcVar " openTail " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcStruct [] ) ) '
+      +'substitutions ;';
+    var lateDuplicateValues=new BootRuntime(60000000).run(lateDuplicate);
+    eq(lateDuplicateValues.length,1,'late duplicate row returns one result');
+    eq(ResultValue.tag(lateDuplicateValues[0]),ResultValue.ERR,
+      'row-lacks guard rejects a duplicate introduced after unification');
+    // A different field is a legitimate tail extension.
+    var lateDistinct='nail 0.54 ; '
+      +'let guarded = tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " openTail " ) ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " otherTail " ) ) '
+      +'[] in match guarded with '
+      +'| Error message -> guarded '
+      +'| Ok substitutions -> tcUnify ( tcVar " openTail " ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcStruct [] ) ) '
+      +'substitutions ;';
+    var lateDistinctValues=new BootRuntime(60000000).run(lateDistinct);
+    eq(lateDistinctValues.length,1,'late distinct row returns one result');
+    eq(ResultValue.tag(lateDistinctValues[0]),ResultValue.OK,
+      'row-lacks guard allows a distinct tail field');
+
+
     rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
       'Missing structural field');
     rejectsStructural(boot,
