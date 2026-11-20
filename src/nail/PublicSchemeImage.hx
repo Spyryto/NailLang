@@ -132,6 +132,13 @@ class PublicSchemeImage {
     if (raw==null || !Std.isOfType(Reflect.field(raw,'quantified'),Array)
         || !Std.isOfType(Reflect.field(raw,'comparable'),Array))
       throw 'Public scheme image: invalid scheme';
+    // The current v3 module ABI has exactly these three scheme fields.
+    // Silently ignoring an unrecognized row-lacks/qualification field
+    // would turn a constrained polymorphic export into an unsound one.
+    // A future ABI must explicitly version and validate new qualifiers.
+    for (field in Reflect.fields(raw))
+      if (field!='term' && field!='quantified' && field!='comparable')
+        throw 'Public scheme image: unsupported scheme field '+field;
     var quantified=[for (id in requireList(Reflect.field(raw,'quantified'),
       'quantifiers')) requireId(id)];
     var comparable=[for (id in requireList(Reflect.field(raw,'comparable'),
