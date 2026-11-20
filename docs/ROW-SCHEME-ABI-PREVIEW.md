@@ -255,6 +255,37 @@ checker or automatically execute. The real module ABI, provenance
 verification, symbol binding and linker integration remain separate
 design and testing milestones.
 
+### Pinned-source rebuild verification (experimental, opt-in)
+
+`NailPinnedProviderRebuild.verify(source,sourcePin,compilerPin,envelope)`
+is a **reproducible-build check**, not a module loader. The embedding
+host must obtain `sourcePin = SHA-256(exact trusted source UTF-8 bytes)`
+and `compilerPin = SHA-256(trusted bootstrap image bytes)` through a
+trusted channel **independent of the received artefact**.
+
+The verifier rejects mismatched pins before compiling, strictly decodes
+the received envelope, starts a *fresh* source-free `BootRuntime`
+without external capabilities, invokes Nail's
+`tcCompileDeclaredModulePreview` once, re-encodes the result through the
+canonical envelope serializer, and requires **byte-for-byte equality**
+with the received envelope. A corrupted or deliberately modified
+envelope cannot pass even when its untrusted SHA-256 has been
+recalculated. No executable module or linker authorization is returned.
+
+The tests verify a successful rebuild, incorrect independent source
+and compiler pins, and a bytecode mutation accompanied by a newly
+calculated matching envelope digest.
+
+**Trust limitations:** the embedding host must pin the source and
+compiler through a trustworthy deployment mechanism; calculating pins
+from the downloaded module provides no security. This checks that
+the compiled output matches one exact trusted compiler image and
+trusted source under this implementation, **not** that the compiler is
+formally correct, that Nail typechecking is sound, or that an unknown
+remote publisher has a valid signing identity. No public ABI or linker
+behaviour is changed. Signed release manifests, independently verified
+publisher identities and module-linker admission remain separate steps.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
