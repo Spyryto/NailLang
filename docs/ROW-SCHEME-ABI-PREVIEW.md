@@ -238,10 +238,11 @@ The versioned canonical JSON envelope is:
 ```
 
 Every interface export must have exactly one matching top-level
-`DEFINE` instruction in the code payload. The decoder rejects extra or
-duplicate definitions, malformed Syntax nodes, unsupported top-level
-instructions, overlarge trees, noncanonical JSON, bad hashes, and
-tampering with either the exported interface or compiled code.
+`DEFINE` instruction in the code payload. The decoder rejects **missing exports or duplicate compiled definition
+names**, malformed Syntax nodes, unsupported top-level instructions,
+overlarge trees, noncanonical JSON, bad hashes, and tampering with either
+the exported interface or compiled code. Additional private definitions
+in the compiled module are permitted, but never become interface exports.
 Both Haxe, Node and PHP can validate the *same canonical byte layout*.
 
 **Security boundary:** SHA-256 here is only a *content-integrity*
