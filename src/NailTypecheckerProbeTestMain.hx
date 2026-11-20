@@ -339,6 +339,49 @@ class NailTypecheckerProbeTestMain {
       'def sum r = textConcat ( r . x ) ( r . y ) ; '
       +'sum { x = " Left " , y = " Right " } ;',
       ['Text']);
+
+    // Exchanging two already-known open-row prefixes is type-preserving.
+    // The Haxe opt-in checker supplies an independent row-unification oracle.
+    checkStructural(boot,
+      'def readXY r = textConcat ( r . x ) ( r . y ) ; '
+      +'def readYX r = textConcat ( r . y ) ( r . x ) ; '
+      +'def readBoth r = textConcat ( readXY r ) ( readYX r ) ; '
+      +'readBoth { x = " X " , y = " Y " } ;',
+      ['Text']);
+    // An unresolved tail does not justify inventing absent fields. This
+    // remains a conservative rejection until shared-tail freshening exists.
+    checkBad(boot,
+      'def onlyX r = r . x ; def onlyY r = r . y ; '
+      +'def join r = [ onlyX r , onlyY r ] ;',
+      'Open row field not explicitly known');
+    // Duplicate aliases are invalid even if their field types coincide.
+    checkBad(boot,
+      'type DoubleField = { x : Text , x : Text } ; '
+      +'def take ( r : DoubleField ) = r . x ;',
+      'Duplicate structural field');
+    // The row-lacks ledger must reject a later tail substitution that
+    // repeats an earlier explicitly required field.
+    var duplicateRowSource='nail 0.54 ; '
+      +'tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " tail " ) ) '
+      +'( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcStruct [] ) ) ) [] ;';
+    var duplicateRowResults=new BootRuntime(60000000).run(duplicateRowSource);
+    eq(duplicateRowResults.length,1,'direct duplicate-row probe returns one result');
+    eq(ResultValue.tag(duplicateRowResults[0]),ResultValue.ERR,
+      'duplicate open-row field must fail the row-lacks guard');
+    // Distinct explicit field order with a shared tail is valid.
+    var exchangedRows='nail 0.54 ; '
+      +'tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) '
+      +'( tcRowField " y " ( tcBase " Text " ) ( tcVar " restA " ) ) ) '
+      +'( tcRowField " y " ( tcBase " Text " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " restB " ) ) ) [] ;';
+    var exchangedResults=new BootRuntime(60000000).run(exchangedRows);
+    eq(exchangedResults.length,1,'direct exchanged-row probe returns one result');
+    eq(ResultValue.tag(exchangedResults[0]),ResultValue.OK,
+      'row order does not affect explicit-field unification');
+
     rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
       'Missing structural field');
     rejectsStructural(boot,
