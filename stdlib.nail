@@ -2872,19 +2872,112 @@ def tcRememberRow row substitutions =
   tcEnforceRowGuards
     ( cons ( tcBinding " #tc_row_guard " row ) substitutions ) ;
 
-# Only exchange labels already present in the other explicit row.
-# Extending both unresolved row tails would require a fresh shared tail and
-# quantified lacks constraints; do not silently fabricate either.
+# Flatten a known row prefix, following previously bound tails. The
+# final tail is either a fresh variable or TCMissing for a closed row.
+# Field order does not carry any semantic meaning.
+def tcRowInfo fields tail =
+  syntaxNode " TCRowInfo "
+    [ syntaxNode " TCFields " fields , tail ] ;
+def tcRowKnown info = syntaxChildren ( tcFirst info ) ;
+def tcRowTail info = tcSecond info ;
+
+def tcRowParts row substitutions reversed =
+  let resolved = tcFollow row substitutions in
+  let tag = syntaxTag resolved in
+  if tag == " TCRowField " then
+    tcRowParts ( tcThird resolved ) substitutions
+      ( cons ( tcField ( syntaxText ( tcFirst resolved ) )
+        ( tcSecond resolved ) ) reversed )
+  else if tag == " TCStruct " then
+    tcRowInfo ( append ( reverse reversed )
+      ( syntaxChildren resolved ) ) tcMissing
+  else tcRowInfo ( reverse reversed ) resolved ;
+
+# Separate shared fields from disjoint fields, preserving the original
+# type terms. Unify common field *types* before extending either tail.
+def tcRowOnly fields other =
+  match fields with
+  | [] -> []
+  | field :: rest ->
+    if syntaxTag
+      ( tcFindField ( syntaxText ( tcFirst field ) ) other )
+      != " TCMissing " then tcRowOnly rest other
+    else cons field ( tcRowOnly rest other ) ;
+
+def tcUnifyCommonFields fields other substitutions =
+  match fields with
+  | [] -> Ok substitutions
+  | field :: rest ->
+    let found = tcFindField ( syntaxText ( tcFirst field ) ) other in
+    if syntaxTag found == " TCMissing " then
+      tcUnifyCommonFields rest other substitutions
+    else match tcUnify ( tcSecond field ) found substitutions with
+    | Error message -> Error message
+    | Ok updated -> tcUnifyCommonFields rest other updated ;
+
+def tcRowExtend fields tail =
+  match fields with
+  | [] -> tail
+  | field :: rest ->
+    tcRowField ( syntaxText ( tcFirst field ) ) ( tcSecond field )
+      ( tcRowExtend rest tail ) ;
+
+# A private namespace disjoint from the ordinary t / t-x / ... HM seeds.
+# The substitution ledger grows after every fresh shared-row binding,
+# giving each unification a deterministic, noncolliding fresh variable.
+def tcRowFreshSeed substitutions =
+  match substitutions with
+  | [] -> " #tc_row_shared_ "
+  | first :: rest -> tcNext ( tcRowFreshSeed rest ) ;
+
 def tcUnifyOpenRows left right substitutions =
-  let name = syntaxText ( tcFirst left ) in
-  let member = tcOpenRowMember name right substitutions in
-  if syntaxTag member == " TCMissing " then
-    Error ( textConcat " Open row field not explicitly known: " name )
-  else match tcUnify ( tcSecond left ) member substitutions with
+  let l = tcRowParts left substitutions [] in
+  let r = tcRowParts right substitutions [] in
+  let lFields = tcRowKnown l in
+  let rFields = tcRowKnown r in
+  match tcUnifyCommonFields lFields rFields substitutions with
+  | Error message -> Error message
+  | Ok checked ->
+    let onlyLeft = tcRowOnly lFields rFields in
+    let onlyRight = tcRowOnly rFields lFields in
+    let lTail = tcRowTail l in
+    let rTail = tcRowTail r in
+    let lClosed = syntaxTag lTail == " TCMissing " in
+    let rClosed = syntaxTag rTail == " TCMissing " in
+    if lClosed then
+      if rClosed then
+        if isEmpty onlyLeft then
+          if isEmpty onlyRight then Ok checked
+          else Error " Structural record field mismatch "
+        else Error " Structural record field mismatch "
+      else if isEmpty onlyRight then
+        tcUnify rTail ( tcStruct onlyLeft ) checked
+      else Error " Missing structural record fields "
+    else if rClosed then
+      if isEmpty onlyLeft then
+        tcUnify lTail ( tcStruct onlyRight ) checked
+      else Error " Missing structural record fields "
+    else if syntaxTag lTail == " TCVar " then
+      if syntaxTag rTail == " TCVar " then
+        if syntaxText lTail == syntaxText rTail then
+          if isEmpty onlyLeft then
+            if isEmpty onlyRight then Ok checked
+            else Error " Incompatible shared row tail "
+          else Error " Incompatible shared row tail "
+        else tcUnifyDisjointOpenTails lTail rTail onlyLeft onlyRight checked
+      else Error " Invalid structural row tail "
+    else Error " Invalid structural row tail " ;
+
+# Both tails are distinct, unresolved variables. Let them share one new tail
+# and exchange their noncommon fields. Existing recorded row guards retain
+# the lacks obligations on this shared tail throughout later substitutions.
+def tcUnifyDisjointOpenTails lTail rTail onlyLeft onlyRight substitutions =
+  let shared = tcVar ( tcRowFreshSeed substitutions ) in
+  match tcUnify lTail ( tcRowExtend onlyRight shared ) substitutions with
   | Error message -> Error message
   | Ok updated ->
-    let remaining = tcOpenRowRemove name right updated in
-    tcUnify ( tcThird left ) remaining updated ;
+    tcUnify rTail ( tcRowExtend onlyLeft shared ) updated ;
+
 
 # Recognize the existing, lowered #recordMake/#recordGet primitive calls
 # *before* generic application typing, exactly as the host checker does.
@@ -3014,12 +3107,12 @@ def tcProjectField receiver field environment substitutions seed =
       tcFault ( textConcat " Missing structural field: " field )
     else tcInferResult found substitutions seed
   else if tag == " TCRowField " then
-    if syntaxText ( tcFirst ty ) == field then
-      tcInferResult ( tcSecond ty ) substitutions seed
-    else match tcRememberRow ty substitutions with
+    match tcRememberRow ty substitutions with
     | Error message -> tcFault message
     | Ok guarded ->
-      tcProjectField ( tcThird ty ) field environment guarded seed
+      if syntaxText ( tcFirst ty ) == field then
+        tcInferResult ( tcSecond ty ) guarded seed
+      else tcProjectField ( tcThird ty ) field environment guarded seed
   else if tag == " TCVar " then
     let owner = tcNominalOwnerForField field environment tcMissing in
     if syntaxTag owner == " TCAmbiguousOwner " then

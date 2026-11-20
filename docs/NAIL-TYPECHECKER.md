@@ -87,12 +87,15 @@ Unification performs an **occurs check** to reject infinite types.
   lowering, checks each constructor's owner and binding arity, rejects
   missing cases and mixed owners, then uses ordinary HM inference for the
   bound values and branch results. No new core AST constructor or VM opcode
-- **Conservative explicit open-row exchange**: independently inferred
-  record requirements containing the same known fields may use different
-  lexical projection orders. The substitution ledger records private
-  row-shape guards, rejecting duplicate fields introduced by later tail
-  bindings and invalid row tails. Unknown fields in both disjoint open
-  prefixes are *not* synthesized; such unification fails closed.
+- **Experimental open-row unification**: independently inferred
+  structural record requirements can carry shared or disjoint fields in
+  any lexical order. Shared field types must unify; disjoint fields are
+  placed in the opposing open tails, with one fresh shared residual tail.
+  When the two tails are already identical, incompatible disjoint fields
+  fail closed rather than creating a recursive row. Private row-shape
+  guards reject duplicate labels introduced by later tail substitutions;
+  closed rows reject absent required fields. No new runtime representation
+  or bytecode opcode is required.
 - **Optional parameter and value annotations**, structural type aliases
   `type Html = { h2 : Text Text , div : Text Text }`, required-field
   validation with allowance for additional implementation fields
@@ -690,11 +693,12 @@ The following are not yet complete:
   ordinary and hygienically macro-renamed sum subjects are recognized,
   including constructor ownership, binding arity and exhaustiveness.
   Generic recursion edges remain deferred
-- Full structural row algebra: the experimental Nail checker now
-  exchanges **already-explicit** row fields and retains internal row-lacks
-  guards against later duplicate-label tail bindings. Disjoint open prefixes
-  that would need a fresh shared tail, generalized row-lacks qualifications
-  and the cross-module row-polymorphic ABI remain deferred
+- Complete structural row-polymorphic ABI and explicit user-authored
+  row-lacks qualifications remain deferred. The experimental internal
+  solver now allocates a fresh shared tail for disjoint open prefixes and
+  guards against duplicate labels across later substitutions, but this
+  is not yet a released, cross-module type-scheme contract; imported open
+  rows remain rejected at the public module boundary
 - Generic/recursive structural aliases, applied nominal or `Node` types
   not yet available to the experimental checker
 - Full standard-library primitive signatures and typed module signatures;

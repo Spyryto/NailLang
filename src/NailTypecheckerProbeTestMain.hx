@@ -348,12 +348,20 @@ class NailTypecheckerProbeTestMain {
       +'def readBoth r = textConcat ( readXY r ) ( readYX r ) ; '
       +'readBoth { x = " X " , y = " Y " } ;',
       ['Text']);
-    // An unresolved tail does not justify inventing absent fields. This
-    // remains a conservative rejection until shared-tail freshening exists.
-    checkBad(boot,
+    // Two independently inferred requirements have *disjoint* known
+    // fields. Their two tails must share one freshly allocated row tail.
+    // Use the independent Haxe open-row type checker as a differential oracle.
+    checkStructural(boot,
       'def onlyX r = r . x ; def onlyY r = r . y ; '
-      +'def join r = [ onlyX r , onlyY r ] ;',
-      'Open row field not explicitly known');
+      +'def join r = [ onlyX r , onlyY r ] ; '
+      +'join { x = 7 , y = 9 , extra = true } ;',
+      ['[Int]']);
+    checkStructural(boot,
+      'def firstX r = textConcat ( r . x ) " A " ; '
+      +'def firstY r = textConcat ( r . y ) " B " ; '
+      +'def join r = textConcat ( firstY r ) ( firstX r ) ; '
+      +'join { y = " Y " , x = " X " , extra = 2 } ;',
+      ['Text']);
     // Duplicate aliases are invalid even if their field types coincide.
     checkBad(boot,
       'type DoubleField = { x : Text , x : Text } ; '
@@ -411,6 +419,110 @@ class NailTypecheckerProbeTestMain {
     eq(lateDistinctValues.length,1,'late distinct row returns one result');
     eq(ResultValue.tag(lateDistinctValues[0]),ResultValue.OK,
       'row-lacks guard allows a distinct tail field');
+
+    // Direct row unification: incomparable prefixes are now permitted
+    // with two distinct tails, without changing the VM's runtime types.
+    var disjointRows='nail 0.54 ; tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+      +'[] ;';
+    var rowProbeVm=new BootRuntime(60000000);
+    var disjointValues=rowProbeVm.run(disjointRows);
+    eq(disjointValues.length,1,'disjoint open rows produce one result');
+    eq(ResultValue.tag(disjointValues[0]),ResultValue.OK,
+      'disjoint open rows unify through a fresh shared tail');
+    var sharedIdentity='nail 0.54 ; '
+      +'let unified = tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+      +'[] in match unified with '
+      +'| Error message -> false '
+      +'| Ok substitutions -> '
+      +'let left = tcThird ( tcFollow ( tcVar " leftTail " ) substitutions ) in '
+      +'let right = tcThird ( tcFollow ( tcVar " rightTail " ) substitutions ) in '
+      +'if syntaxTag left == " TCVar " then '
+      +'if syntaxTag right == " TCVar " then '
+      +'syntaxText left == syntaxText right '
+      +'else false else false ;';
+    eq(switch(rowProbeVm.run(sharedIdentity)[0]) {
+      case Boolean(true): true;
+      case _: false;
+    },true,'disjoint rows share one identical fresh residual variable');
+
+
+    // Both residual tails must refer to the same new variable. Binding it
+    // to either original field would duplicate a label on one row.
+    for (duplicate in [{name:'x',ty:'Int'}, {name:'y',ty:'Bool'}]) {
+      var lateSharedDuplicate='nail 0.54 ; '
+        +'let unified = tcUnify '
+        +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+        +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+        +'[] in match unified with '
+        +'| Error message -> unified '
+        +'| Ok substitutions -> '
+        +'let residual = tcFollow ( tcVar " leftTail " ) substitutions in '
+        +'let shared = tcThird residual in '
+        +'tcUnify shared '
+        +'( tcRowField " '+duplicate.name+' " '
+        +'( tcBase " '+duplicate.ty+' " ) '
+        +'( tcStruct [] ) ) substitutions ;';
+      var duplicateValues=rowProbeVm.run(lateSharedDuplicate);
+      eq(ResultValue.tag(duplicateValues[0]),ResultValue.ERR,
+        'shared tail cannot duplicate prior field: '+duplicate.name);
+    }
+    var lateSharedDistinct='nail 0.54 ; '
+      +'let unified = tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+      +'[] in match unified with '
+      +'| Error message -> unified '
+      +'| Ok substitutions -> '
+      +'let residual = tcFollow ( tcVar " leftTail " ) substitutions in '
+      +'let shared = tcThird residual in '
+      +'tcUnify shared ( tcRowField " z " ( tcBase " Text " ) '
+      +'( tcStruct [] ) ) substitutions ;';
+    var distinctValues=rowProbeVm.run(lateSharedDistinct);
+    eq(ResultValue.tag(distinctValues[0]),ResultValue.OK,
+      'shared tail accepts a genuinely new field');
+
+    // Identical tail variables cannot absorb mutually exclusive fields.
+    var sameTail='nail 0.54 ; tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " sameTail " ) ) '
+      +'( tcRowField " y " ( tcBase " Bool " ) ( tcVar " sameTail " ) ) '
+      +'[] ;';
+    eq(ResultValue.tag(rowProbeVm.run(sameTail)[0]),ResultValue.ERR,
+      'one tail cannot make conflicting row prefixes equal');
+
+    var incompatibleCommon='nail 0.54 ; tcUnify '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " leftTail " ) ) '
+      +'( tcRowField " x " ( tcBase " Bool " ) ( tcVar " rightTail " ) ) '
+      +'[] ;';
+    eq(ResultValue.tag(rowProbeVm.run(incompatibleCommon)[0]),ResultValue.ERR,
+      'shared structural labels must agree on their types');
+
+    // Even a projection that immediately finds the first field must store
+    // a row-lacks guard: open-row schemes can be instantiated without a
+    // pre-existing substitution entry for that structural prefix.
+    var projectedDuplicate='nail 0.54 ; '
+      +'let projected = tcProjectField '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " freeTail " ) ) '
+      +'" x " [] [] " seed " in '
+      +'tcUnify ( tcVar " freeTail " ) '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs projected ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(projectedDuplicate)[0]),ResultValue.ERR,
+      'projecting the first field retains the late duplicate-label guard');
+    var projectedDistinct='nail 0.54 ; '
+      +'let projected = tcProjectField '
+      +'( tcRowField " x " ( tcBase " Int " ) ( tcVar " freeTail " ) ) '
+      +'" x " [] [] " seed " in '
+      +'tcUnify ( tcVar " freeTail " ) '
+      +'( tcRowField " z " ( tcBase " Bool " ) ( tcStruct [] ) ) '
+      +'( tcResultSubs projected ) ;';
+    eq(ResultValue.tag(rowProbeVm.run(projectedDistinct)[0]),ResultValue.OK,
+      'projected row still accepts a distinct late tail field');
+
+
 
 
     rejectsStructural(boot,'def getX r = r . x ; getX { y = true } ;',
