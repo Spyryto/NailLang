@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 concurrency:
   group: naillang-release-${{ github.ref }}
@@ -133,6 +134,11 @@ jobs:
           node build/tests/row-scheme-preview.js
           haxe row-scheme-preview-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-row-scheme-preview/index.php
+          haxe core-ir-test-interp.hxml
+          haxe core-ir-test-js.hxml
+          node build/tests/core-ir.js
+          haxe core-ir-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-core-ir/index.php
           haxe modern-bootstrap-test-js.hxml
           node build/tests/modern-bootstrap.js
           haxe rebootstrap-node.hxml
@@ -156,6 +162,9 @@ jobs:
           node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const out=NailSeedBoot.create().runPlain(fs.readFileSync("examples/hello-055.nail","utf8")); if (JSON.stringify(out)!==JSON.stringify(["I:42/1"])) throw Error(JSON.stringify(out));'
           out=$(XDEBUG_MODE=off php build/boot/php/index.php examples/hello-055.nail)
           php -r 'if (json_decode($argv[1]) !== "I:42/1") exit(1);' "$out"
+          node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const result=NailSeedBoot.create().runPlain(fs.readFileSync("examples/hello-060.nail","utf8")); if (JSON.stringify(result)!==JSON.stringify(["I:42/1"])) throw Error(JSON.stringify(result));'
+          out=$(XDEBUG_MODE=off php build/boot/php/index.php examples/hello-060.nail)
+          php -r 'if (json_decode($argv[1]) !== "I:42/1") exit(1);' "$out"
       - name: Package versioned distributions
         shell: bash
         run: |
@@ -166,6 +175,25 @@ jobs:
           (cd build/boot/js && zip -q "../../../dist/naillang-$tag-boot-js.zip" nailseed-boot.js)
           (cd build/boot && zip -qr "../../dist/naillang-$tag-boot-php.zip" php)
           cp build/bootstrap/self-image.json "dist/naillang-$tag-bootstrap-image.json"
+      # A successful local release smoke suite alone is not enough: the
+      # exact SHA must also have passed all nine required main CI jobs.
+      - name: Require successful complete CI on the exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for attempt in $(seq 1 90); do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "build-and-test")] | sort_by(.completed_at) | last | .conclusion // ""')
+            case "$conclusion" in
+              success) echo "Full nine-job CI passed on $GITHUB_SHA"; exit 0 ;;
+              failure|cancelled|timed_out|skipped|action_required)
+                echo "::error::Full CI is not green: $conclusion"; exit 1 ;;
+              *) sleep 10 ;;
+            esac
+          done
+          echo "::error::No completed full CI success on release SHA"
+          exit 1
       - name: Publish tag and release only after tests succeed
         env:
           GH_TOKEN: ${{ github.token }}
