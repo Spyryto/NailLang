@@ -228,9 +228,12 @@ class ModuleLinker {
     // Runtime declarations in source are hoisted at module level, and
     // erased before both compiler implementations see the program.
     var sourceVersion=numeric.LanguageVersion.declared(spec.source);
-    var sourceImports=sourceVersion == '0.53' || sourceVersion == '0.54'
-      || sourceVersion == '0.55';
-    var moduleImports=sourceVersion == '0.54' || sourceVersion == '0.55';
+    var sourceImports=sourceVersion != null &&
+      ['0.53','0.54','0.55','0.56','0.57','0.58','0.59','0.60']
+        .indexOf(sourceVersion)>=0;
+    var moduleImports=sourceVersion != null &&
+      ['0.54','0.55','0.56','0.57','0.58','0.59','0.60']
+        .indexOf(sourceVersion)>=0;
     var extracted=HostImportDeclarations.extract(
       spec.source,sourceImports,moduleImports);
     var source=extracted.source;
