@@ -3107,12 +3107,12 @@ def tcProjectField receiver field environment substitutions seed =
       tcFault ( textConcat " Missing structural field: " field )
     else tcInferResult found substitutions seed
   else if tag == " TCRowField " then
-    if syntaxText ( tcFirst ty ) == field then
-      tcInferResult ( tcSecond ty ) substitutions seed
-    else match tcRememberRow ty substitutions with
+    match tcRememberRow ty substitutions with
     | Error message -> tcFault message
     | Ok guarded ->
-      tcProjectField ( tcThird ty ) field environment guarded seed
+      if syntaxText ( tcFirst ty ) == field then
+        tcInferResult ( tcSecond ty ) guarded seed
+      else tcProjectField ( tcThird ty ) field environment guarded seed
   else if tag == " TCVar " then
     let owner = tcNominalOwnerForField field environment tcMissing in
     if syntaxTag owner == " TCAmbiguousOwner " then
