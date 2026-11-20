@@ -4,6 +4,7 @@ import nail.Parser;
 import nail.TypeChecker;
 import nail.RowSchemePreview;
 import nail.NailRowEvidenceAdapter;
+import nail.NailRowInterfacePreview;
 import nail.BootRuntime;
 import nail.ResultValue;
 import nail.Value;
@@ -398,6 +399,95 @@ class RowSchemePreviewTestMain {
       ResultValue.get(directlyChecked[0],ResultValue.OK)),
       checked('nail 0.54 ; def readField r = r . x ;',"readField"),
       'direct checked source canonical output agrees with Haxe');
+
+
+    // A selected interface is a complete transaction over Nail's already
+    // inferred source-level schemes. Selection order is not wire order.
+    var ifaceSource='nail 0.54 ; '
+      +'def id x = x ; def readField r = r . x ;';
+    function interfacePreview(source:String,names:String):Value {
+      var expression='nail 0.54 ; tcCanonicalCheckedInterface '
+        +'" '+source+' " '+names+' ;';
+      var results=dogfood.run(expression);
+      eq(results.length,1,'interface preview returns exactly one result');
+      return results[0];
+    }
+    var orderA=interfacePreview(ifaceSource,
+      '[ " readField " , " id " ]');
+    var orderB=interfacePreview(ifaceSource,
+      '[ " id " , " readField " ]');
+    eq(ResultValue.tag(orderA),ResultValue.OK,
+      'selected interface is constructed after complete typecheck');
+    eq(ResultValue.tag(orderB),ResultValue.OK,
+      'opposite selection order is also valid');
+    var interfaceJSON=NailRowInterfacePreview.encode(
+      ResultValue.get(orderA,ResultValue.OK));
+    eq(interfaceJSON,NailRowInterfacePreview.encode(
+      ResultValue.get(orderB,ResultValue.OK)),
+      'selected interface is independent of request order');
+    var expectedInterface=Json.stringify([
+      NailRowInterfacePreview.FORMAT,
+      [
+        ['id',Json.parse(checked(ifaceSource,'id'))],
+        ['readField',Json.parse(checked(ifaceSource,'readField'))]
+      ]
+    ]);
+    eq(interfaceJSON,expectedInterface,
+      'Nail multi-definition interface matches two Haxe checked schemes');
+    eq(Json.stringify(NailRowInterfacePreview.decode(interfaceJSON)),
+      interfaceJSON,'interface wire validates and roundtrips exactly');
+
+    var reversedSource='nail 0.54 ; '
+      +'def readField r = r . x ; def id x = x ;';
+    eq(NailRowInterfacePreview.encode(ResultValue.get(
+      interfacePreview(reversedSource,'[ " id " , " readField " ]'),
+      ResultValue.OK)),interfaceJSON,
+      'source definition order does not alter canonical preview');
+
+    for (invalid in [
+      {names:'[ " id " , " id " ]',reason:'Duplicate'},
+      {names:'[ " notThere " ]',reason:'No verified'},
+      {names:'[ " #private " ]',reason:'Invalid'},
+      {names:'[ " invalid-name " ]',reason:'Invalid'},
+      {names:'[]',reason:'Empty'}
+    ]) {
+      var rejected=interfacePreview(ifaceSource,invalid.names);
+      eq(ResultValue.tag(rejected),ResultValue.ERR,
+        'invalid interface selection rejects: '+invalid.reason);
+      var message=Std.string(RuntimeValues.toPlain(
+        ResultValue.get(rejected,ResultValue.ERR)));
+      ok(message.indexOf(invalid.reason)>=0,
+        'interface rejection diagnostic contains '+invalid.reason);
+    }
+
+    var invalidProgram=interfacePreview(
+      'nail 0.54 ; def id x = x ; 1 + 1.0 ;','[ " id " ]');
+    eq(ResultValue.tag(invalidProgram),ResultValue.ERR,
+      'type failure after definition publishes no partial interface');
+    var afterFailure=interfacePreview(ifaceSource,'[ " id " ]');
+    eq(ResultValue.tag(afterFailure),ResultValue.OK,
+      'failed interface typecheck leaves subsequent requests unaffected');
+
+    var imageBadOrder=Json.parse(interfaceJSON);
+    var reversedEntries:Array<Dynamic>=cast(cast imageBadOrder:Array<Dynamic>)[1];
+    reversedEntries.reverse();
+    checkFails(() -> NailRowInterfacePreview.validate(imageBadOrder),
+      'noncanonical or duplicate');
+    var imageDuplicate=Json.parse(interfaceJSON);
+    var duplicatedEntries:Array<Dynamic>=cast(cast imageDuplicate:Array<Dynamic>)[1];
+    duplicatedEntries[1]=duplicatedEntries[0];
+    checkFails(() -> NailRowInterfacePreview.validate(imageDuplicate),
+      'noncanonical or duplicate');
+    var imageWrongScheme=Json.parse(interfaceJSON);
+    var wrongEntries:Array<Dynamic>=cast(cast imageWrongScheme:Array<Dynamic>)[1];
+    var firstEntry:Array<Dynamic>=cast wrongEntries[0];
+    firstEntry[1]=['untrusted'];
+    checkFails(() -> NailRowInterfacePreview.validate(imageWrongScheme),
+      'invalid format');
+    checkFails(() -> NailRowInterfacePreview.decode(' '+interfaceJSON),
+      'noncanonical JSON');
+    checkFails(() -> NailRowInterfacePreview.decode(
+      '{"format":"not-an-interface"}'),'invalid interface envelope');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }

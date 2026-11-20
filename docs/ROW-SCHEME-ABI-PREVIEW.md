@@ -72,6 +72,42 @@ continue returning `TCChecked` on success: their result shape does not
 change. The new snapshot exposes neither bytecode nor a public
 module interface. It is intentionally an opt-in, type-only API.
 
+### Selected multi-definition interface preview
+
+`tcCanonicalCheckedInterface source [name, ...]` is a private,
+**opt-in** Nail function for building a deterministic interface preview
+over a chosen subset of verified top-level definitions. It executes
+`tcCheckSourceSchemes` **once**, selects only names present in the
+successful source-level `TCExportSchemes`, and canonicalizes each
+scheme in Nail via `tcCanonicalRowEvidence`. Selection order and
+source declaration order do not affect its output.
+
+The result is `Ok(TCWireInterface [TCWireExports])` or `Error(Text)`.
+Duplicate, missing, private, invalid or unsupported names reject the
+**entire** interface; a later source type error never leaks earlier
+definition schemes. The selector deliberately does **not** read public
+module `export` declarations: it accepts an explicit list of requested
+definitions for the experiment only.
+
+`NailRowInterfacePreview.encode` is an isolated Haxe serializer
+and strict decoder. The wrapper format is:
+
+```json
+["naillang.interface.preview.v0",
+  [["id", ["naillang.row-scheme.preview.v0", ["fn", ["var", 0], ["var", 0]], [0], [], []]]]]
+```
+
+Entries have unique, strictly increasing ASCII identifier names and
+each nested scheme must satisfy `RowSchemePreview` validation.
+The adapter cannot infer types, silently sort entries, generate lacks
+constraints or authorize linked imports. It only serializes completed
+Nail-owned canonical Syntax and validates the resulting bytes.
+
+This is **not** the public module ABI, a signed module interface or a
+promise that the runtime implementation matches a manually provided
+signature. Trusted import/linking, external module exports, nominal
+types and binding freshness remain future stages.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
