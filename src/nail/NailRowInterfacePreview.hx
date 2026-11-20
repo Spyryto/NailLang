@@ -87,4 +87,114 @@ class NailRowInterfacePreview {
       fail("noncanonical JSON representation");
     return parsed;
   }
+
+  // Decode a strictly validated portable preview into the private Syntax
+  // IR understood by Nail. This is only a structural mapping: the Haxe
+  // adapter may not infer, generalize, instantiate or authorize any type.
+  static function valueList(items:Array<Value>):Value {
+    var out:Value=Nil;
+    var i=items.length;
+    while (i>0) {
+      i--;
+      out=Cons(items[i],out);
+    }
+    return out;
+  }
+
+  static function syntaxNode(tag:String,children:Array<Value>):Value
+    return SyntaxNode(tag,valueList(children));
+
+  static function syntaxLeaf(tag:String,text:String):Value
+    return SyntaxLeaf(tag,text);
+
+  static function previewVar(id:Int):Value
+    return syntaxLeaf("TCVar","#wire_import_"+id);
+
+  static function decodeType(raw:Dynamic,depth:Int):Value {
+    if (depth>RowSchemePreview.MAX_DEPTH)
+      fail("import type depth limit exceeded");
+    var input:Array<Dynamic>=cast raw;
+    var tag:String=cast input[0];
+    return switch(tag) {
+      case "Int" | "Ratio" | "Float" | "Number" | "Exact"
+        | "Bool" | "Text" | "Syntax":
+        syntaxLeaf("TCBase",tag);
+      case "var":
+        previewVar(cast input[1]);
+      case "fn":
+        syntaxNode("TCFun",[
+          decodeType(input[1],depth+1),
+          decodeType(input[2],depth+1)]);
+      case "list":
+        syntaxNode("TCList",[decodeType(input[1],depth+1)]);
+      case "row":
+        var fields:Array<Dynamic>=cast input[1];
+        if (input[2]==null) {
+          var closed:Array<Value>=[];
+          for (field in fields) {
+            var pair:Array<Dynamic>=cast field;
+            closed.push(syntaxNode("TCField",[
+              syntaxLeaf("TCName",cast pair[0]),
+              decodeType(pair[1],depth+1)]));
+          }
+          syntaxNode("TCStruct",closed);
+        } else {
+          var tail:Array<Dynamic>=cast input[2];
+          var result:Value=previewVar(cast tail[1]);
+          var i=fields.length;
+          while (i>0) {
+            i--;
+            var pair:Array<Dynamic>=cast fields[i];
+            result=syntaxNode("TCRowField",[
+              syntaxLeaf("TCName",cast pair[0]),
+              decodeType(pair[1],depth+1),result]);
+          }
+          result;
+        }
+      case _:
+        // The preview wire validator accepts some syntax-independent
+        // constructors that the Nail HM row importer does not yet handle.
+        fail("unsupported imported type tag "+tag);
+    };
+  }
+
+  static function decodeScheme(raw:Dynamic):Value {
+    RowSchemePreview.validate(raw);
+    var parts:Array<Dynamic>=cast raw;
+    var quant:Array<Dynamic>=cast parts[2];
+    var eq:Array<Dynamic>=cast parts[3];
+    var lacks:Array<Dynamic>=cast parts[4];
+    var qualifiers:Array<Value>=[];
+    for (item in lacks) {
+      var pair:Array<Dynamic>=cast item;
+      var names:Array<Dynamic>=cast pair[1];
+      var absent:Array<Value>=[];
+      for (name in names)
+        absent.push(syntaxLeaf("TCName",cast name));
+      qualifiers.push(syntaxNode("TCWireLacks",[
+        previewVar(cast pair[0]),
+        syntaxNode("TCWireAbsent",absent)]));
+    }
+    return syntaxNode("TCWireScheme",[
+      decodeType(parts[1],0),
+      syntaxNode("TCWireQuant",[for (id in quant) previewVar(cast id)]),
+      syntaxNode("TCWireEq",[for (id in eq) previewVar(cast id)]),
+      syntaxNode("TCWireLacksSet",qualifiers)]);
+  }
+
+  /** An untrusted wire image is validated before conversion to private
+      Syntax, but that does *not* attest its provider or runtime behavior. */
+  public static function decodeSyntax(source:String):Value {
+    var envelope:Array<Dynamic>=cast decode(source);
+    var entries:Array<Dynamic>=cast envelope[1];
+    var bindings:Array<Value>=[];
+    for (entry in entries) {
+      var pair:Array<Dynamic>=cast entry;
+      bindings.push(syntaxNode("TCBinding",[
+        syntaxLeaf("TCName",cast pair[0]),
+        decodeScheme(pair[1])]));
+    }
+    return syntaxNode("TCWireInterface",[
+      syntaxNode("TCWireExports",bindings)]);
+  }
 }
