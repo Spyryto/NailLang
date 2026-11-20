@@ -2583,7 +2583,12 @@ def tcCheckForms forms environment substitutions seed reversed aliases relations
 
 def tcCheckFormsBody forms environment substitutions seed reversed aliases relations =
   match forms with
-  | [] -> syntaxNode " TCChecked " ( reverse reversed )
+  | [] ->
+    # This state is constructed only on whole-program success. The
+    # environment is already inferred and immutable; no second HM pass.
+    syntaxNode " TCCheckedState "
+      [ syntaxNode " TCChecked " ( reverse reversed ) ,
+        syntaxNode " TCEnvironment " environment ]
   | form :: rest ->
     let tag = syntaxTag form in
     if tag == " RecordType " then
@@ -2644,7 +2649,7 @@ def tcCheckSyntax program =
     else Error " Expected parsed Nail program "
   else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] [] in
     if syntaxTag checked == " TCFault " then Error ( tcFaultMessage checked )
-    else Ok checked ;
+    else Ok ( tcFirst checked ) ;
 
 # Opt-in structured checker error. The regular tcCheckSyntax still returns
 # Error(Text) for existing callers; this returns Error(TCFault Syntax).
@@ -2654,7 +2659,52 @@ def tcCheckSyntaxTraced program =
     else Error ( tcFault " Expected parsed Nail program " )
   else let checked = tcCheckForms ( syntaxChildren program ) [] [] " t " [] [] [] in
     if syntaxTag checked == " TCFault " then Error checked
-    else Ok checked ;
+    else Ok ( tcFirst checked ) ;
+
+# An opt-in transactional snapshot of *user-declared* HM schemes.
+# The original tcCheckSyntax/Traced retain TCChecked as their success
+# payload; no public compiler/VM interface is affected.
+# Select names from the checked program, never from arbitrary environment
+# entries: that excludes global aliases, private metadata, nominal
+# constructor helpers and inherited bindings.
+def tcCheckedDefinitionScheme name rest environment reversed =
+  # Compiler/macro-generated private bindings never cross this boundary.
+  if tcStartsWith name " # " then
+    tcCheckedDefinitionSchemes rest environment reversed
+  else let scheme = tcFind name environment in
+    if syntaxTag scheme != " TCScheme " then
+      tcFault ( textConcat " Missing checked definition scheme: " name )
+    else tcCheckedDefinitionSchemes rest environment
+      ( cons ( tcBinding name scheme ) reversed ) ;
+
+def tcCheckedDefinitionSchemes forms environment reversed =
+  match forms with
+  | [] -> syntaxNode " TCExportSchemes " ( reverse reversed )
+  | form :: rest ->
+    let tag = syntaxTag form in
+    if tag == " Define " then
+      tcCheckedDefinitionScheme ( syntaxText ( tcFirst form ) )
+        rest environment reversed
+    else if tag == " AnnotatedDefine " then
+      tcCheckedDefinitionScheme ( syntaxText ( tcFirst form ) )
+        rest environment reversed
+    else tcCheckedDefinitionSchemes rest environment reversed ;
+
+def tcCheckSyntaxSchemes program =
+  if syntaxTag program != " Program " then
+    if syntaxTag program == " Error " then Error ( syntaxText program )
+    else Error " Expected parsed Nail program "
+  else let checked = tcCheckForms ( syntaxChildren program )
+    [] [] " t " [] [] [] in
+    if syntaxTag checked == " TCFault " then
+      Error ( tcFaultMessage checked )
+    else let exports = tcCheckedDefinitionSchemes
+      ( syntaxChildren program )
+      ( syntaxChildren ( tcSecond checked ) ) [] in
+      if syntaxTag exports == " TCFault " then
+        Error ( tcFaultMessage exports )
+      else Ok ( syntaxNode " TCCheckedSchemes "
+        [ tcFirst checked , exports ] ) ;
 
 # The macro expander works exclusively on executable Program forms.
 # Keep the annotation/alias/relation metadata in Nail while allowing the
@@ -2809,6 +2859,18 @@ def tcCheckSourceTraced source =
   if parsePeek tokens != " nail " then
     Error ( tcFault " Nail typechecker currently requires versioned modern source " )
   else tcCheckSyntaxTraced
+    ( modernRewrite
+      ( tcExpandTypedMacros
+        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
+
+# Checks the full program atomically and returns only schemes from its
+# source-level definitions alongside the original expression results.
+# A failed form returns Error with no partial environment/scheme data.
+def tcCheckSourceSchemes source =
+  let tokens = tokenizeCode source in
+  if parsePeek tokens != " nail " then
+    Error " Nail typechecker currently requires versioned modern source "
+  else tcCheckSyntaxSchemes
     ( modernRewrite
       ( tcExpandTypedMacros
         ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
@@ -5222,3 +5284,16 @@ def tcCanonicalRowEvidence scheme =
             syntaxNode " TCWireEq " ( tcWireEqFor ordered eq mappings ) ,
             syntaxNode " TCWireLacksSet "
               ( tcWireLacksFor ordered guards mappings ) ] ) ;
+
+# Obtain one canonical row-scheme image only after the whole source was
+# checked. Reuse the exact generalized TCScheme from that same HM pass.
+# Failure, missing names and unsupported schemes cannot expose partial data.
+def tcCanonicalCheckedDefinition source name =
+  match tcCheckSourceSchemes source with
+  | Error message -> Error message
+  | Ok checked ->
+    let exports = syntaxChildren ( tcSecond checked ) in
+    let scheme = tcFind name exports in
+    if syntaxTag scheme != " TCScheme " then
+      Error ( textConcat " No verified exported definition: " name )
+    else tcCanonicalRowEvidence scheme ;

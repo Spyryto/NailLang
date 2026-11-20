@@ -308,6 +308,97 @@ class RowSchemePreviewTestMain {
       +'( tcFun ( tcVar " a " ) ( tcVar " a " ) ) [] [] [] )';
     nailRejects(freeVar,'Free variable');
 
+
+    // The entire Nail checker environment is available at the successful
+    // terminal continuation, but only source-level definitions are returned.
+    // A failed *later* form never returns a partial environment or scheme.
+    var transactionSource='nail 0.54 ; '
+      +'def readText r = textConcat ( r . x ) " suffix " ;';
+    var transactional=dogfood.invoke('tcCheckSourceSchemes',
+      Text(transactionSource));
+    eq(ResultValue.tag(transactional),ResultValue.OK,
+      'Nail HM transaction accepts source before publishing schemes');
+    var inferredScheme:Value=switch (ResultValue.get(
+      transactional,ResultValue.OK)) {
+      case SyntaxNode('TCCheckedSchemes',
+          Cons(SyntaxNode('TCChecked',_),
+            Cons(SyntaxNode('TCExportSchemes',
+              Cons(SyntaxNode('TCBinding',
+                Cons(SyntaxLeaf('TCName','readText'),
+                  Cons(scheme,Nil))),Nil)),Nil))):
+        scheme;
+      case _: throw 'ROW SCHEME PREVIEW: unexpected transactional evidence';
+    };
+    eq(ResultValue.tag(dogfood.invoke(
+      'tcCheckSource',Text(transactionSource))),ResultValue.OK,
+      'legacy checked-source API remains valid');
+    var legacyPayload=ResultValue.get(dogfood.invoke(
+      'tcCheckSource',Text(transactionSource)),ResultValue.OK);
+    ok(switch(legacyPayload) {
+      case SyntaxNode('TCChecked',_): true;
+      case _: false;
+    },'legacy TCChecked payload shape is unchanged');
+    var exported=dogfood.invoke('tcCanonicalRowEvidence',inferredScheme);
+    eq(ResultValue.tag(exported),ResultValue.OK,
+      'Nail reuses already inferred TCScheme for canonicalization');
+    eq(NailRowEvidenceAdapter.encode(ResultValue.get(exported,ResultValue.OK)),
+      canonicalFromHaxe,
+      'checked Nail source scheme agrees with Haxe reference producer');
+
+    var secondSource='nail 0.54 ; '
+      +'def id x = x ; def readText r = '
+      +'textConcat ( r . x ) " suffix " ;';
+    var second=dogfood.invoke('tcCheckSourceSchemes',Text(secondSource));
+    eq(ResultValue.tag(second),ResultValue.OK,
+      'transactional environment contains multiple explicit definitions');
+    var secondNames:Array<String>=switch(ResultValue.get(second,ResultValue.OK)) {
+      case SyntaxNode('TCCheckedSchemes',
+          Cons(_,Cons(SyntaxNode('TCExportSchemes',items),Nil))):
+        var found:Array<String>=[];
+        var rest=items;
+        while (true) switch(rest) {
+          case Nil: break;
+          case Cons(SyntaxNode('TCBinding',
+              Cons(SyntaxLeaf('TCName',name),Cons(_,Nil))),tail):
+            found.push(name);
+            rest=tail;
+          case _: throw 'ROW SCHEME PREVIEW: malformed transaction exports';
+        }
+        found;
+      case _: throw 'ROW SCHEME PREVIEW: expected transactional node';
+    };
+    eq(secondNames,['id','readText'],
+      'only source definitions exported, no generated/private bindings');
+
+    var invalidAfterDefinition='nail 0.54 ; '
+      +'def ephemeral x = x ; 1 + 1.0 ;';
+    var failed=dogfood.invoke('tcCheckSourceSchemes',
+      Text(invalidAfterDefinition));
+    eq(ResultValue.tag(failed),ResultValue.ERR,
+      'later type error atomically rejects all inferred source schemes');
+    var failedFollowup=dogfood.invoke('tcCheckSourceSchemes',
+      Text(transactionSource));
+    eq(ResultValue.tag(failedFollowup),ResultValue.OK,
+      'a failed transaction cannot poison a later valid check');
+    var missing=dogfood.run('nail 0.54 ; '
+      +'tcCanonicalCheckedDefinition '
+      +'" nail 0.54 ; def readField r = r . x ; " '
+      +'" missing " ;');
+    eq(missing.length,1,'unknown export probe returns one result');
+    eq(ResultValue.tag(missing[0]),ResultValue.ERR,
+      'checked source cannot export an absent definition');
+    var directlyChecked=dogfood.run('nail 0.54 ; '
+      +'tcCanonicalCheckedDefinition '
+      +'" nail 0.54 ; def readField r = r . x ; " '
+      +'" readField " ;');
+    eq(directlyChecked.length,1,'checked source canonical probe returns once');
+    eq(ResultValue.tag(directlyChecked[0]),ResultValue.OK,
+      'one-pass checked source canonicalizes a named definition');
+    eq(NailRowEvidenceAdapter.encode(
+      ResultValue.get(directlyChecked[0],ResultValue.OK)),
+      checked('nail 0.54 ; def readField r = r . x ;',"readField"),
+      'direct checked source canonical output agrees with Haxe');
+
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
 }
