@@ -220,6 +220,40 @@ independently on the equivalent executable definitions, assert the
 canonical interface matches the existing producer, and reject
 missing, duplicate and invalid exports and later type failures.
 
+### Integrity-bound checked-provider transport (private preview)
+
+`NailCheckedModuleEnvelope.encode(witness)` accepts an **in-process**
+`TCVerifiedModulePreview` already returned by
+`tcCompileDeclaredModulePreview`. It serializes the verified interface
+and the matching, compiled `Bytecode` tree using arrays only.
+The versioned canonical JSON envelope is:
+
+```text
+[
+  "naillang.checked-module.preview.v0",
+  <validated canonical row interface>,
+  ["node", "Bytecode", <Syntax instructions as arrays>],
+  "<64-digit SHA-256 of canonical JSON [format,interface,bytecode]>"
+]
+```
+
+Every interface export must have exactly one matching top-level
+`DEFINE` instruction in the code payload. The decoder rejects extra or
+duplicate definitions, malformed Syntax nodes, unsupported top-level
+instructions, overlarge trees, noncanonical JSON, bad hashes, and
+tampering with either the exported interface or compiled code.
+Both Haxe, Node and PHP can validate the *same canonical byte layout*.
+
+**Security boundary:** SHA-256 here is only a *content-integrity*
+fingerprint. It is **not an authentication signature**. Anyone who can
+change the payload can recompute its hash, and the Syntax tree is not a
+cryptographic proof that the bytecode satisfies the claimed type.
+The in-process compiler witness carries local provenance only.
+Untrusted externally supplied envelopes must **never** bypass the
+checker or automatically execute. The real module ABI, provenance
+verification, symbol binding and linker integration remain separate
+design and testing milestones.
+
 ## Preview wire grammar
 
 The entire preview is a JSON **array**, to avoid object-key ordering
