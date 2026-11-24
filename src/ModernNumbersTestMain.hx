@@ -121,7 +121,7 @@ class ModernNumbersTestMain {
     ok(LanguageVersion.hasArithmeticRelations('nail 0.54 ; 1 ;')
        && LanguageVersion.hasArithmeticRelations('nail 0.55 ; 1 ;'),
        '0.54 and 0.55 arithmetic relations remain enabled');
-    fails(() -> new Parser('nail 0.61 ; 1 ;').parseRaw(),
+    fails(() -> new Parser('nail 0.62 ; 1 ;').parseRaw(),
       'Unsupported Nail language version');
     fails(() -> new Parser('nail 0.45 ; nail 0.45 ;').parseRaw(),'Unexpected');
     eq(new TypeChecker().preview('0.1 + 0.2 ;'),['Number'],
