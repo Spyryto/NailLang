@@ -27,6 +27,7 @@ class TypeChecker {
   var constructorOwners:StringMap<String>;
   var nextId:Int;
   var lastModern:Bool = false;
+  var lastOpenRows:Bool = false;
   // Only names from a successfully checked definition may be previewed.
   var checkedPreviewDefinitions:StringMap<Bool> = new StringMap<Bool>();
   var relationByName:haxe.ds.StringMap<String>;
@@ -76,8 +77,10 @@ class TypeChecker {
     }
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
-      newTables, functionContracts, parser.experimentalContexts);
+      newTables, functionContracts,
+      parser.experimentalContexts || parser.languageVersion=='0.60');
     solver.declarations = parser.declaredRelations;
+    solver.parameterConstraints=parser.parameterConstraints;
     if (parser.experimentalContexts) {
       solver.parameterConstraints=parser.parameterConstraints;
       solver.valueConstraints=parser.valueConstraints;
@@ -107,6 +110,7 @@ class TypeChecker {
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
+    lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.60';
     if (parser.modernMode) for (form in forms) switch(form) {
       case Define(name, _): checkedPreviewDefinitions.set(name,true);
       case _:
@@ -118,7 +122,7 @@ class TypeChecker {
   public function checkSyntax(tree:Value):Array<String> {
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, lastModern,
-      generalContracts, functionContracts);
+      generalContracts, functionContracts, lastOpenRows);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
@@ -452,6 +456,7 @@ class TypeChecker {
     for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
     instance.lastModern = lastModern;
+    instance.lastOpenRows = lastOpenRows;
     instance.generalContracts = new StringMap();
     for (name in generalContracts.keys())
       instance.generalContracts.set(name,generalContracts.get(name));
