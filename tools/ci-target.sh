@@ -47,6 +47,7 @@ common_suites=(
   host-functions
   host-source-imports
   host-interop-quickstart
+  structural-projection
   context-block-probe
   nail-typechecker
   row-scheme-preview
