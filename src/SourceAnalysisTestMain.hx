@@ -108,6 +108,38 @@ class SourceAnalysisTestMain {
       && supported055.evaluations.length == 1
       && supported055.evaluations[0].type == 'Int',
       '0.55 source analysis accepts its new versioned header');
+    // Exercise the editor-facing API, not just the internal checker.
+    var projection = 'nail 0.61 ;\n'
+      + 'type Person { name Text age Float } ;\n'
+      + 'def getName data = data . name ;\n'
+      + 'getName { name = " Nail " } ;\n'
+      + 'getName ( Person " Ada " 46.0 ) ;';
+    var projected = SourceAnalysis.analyze(projection);
+    ok(projected.ok && projected.version == '0.61' &&
+      projected.evaluations.length == 2 &&
+      projected.evaluations[0].type == 'Text' &&
+      projected.evaluations[1].type == 'Text',
+      'editor analysis accepts structural projection across anonymous and nominal records');
+    var structuralSignature = symbol(projected, 'getName', 'definition').signature;
+    ok(structuralSignature != null && has(structuralSignature, 'name:') &&
+      has(structuralSignature, ' | ') && !has(structuralSignature, 'Person'),
+      'editor exposes the open structural signature');
+    var annotated = 'nail 0.61 ;\n'
+      + 'type Person { name Text age Float } ;\n'
+      + 'def getName ( data : Person ) = data . name ;\n';
+    var validNominal = SourceAnalysis.analyze(annotated
+      + 'getName ( Person " Ada " 46.0 ) ;');
+    ok(validNominal.ok &&
+      symbol(validNominal, 'getName', 'definition').signature == 'Person -> Text',
+      'editor exposes the explicit nominal signature');
+    var invalidNominal = SourceAnalysis.analyze(annotated
+      + 'getName { name = " Ada " , age = 46.0 } ;');
+    ok(!invalidNominal.ok && invalidNominal.diagnostics.length == 1 &&
+      invalidNominal.diagnostics[0].phase == 'type' &&
+      invalidNominal.diagnostics[0].span != null &&
+      invalidNominal.diagnostics[0].span.line == 4,
+      'editor reports the nominal mismatch at the offending source form');
+
     var unsupported = SourceAnalysis.analyze('nail 0.62 ; 1 ;');
     ok(!unsupported.ok &&
       unsupported.diagnostics[0].phase == 'parse' &&
