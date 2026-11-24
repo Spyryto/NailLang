@@ -47,7 +47,7 @@ import greet from NailHost : Text -> Text ;
 
 The embedding Haxe application explicitly registers `greet`; no new FFI is needed. An import declaration alone does **not** authorize a host callback. The same Haxe example compiles and runs on Haxe, Node and PHP.
 
-- [Runnable example and commands](RUNNING.md#060--primo-esempio-di-interoperabilità-con-lhost)
+- [Runnable example and commands](RUNNING.md)
 - [Nail source](examples/host-greeting-060.nail) · [Haxe host example](src/HostInteropQuickstartTestMain.hx)
 
 *The interoperability quickstart was added to `main` after the v0.60 tag. It is available in the repository checkout, not in the original v0.60 release archives.*
