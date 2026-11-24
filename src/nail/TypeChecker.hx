@@ -78,7 +78,7 @@ class TypeChecker {
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
       newTables, functionContracts,
-      parser.experimentalContexts || parser.languageVersion=='0.60');
+      parser.experimentalContexts || parser.languageVersion=='0.61');
     solver.declarations = parser.declaredRelations;
     solver.parameterConstraints=parser.parameterConstraints;
     if (parser.experimentalContexts) {
@@ -110,7 +110,7 @@ class TypeChecker {
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
-    lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.60';
+    lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
     if (parser.modernMode) for (form in forms) switch(form) {
       case Define(name, _): checkedPreviewDefinitions.set(name,true);
       case _:
