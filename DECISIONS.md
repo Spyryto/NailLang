@@ -1,6 +1,6 @@
 # Nail — Registro delle decisioni
 
-Baseline: 24 novembre 2026, ramo main, candidato 0.60. Questo registro sintetizza le decisioni discusse; non sostituisce la [specifica](SPEC.md), le [note di release](docs/releases/0.60.md) né i test. I principi stabili sono in [PRINCIPLES.md](PRINCIPLES.md); le priorità in [ROADMAP.md](ROADMAP.md).
+Baseline: 24 novembre 2026, ramo main, release v0.60. Questo registro sintetizza le decisioni discusse; non sostituisce la [specifica](SPEC.md), le [note di release](docs/releases/0.60.md) né i test. I principi stabili sono in [PRINCIPLES.md](PRINCIPLES.md); le priorità in [ROADMAP.md](ROADMAP.md).
 
 Stati: **adottata** = orientamento o scelta corrente; **sperimentale** = percorso non ancora promosso; **da valutare** = proposta, non impegno; **scartata come vincolo** = alternativa non obbligatoria. Ogni scelta è rivedibile.
 
