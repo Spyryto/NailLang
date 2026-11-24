@@ -165,6 +165,11 @@ jobs:
           node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const result=NailSeedBoot.create().runPlain(fs.readFileSync("examples/hello-060.nail","utf8")); if (JSON.stringify(result)!==JSON.stringify(["I:42/1"])) throw Error(JSON.stringify(result));'
           out=$(XDEBUG_MODE=off php build/boot/php/index.php examples/hello-060.nail)
           php -r 'if (json_decode($argv[1]) !== "I:42/1") exit(1);' "$out"
+          # v0.61: the published source-free runtimes must accept the new
+          # header and execute a projected field on both record representations.
+          node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const src=fs.readFileSync("examples/structural-projection-061.nail","utf8"); const r=NailSeedBoot.create(60000000).runPlain(src); if(JSON.stringify(r)!==JSON.stringify(["Daniele","Mario"])) throw Error(JSON.stringify(r));'
+          out=$(XDEBUG_MODE=off php build/boot/php/index.php examples/structural-projection-061.nail)
+          printf '%s\n' "$out" | php -r '$rows=file("php://stdin", FILE_IGNORE_NEW_LINES); if(count($rows)!==2 || json_decode($rows[0])!=="Daniele" || json_decode($rows[1])!=="Mario") exit(1);' "$out"
       - name: Package versioned distributions
         shell: bash
         run: |

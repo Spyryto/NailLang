@@ -1,0 +1,5 @@
+nail 0.61 ;
+type Person { name Text age Float } ;
+def getName data = data . name ;
+getName { name = " Daniele " , age = 19.0 } ;
+getName ( Person " Mario " 46.0 ) ;

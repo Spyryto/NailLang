@@ -27,6 +27,7 @@ class TypeChecker {
   var constructorOwners:StringMap<String>;
   var nextId:Int;
   var lastModern:Bool = false;
+  var lastOpenRows:Bool = false;
   // Only names from a successfully checked definition may be previewed.
   var checkedPreviewDefinitions:StringMap<Bool> = new StringMap<Bool>();
   var relationByName:haxe.ds.StringMap<String>;
@@ -76,8 +77,10 @@ class TypeChecker {
     }
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
-      newTables, functionContracts, parser.experimentalContexts);
+      newTables, functionContracts,
+      parser.experimentalContexts || parser.languageVersion=='0.61');
     solver.declarations = parser.declaredRelations;
+    solver.parameterConstraints=parser.parameterConstraints;
     if (parser.experimentalContexts) {
       solver.parameterConstraints=parser.parameterConstraints;
       solver.valueConstraints=parser.valueConstraints;
@@ -107,6 +110,7 @@ class TypeChecker {
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
     lastModern = parser.modernMode;
+    lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
     if (parser.modernMode) for (form in forms) switch(form) {
       case Define(name, _): checkedPreviewDefinitions.set(name,true);
       case _:
@@ -118,7 +122,7 @@ class TypeChecker {
   public function checkSyntax(tree:Value):Array<String> {
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, lastModern,
-      generalContracts, functionContracts);
+      generalContracts, functionContracts, lastOpenRows);
     var inferred = solver.run(SyntaxBridge.forms(MacroExpander.syntax(tree)));
     global = solver.globals;
     records = solver.records;
@@ -452,6 +456,7 @@ class TypeChecker {
     for (name in constructorOwners.keys()) instance.constructorOwners.set(name, constructorOwners.get(name));
     instance.nextId = nextId;
     instance.lastModern = lastModern;
+    instance.lastOpenRows = lastOpenRows;
     instance.generalContracts = new StringMap();
     for (name in generalContracts.keys())
       instance.generalContracts.set(name,generalContracts.get(name));
@@ -824,6 +829,34 @@ private class Inference {
     work.push({a:y.rest,b:addRow(onlyX,shared)});
   }
 
+  /** Compare an inferred structural requirement with a *concrete nominal*
+      record's actual fields. The value remains nominal; only its field
+      signature is used to satisfy a structural projection. Explicit
+      annotations keep their nominal NType and do not take this path. */
+  function nominalRowView(nominal:NType):NType {
+    var owner=switch (prune(nominal)) {
+      case TRecord(name) | TRecordApplied(name,_): name;
+      case _: throw 'Type error: expected nominal record';
+    };
+    if (!records.exists(owner))
+      throw 'Type error: unknown nominal record '+owner;
+    var prefix=owner+'.';
+    var names:Array<String>=[];
+    for (key in globals.keys())
+      if (StringTools.startsWith(key,prefix) &&
+          key.length>prefix.length && key.indexOf('.',prefix.length)<0)
+        names.push(key.substr(prefix.length));
+    names.sort(Reflect.compare);
+    if (names.length==0) throw 'Type error: record '+owner+' has no fields';
+    var fields:Array<nail.NType.StructuralField>=[];
+    for (name in names) {
+      var result=fresh();
+      unify(instantiate(globals.get(prefix+name)),fun(nominal,result));
+      fields.push({name:name,type:result});
+    }
+    return TStructural(fields);
+  }
+
   function unify(left:NType, right:NType):Void {
     var stack:Array<{a:NType, b:NType}> = [{a:left, b:right}];
     while (stack.length > 0) {
@@ -839,6 +872,14 @@ private class Inference {
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
+        // Open structural constraints can be satisfied by a nominal record
+        // without erasing nominal identity or changing the runtime value.
+        case [TOpenStructural(_, _), TRecord(_)]
+          | [TOpenStructural(_, _), TRecordApplied(_, _)]:
+          stack.push({a:a,b:nominalRowView(b)});
+        case [TRecord(_), TOpenStructural(_, _)]
+          | [TRecordApplied(_, _), TOpenStructural(_, _)]:
+          stack.push({a:nominalRowView(a),b:b});
         case [TStructural(_), TStructural(_)]
           | [TOpenStructural(_, _), TStructural(_)]
           | [TStructural(_), TOpenStructural(_, _)]
@@ -1066,10 +1107,10 @@ private class Inference {
     }
   }
 
-  /** Dot syntax desugars to #recordGet receiver "field". The field
-      projection type follows the receiver's *nominal* record type. When an
-      unconstrained parameter is used, a unique field name can determine it;
-      shared field names are reported as ambiguous rather than guessed. */
+  /** Dot syntax desugars to #recordGet receiver "field".
+      In v0.61, an unannotated receiver gains an open structural row;
+      a nominally annotated receiver still uses its named getter.
+      Older dialects retain the historical nominal-field heuristic. */
   function projectField(receiver:NType, field:String):NType {
     var recordName:Null<String> = null;
     switch (prune(receiver)) {
@@ -1106,7 +1147,29 @@ private class Inference {
 
   /** Hindley-Milner with explicit expression frames; let generalization stays at
       the direct-lambda application boundary, as in v0.12. */
-  function infer(expr:Expr, env:StringMap<TypeScheme>, ?current:{name:String, scheme:TypeScheme}):NType {
+  function infer(expr:Expr, env:StringMap<TypeScheme>,
+      ?current:{name:String, scheme:TypeScheme},
+      ?annotations:Array<{name:String,type:NType}>):NType {
+    // Match annotations to the *outer* curried lambda nodes, not a nested
+    // lambda that happens to reuse the same parameter name.
+    var annotatedBinders:Array<{source:Expr,type:NType}>=[];
+    if (annotations!=null && annotations.length>0) {
+      var seen=new StringMap<Bool>();
+      var cursor=expr;
+      var scanning=true;
+      while (scanning) switch (cursor) {
+        case Lambda(param,body):
+          for (item in annotations) if (item.name==param) {
+            annotatedBinders.push({source:cursor,type:item.type});
+            seen.set(param,true);
+            break;
+          }
+          cursor=body;
+        case _: scanning=false;
+      }
+      for (item in annotations) if (!seen.exists(item.name))
+        throw 'Parameter annotation: missing parameter '+item.name;
+    }
     var work:Array<InferFrame> = [new InferFrame(expr, env)];
     var results:Array<NType> = [];
     while (work.length > 0) {
@@ -1140,7 +1203,13 @@ private class Inference {
           work.pop();
         case Lambda(param, body):
           if (frame.phase == 0) {
-            frame.saved = fresh();
+            var declared:Null<NType>=null;
+            for (entry in annotatedBinders)
+              if (entry.source==frame.source) { declared=entry.type; break; }
+            frame.saved=declared==null ? fresh() : switch(declared) {
+              case TStructural(fields): TOpenStructural(fields,fresh());
+              case _: declared;
+            };
             var child = scopeCopy(frame.scope);
             child.set(param, mono(frame.saved));
             frame.phase = 1;
@@ -1690,41 +1759,11 @@ private class Inference {
         var env = scopeCopy(globals);
         env.set(name, mono(provisional));
         validateMatches(expr);
-        var t = infer(expr, env, {name:name, scheme:mono(provisional)});
-        // Optional contracts narrow inference. They never change the core
-        // expression or its runtime behavior; surplus record fields remain
-        // accepted through open structural tails.
-        var requirements=parameterConstraints.get(name);
-        if (requirements!=null) {
-          var currentType=t;
-          var currentBody=expr;
-          for (item in requirements) {
-            // Find the correct annotated binder in the curried source order.
-            // Every binder is checked at the exact parameter position.
-            var cursor=currentBody;
-            var typeCursor=t;
-            var found=false;
-            while(true) switch(cursor) {
-              case Lambda(param,rest):
-                var arg=fresh(),ret=fresh();
-                unify(typeCursor,TFunction(arg,ret));
-                if (param==item.name) {
-                  switch(item.type) {
-                    case TStructural(fields):
-                      unify(arg,TOpenStructural(fields,fresh()));
-                    case _:
-                      unify(arg,item.type);
-                  }
-                  found=true;
-                  break;
-                }
-                cursor=rest; typeCursor=ret;
-              case _:
-                break;
-            }
-            if (!found) throw 'Parameter annotation: missing parameter '+item.name;
-          }
-        }
+        // Apply annotations at binder introduction, before projecting a
+        // field. A nominal annotation must never be retrofitted to an
+        // already inferred structural row (that would accept wrong records).
+        var t = infer(expr, env, {name:name, scheme:mono(provisional)},
+          parameterConstraints.get(name));
         var requiredValue=valueConstraints.get(name);
         if (requiredValue!=null) switch(requiredValue) {
           case TStructural(fields):

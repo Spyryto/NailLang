@@ -4,6 +4,8 @@ NailLang is an experimental programming language implemented in Haxe, with JavaS
 
 **Latest public release:** [v0.60](https://github.com/Spyryto/NailLang/releases/tag/v0.60) · **Status:** experimental.
 
+**Development candidate:** v0.61 adds inferred structural field projections while explicit nominal annotations remain strict. See [v0.61 candidate notes](docs/releases/0.61.md). Release v0.60 and the current Nail Lab v0.60 runtime are not changed retroactively.
+
 **Play online:** [Nail Lab — interactive PWA](https://spyryto.github.io/Nail-Lab/) (mobile-friendly editor; select the real Nail **v0.54** or **v0.60** runtime for execution and analysis, with a separate saved draft for each).
 
 **Play v0.60 locally:** [Browser playground](examples/browser.html) · [Setup instructions](RUNNING.md#javascript-in-una-pagina-web). This HTML file runs with the generated `build/js/nailseed.js` bundle served over HTTP. Clicking the file in GitHub shows its source; it does not launch a hosted v0.60 app.

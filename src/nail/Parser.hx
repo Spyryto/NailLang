@@ -15,6 +15,8 @@ class Parser {
   /** Experimental type declarations are erased, but preserved as
       checker-facing metadata until type analysis has completed. */
   public final typeAliases:haxe.ds.StringMap<nail.NType>;
+  /** Nominal record declarations already seen in this source, with arity. */
+  final declaredRecordArities:haxe.ds.StringMap<Int>;
   public final parameterConstraints:haxe.ds.StringMap<Array<{name:String, type:nail.NType}>>;
   public final valueConstraints:haxe.ds.StringMap<nail.NType>;
   /** Explicitly opted-in, experimental contextual + open-row inference.
@@ -48,6 +50,7 @@ class Parser {
     this.contextFields=contextFields;
     this.experimentalContexts=contextFields!=null;
     typeAliases=new haxe.ds.StringMap<nail.NType>();
+    declaredRecordArities=new haxe.ds.StringMap<Int>();
     parameterConstraints=new haxe.ds.StringMap<Array<{name:String,type:nail.NType}>>();
     valueConstraints=new haxe.ds.StringMap<nail.NType>();
     languageVersion = numeric.LanguageVersion.declared(source);
@@ -509,8 +512,13 @@ class Parser {
       case 'Syntax': nail.NType.TSyntax;
       case _:
         var alias=typeAliases.get(name);
-        if (alias==null) throw 'Type alias: unknown type '+name;
-        alias;
+        if (alias!=null) alias;
+        else {
+          var arity=declaredRecordArities.get(name);
+          if (arity==null) throw 'Parameter annotation: unknown type '+name;
+          if (arity!=0) throw 'Parameter annotation: generic record needs type arguments '+name;
+          nail.NType.TRecord(name);
+        }
     };
   }
 
@@ -660,8 +668,14 @@ class Parser {
           parseStructuralAlias(typeName);
           continue;
         }
-        forms.push(cursor < tokens.length && tokens[cursor] == '{'
-          ? parseRecordType(typeName) : parseSumType(typeName));
+        if (cursor < tokens.length && tokens[cursor] == '{') {
+          var record=parseRecordType(typeName);
+          switch (record) {
+            case RecordType(_,params,_): declaredRecordArities.set(typeName,params.length);
+            case _: throw 'Invalid nominal record declaration';
+          }
+          forms.push(record);
+        } else forms.push(parseSumType(typeName));
       } else if (peek() == 'import' || peek() == 'export') {
         var importing = take() == 'import';
         var name = take();
@@ -688,7 +702,7 @@ class Parser {
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
           var p:String;
-          if (experimentalContexts && peek()=='(') {
+          if ((experimentalContexts || languageVersion=='0.61') && peek()=='(') {
             take();
             p=take();
             if (!isName(p) || params.indexOf(p)>=0)

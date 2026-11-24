@@ -104,6 +104,8 @@ def lesson = Lesson 2 30 ;
 
 F# offre inizializzazione per nome, aggiornamento non distruttivo e record anonimi. Nail documenta record nominali e strutturali; verificare separatamente le operazioni e le garanzie, senza dedurre equivalenza completa.
 
+**Nel candidato Nail 0.61:** `def getName data = data . name ;` inferisce `{name:a | r} -> a`, senza richiedere `Person`. Invece `def getName ( data : Person ) = data . name ;` impone un tipo nominale. Vedi [test](src/StructuralProjectionTestMain.hx) e [note 0.61](docs/releases/0.61.md). Le interfacce pubbliche con righe aperte rimangono escluse dall'ABI.
+
 ## 6. Discriminated union e pattern matching
 
 F#:
