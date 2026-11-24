@@ -1,6 +1,11 @@
 # NailSeed v0.6 standard library: functions are written in Nail.
 # All list traversal uses source-level exhaustive matching (no native map/filter/fold).
 
+# SINTASSI: funzioni con molti parametri sono difficili da leggere intuitivamente
+# SINTASSI: vedi funzione "tokenizeAt" più avanti
+# SINTASSI: troviamo una soluzione per usare parametri con keyword e comunque ...
+# SINTASSI: ...mantenere la possibilità di curryficare le funzioni e applicarle parzialmente
+
 def id x = x ;
 def compose f g x = f ( g x ) ;
 
@@ -32,6 +37,7 @@ type MapEntry k v { key k value v } ;
 type MapLookup a = MapMissing | MapFound a ;
 
 def mapEmpty = [] ;
+# SINTASSI: intanto vorrei poter usare id come map-empty (come in lisp)
 def mapFind entries key =
   match entries with
   | [] -> MapMissing
@@ -60,12 +66,32 @@ def mapPut entries key value =
 
 def setEmpty = [] ;
 def setContains entries item =
+
+# SINTASSI: la sintassi per la dichiarazione che propongo è: 
+# SINTASSI:     def set contains: item in: entries = ... # con due punti per keyword
+# SINTASSI: "contains:" diventa una label facoltativa, come anche "in:"
+# SINTASSI: quindi si potrebbe chiamare in questi modi:
+# SINTASSI:     set contains 1 in [ 1 , 2 , 3 ]  # keyword nude
+# SINTASSI:     set contains: 1 in: [ 1 , 2 , 3 ] # keyword con due punti
+# SINTASSI:     set:contains: 1 [ 1 , 2 , 3 ] # posizionale
+# SINTASSI: "set:contains:" è una qualifica parziale del nome della funzione
+# SINTASSI: e basta per identificarla
+# SINTASSI: mentre "set:contains:in:" è la qualifica totale
   match entries with
   | [] -> false
   | entry :: rest ->
     if entry == item then true else setContains rest item ;
 
 def setDelete entries item =
+# SINTASSI: se non ti piace il fatto della qualifica parziale possiamo fare così
+# SINTASSI: come regola, se una funzione non dichiara keyword, come questa
+# SINTASSI: def set-delete entries item = ...
+# SINTASSI: si potrebbero rendere opzionali alla chiamata con l'id della dichiarazione:
+# SINTASSI:     set-delete entries: [ 1 , 2 , 3 ] item: 2 # keyword
+# SINTASSI:     set-delete item: 2 entries: [ 1 , 2 , 3 ] # keyword, ordine diverso
+# SINTASSI:     set-delete [ 1 , 2 , 3 ] 2 # posizionale
+# SINTASSI:     set-delete entries: [ 1 , 2 , 3 ] 2 # misto
+# SINTASSI:     set-delete [ 1 , 2 , 3 ] item: 2 # misto
   match entries with
   | [] -> []
   | entry :: rest ->
@@ -81,6 +107,16 @@ def setAdd entries item =
 # v0.7: self-hosted whitespace tokenizer. Host primitives: textLength/textAt/textConcat.
 # Input is ASCII text. Punctuation must still be separated by whitespace.
 def isSpace ch =
+# SINTASSI: `if isSpace ch` non è inglese fluido quindi propongo un modo per leggerlo come
+# SINTASSI: "if character is space", anche se non scritto esattamente così
+# SINTASSI: quindi
+# SINTASSI: `if ch >> isSpace ...` o `if ch >> is-space ...` # come in Mira
+# SINTASSI: `is character: ch space ? ...`
+# SINTASSI: ```
+# SINTASSI: def space ch = ch == " \u0020 ";
+# SINTASSI: def is character predicate: fn = fn character;
+# SINTASSI: is character space ? ... else ... 
+# SINTASSI: ```
   if ch == " \u0020 " then true
   else if ch == " \t " then true
   else if ch == " \n " then true
@@ -104,6 +140,7 @@ def tokenize source = tokenizeAt source 0 ( textLength source ) " " [] ;
 # Result: prefix *flat* AST as [Text], [] means not recognized.
 # This is NOT the full Nail parser; it establishes the data path and tests it.
 def parseTinyDefTokens ts =
+# SINTASSI: intanto sarebbe interessante poter usare id come parse-tiny-def-tokens (lisp)
   if length ts != 8 then []
   else
     let kw = head ts in
@@ -140,6 +177,9 @@ def syntaxBinary op lhs rhs = syntaxApply ( syntaxApply ( syntaxVar op ) lhs ) r
 def syntaxNil = syntaxLiteral " Nil " " nil " ;
 def syntaxList reversed =
   fold ( fun acc item -> syntaxBinary " #cons " item acc ) syntaxNil reversed ;
+
+# SINTASSI: quando riusciamo, togliamo la necessità di usare gli spazi intorno a 
+# SINTASSI: virgole, punti e virgole, e parentesi; ma prima ci sono altre priorità
 
 def parsePair tree rest = cons tree rest ;
 def parseTree pair = head pair ;
