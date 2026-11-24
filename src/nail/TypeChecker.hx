@@ -1147,7 +1147,29 @@ private class Inference {
 
   /** Hindley-Milner with explicit expression frames; let generalization stays at
       the direct-lambda application boundary, as in v0.12. */
-  function infer(expr:Expr, env:StringMap<TypeScheme>, ?current:{name:String, scheme:TypeScheme}):NType {
+  function infer(expr:Expr, env:StringMap<TypeScheme>,
+      ?current:{name:String, scheme:TypeScheme},
+      ?annotations:Array<{name:String,type:NType}>):NType {
+    // Match annotations to the *outer* curried lambda nodes, not a nested
+    // lambda that happens to reuse the same parameter name.
+    var annotatedBinders:Array<{source:Expr,type:NType}>=[];
+    if (annotations!=null && annotations.length>0) {
+      var seen=new StringMap<Bool>();
+      var cursor=expr;
+      var scanning=true;
+      while (scanning) switch (cursor) {
+        case Lambda(param,body):
+          for (item in annotations) if (item.name==param) {
+            annotatedBinders.push({source:cursor,type:item.type});
+            seen.set(param,true);
+            break;
+          }
+          cursor=body;
+        case _: scanning=false;
+      }
+      for (item in annotations) if (!seen.exists(item.name))
+        throw 'Parameter annotation: missing parameter '+item.name;
+    }
     var work:Array<InferFrame> = [new InferFrame(expr, env)];
     var results:Array<NType> = [];
     while (work.length > 0) {
@@ -1181,7 +1203,13 @@ private class Inference {
           work.pop();
         case Lambda(param, body):
           if (frame.phase == 0) {
-            frame.saved = fresh();
+            var declared:Null<NType>=null;
+            for (entry in annotatedBinders)
+              if (entry.source==frame.source) { declared=entry.type; break; }
+            frame.saved=declared==null ? fresh() : switch(declared) {
+              case TStructural(fields): TOpenStructural(fields,fresh());
+              case _: declared;
+            };
             var child = scopeCopy(frame.scope);
             child.set(param, mono(frame.saved));
             frame.phase = 1;
@@ -1731,41 +1759,11 @@ private class Inference {
         var env = scopeCopy(globals);
         env.set(name, mono(provisional));
         validateMatches(expr);
-        var t = infer(expr, env, {name:name, scheme:mono(provisional)});
-        // Optional contracts narrow inference. They never change the core
-        // expression or its runtime behavior; surplus record fields remain
-        // accepted through open structural tails.
-        var requirements=parameterConstraints.get(name);
-        if (requirements!=null) {
-          var currentType=t;
-          var currentBody=expr;
-          for (item in requirements) {
-            // Find the correct annotated binder in the curried source order.
-            // Every binder is checked at the exact parameter position.
-            var cursor=currentBody;
-            var typeCursor=t;
-            var found=false;
-            while(true) switch(cursor) {
-              case Lambda(param,rest):
-                var arg=fresh(),ret=fresh();
-                unify(typeCursor,TFunction(arg,ret));
-                if (param==item.name) {
-                  switch(item.type) {
-                    case TStructural(fields):
-                      unify(arg,TOpenStructural(fields,fresh()));
-                    case _:
-                      unify(arg,item.type);
-                  }
-                  found=true;
-                  break;
-                }
-                cursor=rest; typeCursor=ret;
-              case _:
-                break;
-            }
-            if (!found) throw 'Parameter annotation: missing parameter '+item.name;
-          }
-        }
+        // Apply annotations at binder introduction, before projecting a
+        // field. A nominal annotation must never be retrofitted to an
+        // already inferred structural row (that would accept wrong records).
+        var t = infer(expr, env, {name:name, scheme:mono(provisional)},
+          parameterConstraints.get(name));
         var requiredValue=valueConstraints.get(name);
         if (requiredValue!=null) switch(requiredValue) {
           case TStructural(fields):
