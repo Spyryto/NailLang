@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.60 (candidato)
+# Eseguire NailLang — v0.60
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -459,7 +459,7 @@ Per il contratto esatto e le limitazioni si veda
 
 ## v0.60 — CoreIR e verifica Nail-first (sperimentale)
 
-La v0.60 in preparazione introduce una CoreIR semantica a cinque
+La v0.60 pubblicata introduce una CoreIR semantica a cinque
 costruttori, distinta dal bytecode. Il compilatore standard non la usa
 ancora per ottimizzare; `CoreIR.compile` esegue una trasformazione
 verificabile AST → CoreIR → AST e produce bytecode confrontato dai test.
@@ -472,5 +472,6 @@ scorciatoia per caricare bytecode ricevuto da terzi. Il linker pubblico
 non importa ancora schemi aperti con `row-lacks`.
 
 Per provare il nuovo header su Node o PHP, vedi
-`examples/hello-060.nail`. La pubblicazione di v0.60 richiede prima
-che il workflow Release completi con successo.
+`examples/hello-060.nail`. La [release v0.60](https://github.com/Spyryto/NailLang/releases/tag/v0.60)
+è stata pubblicata dopo il completamento dei controlli sul commit
+`afa5400ad5425d6135bacf8b6314198c77c0af14`.
