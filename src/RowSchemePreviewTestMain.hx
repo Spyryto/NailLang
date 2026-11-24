@@ -9,6 +9,7 @@ import nail.NailCheckedModuleEnvelope;
 import nail.NailPinnedProviderRebuild;
 import nail.NailCheckedProviderAdmission;
 import nail.NailVerifiedModuleGraph;
+import nail.NailFirstModuleCompiler;
 import nail.ModuleLinker;
 import nail.BootRuntime;
 import nail.ResultValue;
@@ -929,6 +930,19 @@ class RowSchemePreviewTestMain {
       name:'Consumer',source:consumerSource,
       exports:['useIdentity'],dependencies:['Consumer']
     }]),'invalid or duplicate dependency name');
+
+    // v0.58: ordinary isolated public modules can be compiled Nail-first.
+    // Haxe remains an independent oracle, not a replacement for the
+    // self-hosted checker. Neither path accepts an unchecked partial module.
+    var nailFirst=NailFirstModuleCompiler.compile('NailFirst',
+      'nail 0.55 ; def identity x = x ;',['identity']);
+    var nailFirstBundle=ModuleLinker.link([nailFirst]);
+    eq(RuntimeValues.toPlain(nailFirstBundle.invoke('NailFirst',
+      'identity',Boolean(false))),false,
+      'Nail-first checked public module executes through existing linker');
+    checkFails(() -> NailFirstModuleCompiler.compile('NailFirst',
+      'nail 0.55 ; def wrong = 1 + 1.0 ;',['wrong']),
+      'independent Nail checker rejected source');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
