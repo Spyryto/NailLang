@@ -49,6 +49,7 @@ common_suites=(
   context-block-probe
   nail-typechecker
   row-scheme-preview
+  core-ir
   module-source-imports
   official-bootstrap
   modern-numbers

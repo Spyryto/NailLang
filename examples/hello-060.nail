@@ -1,0 +1,3 @@
+nail 0.60 ;
+def answer = 42 ;
+answer ;

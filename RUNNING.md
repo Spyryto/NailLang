@@ -1,4 +1,4 @@
-# Eseguire NailLang — v0.55
+# Eseguire NailLang — v0.60 (candidato)
 
 [Language Tour](./LANGUAGE-TOUR.md) · [Cookbook](./COOKBOOK.md) · [Versioni](./docs/versions.md)
 
@@ -422,3 +422,21 @@ haxe row-scheme-preview-test-php.hxml && php build/tests/php-row-scheme-preview/
 
 Per il contratto esatto e le limitazioni si veda
 [ROW-SCHEME-ABI-PREVIEW.md](./docs/ROW-SCHEME-ABI-PREVIEW.md).
+
+## v0.60 — CoreIR e verifica Nail-first (sperimentale)
+
+La v0.60 in preparazione introduce una CoreIR semantica a cinque
+costruttori, distinta dal bytecode. Il compilatore standard non la usa
+ancora per ottimizzare; `CoreIR.compile` esegue una trasformazione
+verificabile AST → CoreIR → AST e produce bytecode confrontato dai test.
+
+Per programmi/moduli isolati, `NailFirstModuleCompiler.compile` usa prima
+la verifica HM implementata in Nail e poi confronta il risultato con il
+compilatore Haxe. `NailCheckedProviderAdmission.compileClosed` richiede
+separatamente hash approvati di sorgente e compiler bootstrap: non è una
+scorciatoia per caricare bytecode ricevuto da terzi. Il linker pubblico
+non importa ancora schemi aperti con `row-lacks`.
+
+Per provare il nuovo header su Node o PHP, vedi
+`examples/hello-060.nail`. La pubblicazione di v0.60 richiede prima
+che il workflow Release completi con successo.
