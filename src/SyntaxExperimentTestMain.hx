@@ -62,9 +62,9 @@ class SyntaxExperimentTestMain {
     assertRun('def set-delete entries item = item ; '
       +'set-delete entries: [ 1 , 2 , 3 ] item: 2 ;',
       ['I:2/1'],'named call with list literal');
-    assertRun(pair+'def id x = x ; '
-      +'( pair second: 2 ) >> id ;',
-      [],'higher-order partial calls do not force execution');
+    assertRun(pair+'def applyToFour f = f 4 ; '
+      +'pair second: 2 >> applyToFour ;',
+      ['I:42/1'],'higher-order partial calls remain functions');
     assertError(pair+'pair third: 3 ;','Unknown named parameter',
       'unknown parameter rejected');
     assertError(pair+'pair first: 4 first: 4 ;','Duplicate argument',
