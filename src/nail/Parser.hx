@@ -798,6 +798,7 @@ class Parser {
         var name = take();
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
+        var labels:Array<String> = [];
         var positions:Array<Int> = [];
         var constraints:Array<{name:String,type:nail.NType}>=[];
         var bindings:Array<{name:String, previous:Null<Array<String>>}>=[];
@@ -806,6 +807,13 @@ class Parser {
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
           var p:String;
+          // Public call label is independent of the lexical binder.
+          var label:Null<String>=null;
+          if (syntaxExperiment && !macroDeclaration && isNamedArgument(peek())) {
+            var keyword=take();
+            label=keyword.substr(0,keyword.length-1);
+            atParameter=at;
+          }
           if ((experimentalContexts || languageVersion=='0.61') && peek()=='(') {
             take();
             p=take();
@@ -828,6 +836,12 @@ class Parser {
             p=take();
             if (!isName(p) || params.indexOf(p) >= 0)
               throw 'Invalid or duplicate definition parameter';
+          }
+          if (syntaxExperiment && !macroDeclaration) {
+            var publicName=label==null ? p : label;
+            if (labels.indexOf(publicName)>=0)
+              throw 'Duplicate public parameter label '+publicName;
+            labels.push(publicName);
           }
           params.push(p);
           positions.push(atParameter);
@@ -862,7 +876,7 @@ class Parser {
         expect('=');
         // Names are metadata for this source only, not a new function kind.
         // Register before parsing the body to support recursive references.
-        if (syntaxExperiment && !macroDeclaration) namedParameters.set(name,params.copy());
+        if (syntaxExperiment && !macroDeclaration) namedParameters.set(name,labels);
         var body = lambdas(params, expression(), positions);
         expect(';');
         for (entry in bindings) {
