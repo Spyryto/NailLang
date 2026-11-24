@@ -1,0 +1,3 @@
+nail 0.60 ;
+def hello name = greet name ;
+import greet from NailHost : Text -> Text ;
