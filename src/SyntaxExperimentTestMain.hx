@@ -76,6 +76,33 @@ class SyntaxExperimentTestMain {
     standardRejects('def add-one x = x + 1 ;','hyphen name');
     standardRejects('def id x = x ; 2 >> id ;','pipe operator');
     standardRejects(pair+'pair first: 4 second: 2 ;','named calls');
+    var fraction='def fraction numerator: a denominator: b = a / b ; ';
+    assertRun(fraction+'fraction 3 2 ;',['R:3/2'],
+      'renamed parameters still support positional calls');
+    assertRun(fraction+'fraction numerator: 3 denominator: 2 ;',['R:3/2'],
+      'public labels are independent of local binders');
+    assertRun(fraction+'fraction denominator: 2 numerator: 3 ;',['R:3/2'],
+      'renamed labels in reverse order');
+    assertRun(fraction+'fraction 3 denominator: 2 ;',['R:3/2'],
+      'renamed labels mixed with positional arguments');
+    assertRun(fraction+'def half = fraction denominator: 2 ; half 3 ;',['R:3/2'],
+      'renamed label supports non-prefix partial application');
+    assertRun(fraction+'3 >> fraction denominator: 2 ;',['R:3/2'],
+      'renamed partial application through pipeline');
+    assertRun('def combine left: b a = b * 10 + a ; combine a: 2 left: 4 ;',
+      ['I:42/1'],'explicit and implicit labels can coexist');
+    assertRun('def pair first: second second: first = second * 10 + first ; '
+      +'pair first: 4 second: 2 ;',['I:42/1'],
+      'public labels and local binders occupy separate namespaces');
+    assertError(fraction+'fraction a: 3 ;','Unknown named parameter',
+      'local binder is not a public alias');
+    assertError('def bad same: a same: b = a ;','Duplicate public parameter label',
+      'duplicate public labels rejected');
+    assertError('def bad first: a second: a = a ;','Invalid or duplicate definition parameter',
+      'duplicate local binders rejected');
+    assertError('def bad first: a first = a ;','Duplicate public parameter label',
+      'explicit label colliding with an implicit label rejected');
+    standardRejects(fraction,'renamed definition parameters');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
