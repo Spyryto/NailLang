@@ -8,6 +8,7 @@ import nail.NailRowInterfacePreview;
 import nail.NailCheckedModuleEnvelope;
 import nail.NailPinnedProviderRebuild;
 import nail.NailCheckedProviderAdmission;
+import nail.NailVerifiedModuleGraph;
 import nail.ModuleLinker;
 import nail.BootRuntime;
 import nail.ResultValue;
@@ -897,6 +898,37 @@ class RowSchemePreviewTestMain {
     checkFails(() -> NailCheckedProviderAdmission.compileClosed('Provider',
       admittedSource,haxe.crypto.Sha256.encode(admittedSource),
       pinnedCompilerDigest,rehashedEnvelope),'differs from pinned source build');
+
+    // v0.57: a consumer uses the admitted provider's ordinary public
+    // v3 export scheme, not an untrusted preview or implicit discovery.
+    var consumerSource='nail 0.55 ; '
+      +'def useIdentity value = ident value ; '
+      +'import identity as ident from Provider ;';
+    var chainedSource='nail 0.55 ; '
+      +'def applyIdentity value = doCall value ; '
+      +'import useIdentity as doCall from Consumer ;';
+    var graph=NailVerifiedModuleGraph.link([{
+      name:'Provider',source:admittedSource,
+      sourceSha256:haxe.crypto.Sha256.encode(admittedSource),
+      compilerSha256:pinnedCompilerDigest,envelope:admissionEnvelope
+    }],[{
+      name:'Consumer',source:consumerSource,
+      exports:['useIdentity'],dependencies:['Provider']
+    },{
+      name:'Follower',source:chainedSource,
+      exports:['applyIdentity'],dependencies:['Consumer']
+    }]);
+    eq(RuntimeValues.toPlain(graph.invoke('Follower','applyIdentity',
+      Boolean(true))),true,
+      'explicit three-module graph preserves polymorphism across linking');
+    checkFails(() -> NailVerifiedModuleGraph.link([], [{
+      name:'Consumer',source:consumerSource,
+      exports:['useIdentity'],dependencies:['Provider']
+    }]),'unknown or forward dependency Provider');
+    checkFails(() -> NailVerifiedModuleGraph.link([], [{
+      name:'Consumer',source:consumerSource,
+      exports:['useIdentity'],dependencies:['Consumer']
+    }]),'invalid or duplicate dependency name');
 
     trace('Row scheme preview: '+checks+' portable, strict checks passed');
   }
