@@ -1,17 +1,33 @@
 <!doctype html>
 <html lang="it">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NailLang v0.60 · Playground locale</title>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NailLang v0.61 · Playground locale</title>
 <style>body{font:16px system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem;line-height:1.5}textarea{display:block;width:100%;box-sizing:border-box;min-height:160px;font:15px ui-monospace,monospace;padding:1rem}button{padding:.7rem 1rem;margin-top:1rem;cursor:pointer}pre{padding:1rem;background:#eee;white-space:pre-wrap;overflow-wrap:anywhere}a{color:#1161a7}</style></head>
-<body><h1>NailLang v0.60</h1><p>Playground locale del runtime JavaScript. Modifica il programma e premi Esegui: il risultato è un valore della VM, non una stampa implicita. <a href="../LANGUAGE-TOUR.md">Language tour</a> · <a href="../COOKBOOK.md">Cookbook</a>. Prima compila con <code>haxe js.hxml</code>.</p>
-<label for="code">Sorgente Nail</label><textarea id="code" spellcheck="false">nail 0.60 ;
-def twice x = x * 2 ;
-twice 21 ;</textarea><button id="run" type="button">Esegui</button><pre id="output" aria-live="polite">Il risultato comparirà qui.</pre>
+<body><h1>NailLang v0.61</h1><p>Playground locale del runtime JavaScript. Modifica il programma e premi Esegui: prima viene controllato il tipo, poi viene mostrato il risultato della VM (non una stampa implicita). <a href="../LANGUAGE-TOUR.md">Language tour</a> · <a href="../COOKBOOK.md">Cookbook</a>. Prima compila con <code>haxe js.hxml</code>.</p>
+<label for="code">Sorgente Nail</label><textarea id="code" spellcheck="false">nail 0.61 ;
+type Person { name Text age Float } ;
+def getName data = data . name ;
+getName { name = " Nail " } ;
+getName ( Person " Ada " 46.0 ) ;</textarea><button id="run" type="button">Esegui</button><pre id="output" aria-live="polite">Il risultato comparirà qui.</pre>
 <script src="../build/js/nailseed.js"></script><script>
 'use strict';
 const codeEl=document.getElementById('code');
 const outputEl=document.getElementById('output');
 document.getElementById('run').addEventListener('click',()=>{
-  try {if (typeof NailSeed === 'undefined') throw new Error('Runtime non trovato: esegui prima haxe js.hxml.'); const vm = NailSeed.create(); vm.loadStdlib(); outputEl.textContent=JSON.stringify(vm.runPlain(codeEl.value),null,2);}
+  try {if (typeof NailSeed === 'undefined') throw new Error('Runtime non trovato: esegui prima haxe js.hxml.'); const source = codeEl.value;
+    const report = NailSeed.analyze(source);
+    if (!report.ok) {
+      outputEl.textContent = report.diagnostics.map(d =>
+        (d.span ? d.span.line + ':' + d.span.column + ' — ' : '') +
+        d.phase + ': ' + d.message).join('\n');
+      return;
+    }
+    const vm = NailSeed.create();
+    vm.loadStdlib();
+    const values = vm.runPlain(source);
+    const signatures = report.symbols.filter(s => s.signature !== null)
+      .map(s => s.name + ' : ' + s.signature);
+    outputEl.textContent = (signatures.length ? signatures.join('\n') + '\n\n' : '') +
+      JSON.stringify(values, null, 2);}
   catch(error){outputEl.textContent='Errore: '+String(error);}
 });
 </script></body></html>
