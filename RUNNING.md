@@ -75,7 +75,7 @@ php build/php/index.php --types examples/cookbook-start.nail
 
 ## JavaScript in una pagina web
 
-`examples/browser.html` carica `../build/js/nailseed.js`. Dopo la compilazione, dalla radice avvia:
+`examples/browser.html` è un playground locale con un programma `nail 0.60 ;` modificabile. Carica `../build/js/nailseed.js` (runtime completo); non serve un framework né un backend speciale. Dopo la compilazione, dalla radice avvia:
 
 ```sh
 php -S localhost:8000
