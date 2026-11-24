@@ -3,7 +3,7 @@ import nail.BootRuntime;
 import nail.TypeChecker;
 import nail.Vm;
 
-/** v0.60: unannotated field projection is structural, typed binders nominal. */
+/** v0.61: unannotated field projection is structural, typed binders nominal. */
 class StructuralProjectionTestMain {
   static var checks=0;
   static function ok(value:Bool,label:String):Void {
@@ -27,7 +27,7 @@ class StructuralProjectionTestMain {
   }
 
   public static function main():Void {
-    var header='nail 0.60 ;\n';
+    var header='nail 0.61 ;\n';
     var people='type Person { name Text age Float } ;\n'
       +'type Pet { name Text age Int } ;\n';
     var generic='def getName data = data . name ;\n';
@@ -84,6 +84,6 @@ class StructuralProjectionTestMain {
       +'nested ( Person " Outer " 46.0 ) ;\n',
       ['Local'],'shadowed inner data is not captured by nominal annotation');
 
-    trace('Nail v0.60 structural / nominal projection: '+checks+' checks passed');
+    trace('Nail v0.61 structural / nominal projection: '+checks+' checks passed');
   }
 }
