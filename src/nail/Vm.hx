@@ -165,6 +165,20 @@ class Vm {
     #end
   }
 
+  /** Explicit opt-in to experimental surface syntax. Does not change the
+      versioned runtime, public compiler or source-free bootstrap. */
+  public function runExperimental(source:String):Array<Value> {
+    #if nail_seed_only
+    throw 'Host source parser disabled in bootstrap-only build';
+    #else
+    steps = 0;
+    return executeForms(new Parser(source,null,true).parse());
+    #end
+  }
+
+  public function runPlainExperimental(source:String):Array<Dynamic>
+    return RuntimeValues.plainResults(runExperimental(source));
+
   /** Execute a first-class Syntax Program built by code running in Nail. */
   public function runSyntax(tree:Value):Array<Value> {
     steps = 0;
