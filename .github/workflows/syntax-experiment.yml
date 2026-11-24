@@ -1,0 +1,28 @@
+name: Experimental Nail syntax smoke (isolated branch)
+on:
+  push:
+    branches: [experiments/syntax-curried-keywords]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Haxe interpreter
+        run: haxe syntax-experiment-test-interp.hxml
+      - name: JavaScript target
+        run: |
+          haxe syntax-experiment-test-js.hxml
+          node build/tests/syntax-experiment.js
+      - name: PHP target
+        run: |
+          haxe syntax-experiment-test-php.hxml
+          XDEBUG_MODE=off php build/tests/php-syntax-experiment/index.php
