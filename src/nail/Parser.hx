@@ -702,7 +702,7 @@ class Parser {
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
           var p:String;
-          if ((experimentalContexts || languageVersion=='0.60') && peek()=='(') {
+          if ((experimentalContexts || languageVersion=='0.61') && peek()=='(') {
             take();
             p=take();
             if (!isName(p) || params.indexOf(p)>=0)
