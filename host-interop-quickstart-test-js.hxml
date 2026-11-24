@@ -1,0 +1,6 @@
+-cp src
+-main HostInteropQuickstartTestMain
+-resource stdlib.nail@stdlib
+-resource examples/host-greeting-060.nail@host_greeter_source
+-resource build/bootstrap/stdlib-image.json@bootstrap_image
+-js build/tests/host-interop-quickstart.js
