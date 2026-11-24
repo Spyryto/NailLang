@@ -514,10 +514,12 @@ class Parser {
       captures.push({name:captured,value:head.positional[i]});
     }
     var sawLabel=false;
-    while (peek()!=null) {
+    while (true) {
+      var token=peek();
+      if (token==null) break;
       var index=-1;
-      if (isNamedArgument(peek())) {
-        var label=peek().substr(0,peek().length-1);
+      if (isNamedArgument(token)) {
+        var label=token.substr(0,token.length-1);
         index=params.indexOf(label);
         if (index<0) throw 'Unknown named parameter '+label+' for '+head.name;
         if (supplied[index]!=null) throw 'Duplicate argument '+label+' for '+head.name;
