@@ -1107,10 +1107,10 @@ private class Inference {
     }
   }
 
-  /** Dot syntax desugars to #recordGet receiver "field". The field
-      projection type follows the receiver's *nominal* record type. When an
-      unconstrained parameter is used, a unique field name can determine it;
-      shared field names are reported as ambiguous rather than guessed. */
+  /** Dot syntax desugars to #recordGet receiver "field".
+      In v0.61, an unannotated receiver gains an open structural row;
+      a nominally annotated receiver still uses its named getter.
+      Older dialects retain the historical nominal-field heuristic. */
   function projectField(receiver:NType, field:String):NType {
     var recordName:Null<String> = null;
     switch (prune(receiver)) {
