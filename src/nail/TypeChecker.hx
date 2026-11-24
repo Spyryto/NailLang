@@ -829,6 +829,34 @@ private class Inference {
     work.push({a:y.rest,b:addRow(onlyX,shared)});
   }
 
+  /** Compare an inferred structural requirement with a *concrete nominal*
+      record's actual fields. The value remains nominal; only its field
+      signature is used to satisfy a structural projection. Explicit
+      annotations keep their nominal NType and do not take this path. */
+  function nominalRowView(nominal:NType):NType {
+    var owner=switch (prune(nominal)) {
+      case TRecord(name) | TRecordApplied(name,_): name;
+      case _: throw 'Type error: expected nominal record';
+    };
+    if (!records.exists(owner))
+      throw 'Type error: unknown nominal record '+owner;
+    var prefix=owner+'.';
+    var names:Array<String>=[];
+    for (key in globals.keys())
+      if (StringTools.startsWith(key,prefix) &&
+          key.length>prefix.length && key.indexOf('.',prefix.length)<0)
+        names.push(key.substr(prefix.length));
+    names.sort(Reflect.compare);
+    if (names.length==0) throw 'Type error: record '+owner+' has no fields';
+    var fields:Array<nail.NType.StructuralField>=[];
+    for (name in names) {
+      var result=fresh();
+      unify(instantiate(globals.get(prefix+name)),fun(nominal,result));
+      fields.push({name:name,type:result});
+    }
+    return TStructural(fields);
+  }
+
   function unify(left:NType, right:NType):Void {
     var stack:Array<{a:NType, b:NType}> = [{a:left, b:right}];
     while (stack.length > 0) {
@@ -844,6 +872,14 @@ private class Inference {
         case [TRecordApplied(nx, xs), TRecordApplied(ny, ys)]
           if (nx == ny && xs.length == ys.length):
           for (i in 0...xs.length) stack.push({a:xs[i], b:ys[i]});
+        // Open structural constraints can be satisfied by a nominal record
+        // without erasing nominal identity or changing the runtime value.
+        case [TOpenStructural(_, _), TRecord(_)]
+          | [TOpenStructural(_, _), TRecordApplied(_, _)]:
+          stack.push({a:a,b:nominalRowView(b)});
+        case [TRecord(_), TOpenStructural(_, _)]
+          | [TRecordApplied(_, _), TOpenStructural(_, _)]:
+          stack.push({a:nominalRowView(a),b:b});
         case [TStructural(_), TStructural(_)]
           | [TOpenStructural(_, _), TStructural(_)]
           | [TStructural(_), TOpenStructural(_, _)]
