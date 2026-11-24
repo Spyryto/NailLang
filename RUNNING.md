@@ -24,6 +24,40 @@ node -e 'const {NailSeed}=require("./build/js/nailseed.js"); console.log(NailSee
 Questa funzionalità è nella distribuzione *full*, non in quella source-free.
 Vedi [docs/ANALYSIS.md](./docs/ANALYSIS.md).
 
+## 0.60 — Primo esempio di interoperabilità con l'host
+
+L'interoperabilità più semplice usa gli **import tipizzati già esistenti**.
+Nessuna nuova FFI, istruzione VM o ABI: Nail dichiara una funzione, l'host
+la concede esplicitamente al modulo.
+
+Il file [examples/host-greeting-060.nail](examples/host-greeting-060.nail)
+contiene:
+
+```nail
+nail 0.60 ;
+def hello name = greet name ;
+import greet from NailHost : Text -> Text ;
+```
+
+L'host Haxe in [HostInteropQuickstartTestMain.hx](src/HostInteropQuickstartTestMain.hx)
+registra `greet` con `HostTextGrants.grantFunction`, compila il modulo
+con `ModuleLinker.compilePublic` e invoca `hello`. Esegue anche un
+controllo negativo: **senza grant**, l'import non può essere usato.
+
+Dalla radice del repository:
+
+```sh
+haxe seed-image.hxml
+haxe host-interop-quickstart-test-interp.hxml
+haxe host-interop-quickstart-test-js.hxml && node build/tests/host-interop-quickstart.js
+haxe host-interop-quickstart-test-php.hxml && php build/tests/php-host-interop-quickstart/index.php
+```
+
+Il risultato atteso su ogni target è `Ciao, Nail`. Questo esempio dimostra
+un callback **sincrono** di tipo `Text -> Text`, non un ponte universale
+per oggetti JS/PHP o API asincrone. La registrazione è responsabilità
+dell'applicazione host; il sorgente Nail rimane uguale su tutti i target.
+
 ## JavaScript da riga di comando
 
 ```sh
