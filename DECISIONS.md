@@ -25,6 +25,7 @@ Stati: **adottata** = orientamento o scelta corrente; **sperimentale** = percors
 | D17 | Adottata | Language tour, cookbook, lookbook e documentazione storica; Nail Lab come ambiente interattivo complementare. |
 | D18 | Scartata come vincolo | Minimalismo assoluto: una primitiva o un costrutto View è ammissibile se semplifica davvero l'implementazione. La necessità concreta di View resta da valutare. |
 | D19 | Adottata | Confronto evolutivo permanente con Dart e F#: Dart come riferimento pratico, F# come riferimento funzionale e di tipizzazione. Aggiornare le ricette e le lacune pertinenti senza imporre parità di feature. Vedi [COOKBOOK-FSHARP](COOKBOOK-FSHARP.md). |
+| D20 | Adottata nel ramo di sviluppo | `data . name` senza annotazione inferisce un requisito strutturale aperto (`{name:a | r} -> a`); `( data : Person )` richiede il tipo nominale `Person`. Il controllo usa le righe aperte già presenti e fissa le annotazioni prima dell'inferenza, senza conversioni di valori o ABI nuovi. Il compilatore pubblico rifiuta ancora l'export di schemi aperti. Vedi la suite `structural-projection` (Haxe/JS/PHP). |
 
 ## Alternative da non reintrodurre senza motivazione
 
