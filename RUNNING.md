@@ -58,13 +58,13 @@ un callback **sincrono** di tipo `Text -> Text`, non un ponte universale
 per oggetti JS/PHP o API asincrone. La registrazione è responsabilità
 dell'applicazione host; il sorgente Nail rimane uguale su tutti i target.
 
-## Proiezioni strutturali inferite — sviluppo successivo alla release v0.60
+## v0.61 (candidato) — Proiezioni strutturali inferite
 
 Il type checker del ramo di sviluppo usa i vincoli già disponibili sui
 record aperti. Una funzione **senza annotazioni**:
 
 ```nail
-nail 0.60 ;
+nail 0.61 ;
 def getName data = data . name ;
 ```
 
@@ -75,7 +75,7 @@ anonimi di qualsiasi ampiezza e con record nominali che possiedono
 Un'**annotazione esplicita** è invece un vincolo nominale:
 
 ```nail
-nail 0.60 ;
+nail 0.61 ;
 type Person { name Text age Float } ;
 def getName ( data : Person ) = data . name ;
 getName ( Person " Daniele " 46.0 ) ;
@@ -94,7 +94,7 @@ haxe structural-projection-test-js.hxml && node build/tests/structural-projectio
 haxe structural-projection-test-php.hxml && php build/tests/php-structural-projection/index.php
 ```
 
-**Confini:** modifica ancora in sviluppo, non inclusa nel tag già
+**Confini:** release v0.61 ancora candidata, non inclusa nel tag già
 pubblicato `v0.60` e quindi non ancora nel runtime `v0.60` di Nail Lab.
 Il compilatore sorgente del bootstrap sa già cancellare le annotazioni;
 il controllo statico va eseguito esplicitamente prima di utilizzare il
