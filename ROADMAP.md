@@ -4,14 +4,14 @@ Aggiornamento iniziale: 24 novembre 2026. La roadmap è rivedibile e non promett
 
 ## 1. Priorità immediata: consolidare 0.60
 
-Il file VERSION indica 0.60, ma README e [note del candidato](docs/releases/0.60.md) lo dichiarano non pubblicato. Le milestone 0.56–0.59 non sono qui considerate release autonome. La presenza del codice non prova che tutti i gate siano passati.
+La [release v0.60](https://github.com/Spyryto/NailLang/releases/tag/v0.60) è stata pubblicata il 24 novembre 2026 sul commit `afa5400a`, dopo i controlli richiesti. Le milestone 0.56–0.59 non sono release autonome. I lavori successivi su `main` non modificano gli artefatti già pubblicati.
 
-- [ ] Verificare sul commit finale le suite Haxe/JS/PHP, macro, type checker, moduli e CoreIR.
-- [ ] Verificare i bundle source-free, l'esclusione dello stage zero e lo smoke di `nail 0.60 ;` su JS e PHP.
-- [ ] Pubblicare v0.60 soltanto tramite il workflow di release dopo test e packaging riusciti.
-- [ ] Registrare eventuali blocchi e limiti rimasti, senza introdurre ottimizzazioni estranee alla verifica.
+- [x] Verificate sul commit di release le suite Haxe/JS/PHP, macro, type checker, moduli e CoreIR.
+- [x] Verificati i bundle source-free, l'esclusione dello stage zero e lo smoke di `nail 0.60 ;` su JS e PHP.
+- [x] Pubblicata v0.60 tramite il [workflow di release](https://github.com/Spyryto/NailLang/actions/runs/45374966717) dopo test e packaging riusciti.
+- [x] Registrati i limiti rimasti nelle [note della 0.60](docs/releases/0.60.md), senza ottimizzazioni estranee alla verifica.
 
-Le note 0.60 sono la fonte specifica dei gate: questo documento non le modifica. Lo stato della CI non è stato verificato durante la redazione.
+Le note 0.60 sono la fonte specifica dei gate: questo documento non le modifica. La [CI completa sul commit di release](https://github.com/Spyryto/NailLang/actions/runs/45374966656) ha superato tutti i nove job richiesti.
 
 ## 2. Consolidamento dopo 0.60 — proposte da ordinare dopo i gate
 

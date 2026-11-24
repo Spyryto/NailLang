@@ -4,7 +4,7 @@
 
 Riferimenti: [Tour of F#](https://learn.microsoft.com/en-us/dotnet/fsharp/tour), [Language Reference](https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/). Gli esempi F# sono originali.
 
-**Baseline:** esempi Nail nel dialetto 0.49 documentato nel cookbook Dart, più import documentati dalla 0.54 e stato del candidato 0.60 (non pubblicato). Non si presume che gli header storici restino accettati dal runtime futuro. Usare la toolchain corrispondente; verificare separatamente l'esecuzione sul candidato. Gli snippet sono ricavati o adattati da sintassi già documentata nel repo, ma non sono stati eseguiti durante questa redazione. Ogni snippet è indipendente; caricare la stdlib Nail per le ricette che la usano. Il risultato Nail è un valore della VM, non una stampa implicita.
+**Baseline:** esempi Nail nel dialetto 0.49 documentato nel cookbook Dart, più import documentati dalla 0.54 e stato della release v0.60 pubblicata. Non si presume che gli header storici restino accettati dal runtime futuro. Usare la toolchain corrispondente; verificare separatamente l'esecuzione sul candidato. Gli snippet sono ricavati o adattati da sintassi già documentata nel repo, ma non sono stati eseguiti durante questa redazione. Ogni snippet è indipendente; caricare la stdlib Nail per le ricette che la usano. Il risultato Nail è un valore della VM, non una stampa implicita.
 
 ## 1. Binding, funzioni e applicazione parziale
 
@@ -180,7 +180,7 @@ L'host deve registrare il provider Math, esportare twice e fornire la dipendenza
 | Pattern matching, active patterns | Match su ADT/liste; active patterns non documentati | Si compone con funzioni e ADT? |
 | Tuple, sequence, array, collection expressions | Liste e vettori presenti; non assumere equivalenza per tuple, lazy sequence e comprehension | Quali strutture servono davvero? |
 | Generics, equality, SRTP | HM, Eq e relazioni finite; non equivalenti agli SRTP | La soluzione Nail è più semplice o più limitata? |
-| Record aperti / vincoli strutturali | Preview HM open-row nel candidato 0.60, non ABI pubblico | Come mantenere semplicità e sicurezza? |
+| Record aperti / vincoli strutturali | Preview HM open-row nella release v0.60, non ABI pubblico | Come mantenere semplicità e sicurezza? |
 | Computation expressions (async/task/seq/custom) | Nessun equivalente generale documentato | Servono builder, trasformatori AST o funzioni ordinarie? |
 | Async, task e parallelismo | Obiettivo; nessun equivalente generale nel linguaggio documentato | Come sfruttare gli host senza complessità gratuita? |
 | Units of measure | Non documentate come feature Nail | Esiste un caso reale per vincoli dimensionali? |
