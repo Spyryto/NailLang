@@ -250,6 +250,21 @@ class SinglePassMacroTestMain {
     profile('macro/Haxe reference compile', 1, referenceCompileSeconds);
     profile('macro/Vm Nail compile', 1, hostNailCompileSeconds);
     profile('macro/BootRuntime Nail compile', 1, bootNailCompileSeconds);
+    // v0.59 experimental Nail-native local macro expansion entrypoint.
+    // A matching Haxe-compiled bytecode is required before considering
+    // replacement of the normal host macro-expansion primitive.
+    var pureMacro='nail 0.55 ; macro inc x = quote ( unquote x + 1 ) ; '
+      +'expand inc 41 ;';
+    var nailMacroCode=freshBoot(40000000).invoke(
+      'compileModernSourceNailMacros',Text(pureMacro));
+    eq(BytecodeCompiler.compileSource(pureMacro),nailMacroCode,
+      'Nail-written local macro expansion preserves independent compiler bytes');
+    var pureSource='nail 0.55 ; def id x = x ; id 42 ;';
+    eq(BytecodeCompiler.compileSource(pureSource),
+      freshBoot(40000000).invoke(
+        'compileModernSourceNailMacros',Text(pureSource)),
+      'Nail-written no-macro expansion leaves ordinary source bytecode intact');
+
     trace('Single-pass macro compiler: ' + checks + ' checks passed');
   }
 }
