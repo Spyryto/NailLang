@@ -7,6 +7,12 @@ NailLang is an experimental programming language implemented in Haxe, with JavaS
 
 The draft v0.60 work adds an **opt-in, independently pinned** bridge from verified Nail providers to the existing *closed* public module ABI, explicit typed consumer graphs, a Nail-first isolated compilation path, experimental Nail-written local-macro expansion, and a five-node semantic CoreIR with explicit tail positions. These do not promote open-row previews to public imports or remove Haxe from the runtime/compiler boundary. See [0.60 candidate notes](./docs/releases/0.60.md).
 
+## Project direction
+
+- [Project principles (Italian)](PRINCIPLES.md): stable design and development guidelines.
+- [Decision log (Italian)](DECISIONS.md): adopted, experimental and rejected choices, with rationale.
+- [Roadmap (Italian)](ROADMAP.md): current release gates and proposed future directions.
+
 ## Compatibility policy before 1.0
 
 **No backward compatibility is guaranteed before NailLang 1.0.** Each release may change or remove syntax, source semantics, runtime behavior, standard-library interfaces, or compiled module/bootstrap ABIs whenever simplifying or improving the language warrants it. Changes must be documented in the release notes.
@@ -37,3 +43,4 @@ The v0.16, v0.28 and v0.29 numeric experiments are preserved under experiments/n
 Source commits and tags were reconstructed using GitHub noreply authors. The private original commit history, Actions logs and any related private metadata have not been imported.
 
 NailLang is experimental, not stable. No open-source license has been selected yet; public visibility alone is not a license for reuse or redistribution.
+
