@@ -36,6 +36,27 @@ precedenza inferiore a operatori aritmetici e confronti. Un nome con
 trattino come `add-one` è un identificatore intero; la sottrazione
 mantiene `a - b` con spazi intorno.
 
+## Label pubbliche e nomi locali distinti
+
+```nail
+def fraction numerator: a denominator: b = a / b ;
+def half = fraction denominator: 2 ;
+half 3 ; # 3/2
+```
+
+`numerator:` e `denominator:` sono le label pubbliche, mentre
+`a` e `b` sono i binder lessicali nel corpo della funzione.
+Il parser conserva le label come metadati locali alla sorgente;
+l'AST contiene soltanto i binder e le applicazioni ordinarie.
+
+Una dichiarazione semplice (`def fraction a b = a / b ;`) usa
+i nomi locali anche come label. Le due forme possono essere miste
+nella stessa dichiarazione. Le chiamate posizionali continuano
+a funzionare. Label e binder hanno namespace distinti: una label
+duplicata o un binder duplicato viene rifiutato, ma i nomi possono
+incrociarsi tra i due namespace. Un binder rinominato non è una
+seconda label pubblica. Nessuna modifica al currying.
+
 ## Modalità esplicita
 
 Nel codice Haxe che ospita Nail:
