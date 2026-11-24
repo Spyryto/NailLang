@@ -1,0 +1,4 @@
+-cp src
+-main SyntaxExperimentTestMain
+-js build/tests/syntax-experiment.js
+-resource stdlib.nail@stdlib
