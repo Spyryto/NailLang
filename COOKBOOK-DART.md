@@ -2,6 +2,8 @@
 
 [Cookbook generale](./COOKBOOK.md) · [Language Tour Nail](./LANGUAGE-TOUR.md) · [Lookbook delle lacune](./LOOKBOOK.md) · [Esecuzione](./RUNNING.md)
 
+Per il confronto funzionale complementare: [Nail × F#](./COOKBOOK-FSHARP.md).
+
 **Riferimento:** [Dart — Introduction to Dart](https://dart.dev/language), incluse le sue sezioni *Hello World, Variables, Control flow, Functions, Comments, Imports, Classes, Enums, Inheritance, Mixins, Interfaces, Async, Exceptions*. Gli esempi qui sono originali, non una trascrizione di quelli di Dart.
 
 **Regole di lettura.** Il codice Nail di questa pagina usa `nail 0.49 ;` (ripetilo in testa a ogni file) e separa con spazi i token e la punteggiatura. Le definizioni terminano con `;`. Ogni espressione finale restituisce **un valore alla VM**: questo non equivale a stampare sulla console né a produrre effetti collaterali. Per `map`, `filter`, `fold` e `length` serve la libreria standard caricata dalla CLI/host. Lo stato delle equivalenze è descritto in [LOOKBOOK.md](./LOOKBOOK.md).

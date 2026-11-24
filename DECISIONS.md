@@ -24,6 +24,7 @@ Stati: **adottata** = orientamento o scelta corrente; **sperimentale** = percors
 | D16 | Adottata | Correttezza prima delle ottimizzazioni; misurare separatamente compilazione, esecuzione e CI. Haxe/JS può sostituire --interp nei job quando vantaggioso senza ridurre le verifiche. |
 | D17 | Adottata | Language tour, cookbook, lookbook e documentazione storica; Nail Lab come ambiente interattivo complementare. |
 | D18 | Scartata come vincolo | Minimalismo assoluto: una primitiva o un costrutto View è ammissibile se semplifica davvero l'implementazione. La necessità concreta di View resta da valutare. |
+| D19 | Adottata | Confronto evolutivo permanente con Dart e F#: Dart come riferimento pratico, F# come riferimento funzionale e di tipizzazione. Aggiornare le ricette e le lacune pertinenti senza imporre parità di feature. Vedi [COOKBOOK-FSHARP](COOKBOOK-FSHARP.md). |
 
 ## Alternative da non reintrodurre senza motivazione
 

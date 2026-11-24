@@ -40,6 +40,7 @@ Le scelte concrete sono registrate in [DECISIONS.md](DECISIONS.md); il lavoro fu
 
 ## Documentazione e apprendimento
 - Documentare il come e il perché delle implementazioni, incluse le alternative scartate e i loro trade-off.
+- Mantenere un confronto continuo con Dart (uso pratico) e F# (programmazione funzionale, tipi, composizione e astrazioni). Aggiornare cookbook e lookbook pertinenti a ogni modifica significativa; distinguere equivalenze, limiti e proposte, senza imitare automaticamente i linguaggi di riferimento.
 - Conservare la storia evolutiva, il language tour per versione, il cookbook eseguibile e il lookbook delle funzionalità mancanti o componibili.
 - Favorire documentazione viva, diagrammi, esempi reali e strumenti interattivi; rendere ispezionabili AST, trasformazioni, IR ed esecuzione.
 - Nail Lab è un ambiente complementare di studio, REPL e sperimentazione. Nail è anche un laboratorio per comprendere l'architettura dei linguaggi.

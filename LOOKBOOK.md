@@ -4,6 +4,8 @@
 
 Il **lookbook** è il complemento del cookbook: parte da una domanda pratica (*«come faccio un ciclo?»*) o da una feature conosciuta in Dart e chiarisce se la stessa capacità esiste in Nail 0.49. Riferimento esterno: [Dart language](https://dart.dev/language). Non è una promessa di implementare tutte le feature Dart, né una roadmap approvata.
 
+Per la mappa evolutiva delle differenze con F# (tipi, funzioni, pattern, computation expressions), vedi [Nail × F#](./COOKBOOK-FSHARP.md).
+
 ## Legenda
 
 - **Componibile**: mancano una keyword o una comodità, ma il calcolo è già esprimibile in Nail senza estensioni.

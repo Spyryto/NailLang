@@ -4,6 +4,8 @@
 
 **Se arrivi da Dart**, parti dal [cookbook comparativo Nail × Dart](./COOKBOOK-DART.md) per `for`, `while`, `map`, `fold`, record e ADT; il [Lookbook](./LOOKBOOK.md) distingue costrutti mancanti e alternative già esprimibili in Nail 0.49.
 
+**Se arrivi da F#**, consulta il [cookbook comparativo Nail × F#](./COOKBOOK-FSHARP.md), con esempi funzionali e mappa evolutiva delle differenze.
+
 Ricette progressive, incluse le tappe storiche dalla v0.49 alla versione corrente; ogni snippet mantiene il proprio header Nail. Separare gli snippet in file diversi quando ridefiniscono lo stesso nome; leggere sempre i risultati come valori restituiti dalla VM, non come output automatico della pagina web.
 
 ## Ricetta 1 — risultato immediato

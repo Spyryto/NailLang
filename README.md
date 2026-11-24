@@ -29,6 +29,7 @@ This repository reconstructs the original NailSeed prototype as a clean, version
 - Language tour: LANGUAGE-TOUR.md
 - Cookbook: COOKBOOK.md
 - Dart-guided practical comparison: COOKBOOK-DART.md (including loops and recursion)
+- F# functional comparison and evolving feature lookbook: [COOKBOOK-FSHARP.md](COOKBOOK-FSHARP.md)
 - Lookbook of missing or composable Dart features: LOOKBOOK.md
 - Run from the command line or embed in JavaScript/PHP: RUNNING.md
 - Historical language tours and code: docs/versions.md
