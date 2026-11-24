@@ -118,7 +118,7 @@ php build/php/index.php --types examples/cookbook-start.nail
 
 ## JavaScript in una pagina web
 
-`examples/browser.html` è un playground locale con un programma `nail 0.60 ;` modificabile. Carica `../build/js/nailseed.js` (runtime completo); non serve un framework né un backend speciale. Dopo la compilazione, dalla radice avvia:
+`examples/browser.html` è un playground locale con un programma `nail 0.61 ;` modificabile. Carica `../build/js/nailseed.js` (runtime completo); non serve un framework né un backend speciale. Prima di eseguire chiama `NailSeed.analyze`: se il controllo fallisce mostra i messaggi e, quando disponibili, riga e colonna della forma sorgente; altrimenti mostra le firme inferite e i valori restituiti dalla VM. Il controllo è esplicito nel playground, non un cambiamento della semantica di `runPlain`. Dopo la compilazione, dalla radice avvia:
 
 ```sh
 php -S localhost:8000
