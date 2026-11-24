@@ -2,10 +2,59 @@
 
 NailLang is an experimental programming language implemented in Haxe, with JavaScript and PHP runtime targets.
 
-**Latest public release: [v0.60](https://github.com/Spyryto/NailLang/releases/tag/v0.60)** — Nail's independent, self-hosted type checker and hygienic macro/module diagnostics gain an opt-in checked-provider pipeline. Nail can check a versioned program, infer canonical exported HM schemes (including `Eq` and open-row `lacks` constraints), and compile the *same expanded program* into a private provider witness. Portable previews can be structurally validated, compared with independently pinned source/compiler rebuilds, and tested on Haxe, JavaScript and PHP. **These previews are not public imports or a new module ABI.** The existing v0.54 selective module imports and `NailHost` grants remain available through the supported public module API. Runtime linkage of untrusted preview code, a general `use` syntax, ambient module discovery and any performance optimization remain out of scope.
+**Latest public release:** [v0.60](https://github.com/Spyryto/NailLang/releases/tag/v0.60) · **Status:** experimental.
 
+Nail favors a small, functional language core, explicit types and simple composition. It runs through the Haxe implementation on JavaScript and PHP; the standard builds are interpreters, **not** Nail-to-JS/PHP source transpilers.
 
-The published v0.60 work adds an **opt-in, independently pinned** bridge from verified Nail providers to the existing *closed* public module ABI, explicit typed consumer graphs, a Nail-first isolated compilation path, experimental Nail-written local-macro expansion, and a five-node semantic CoreIR with explicit tail positions. These do not promote open-row previews to public imports or remove Haxe from the runtime/compiler boundary. See [v0.60 release notes](./docs/releases/0.60.md).
+## Quick start
+
+This is a complete Nail program ([`examples/hello-060.nail`](examples/hello-060.nail)):
+
+```nail
+nail 0.60 ;
+def answer = 42 ;
+answer ;
+```
+
+From a checkout with Haxe 4.3.x and Node.js 22:
+
+```sh
+haxe seed-image.hxml
+haxe js.hxml
+node -e 'const fs=require("node:fs"); const {NailSeed}=require("./build/js/nailseed.js"); const vm=NailSeed.create(); vm.loadStdlib(); console.log(vm.runPlain(fs.readFileSync("examples/hello-060.nail","utf8")));'
+```
+
+Expected VM result: `["I:42/1"]` (a returned value, not an implicit print statement).
+
+To run the same file with PHP 8, after generating the bootstrap image:
+
+```sh
+haxe php.hxml
+php build/php/index.php examples/hello-060.nail
+```
+
+See [RUNNING.md](RUNNING.md) for browser use, source-free bundles and additional commands.
+
+## Interoperability: use what already exists
+
+Nail modules can **declare** a typed host function:
+
+```nail
+nail 0.60 ;
+def hello name = greet name ;
+import greet from NailHost : Text -> Text ;
+```
+
+The embedding Haxe application explicitly registers `greet`; no new FFI is needed. An import declaration alone does **not** authorize a host callback. The same Haxe example compiles and runs on Haxe, Node and PHP.
+
+- [Runnable example and commands](RUNNING.md)
+- [Nail source](examples/host-greeting-060.nail) · [Haxe host example](src/HostInteropQuickstartTestMain.hx)
+
+*The interoperability quickstart was added to `main` after the v0.60 tag. It is available in the repository checkout, not in the original v0.60 release archives.*
+
+## Compiler research (optional)
+
+Version 0.60 also explores independently checked provider modules, a Nail-first type-checking path, Nail-written macro expansion and a five-constructor semantic CoreIR. These are experimental implementation paths, **not extra requirements for ordinary Nail programs**. See [v0.60 technical notes](docs/releases/0.60.md); the public module ABI remains unchanged.
 
 ## Project direction
 
