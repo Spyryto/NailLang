@@ -57,10 +57,14 @@ class TypeChecker {
     return checkParsed(parser, parser.parse(modules));
   }
 
+  /** Use the same snapshot when analysis and execution parse a separate unit. */
+  public function experimentalParser(source:String):Parser
+    return new Parser(source,null,true,experimentalCallLabels);
+
   /** Opt-in surface experiment; reuse the ordinary inference engine. */
   public function checkExperimental(source:String):Array<String> {
     lastFailureSpan = null;
-    var parser = new Parser(source,null,true,experimentalCallLabels);
+    var parser = experimentalParser(source);
     return checkParsed(parser,parser.parse());
   }
 
