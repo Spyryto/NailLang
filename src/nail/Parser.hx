@@ -52,9 +52,12 @@ class Parser {
 
 
   public function new(source:String,
-      ?contextFields:haxe.ds.StringMap<Array<String>>, ?syntaxExperiment:Bool=false) {
+      ?contextFields:haxe.ds.StringMap<Array<String>>, ?syntaxExperiment:Bool=false,
+      ?knownLabels:haxe.ds.StringMap<Array<String>>) {
     this.syntaxExperiment=syntaxExperiment;
     namedParameters=new haxe.ds.StringMap<Array<String>>();
+    if (syntaxExperiment && knownLabels!=null)
+      for (name in knownLabels.keys()) namedParameters.set(name,knownLabels.get(name).copy());
     this.contextFields=contextFields;
     this.experimentalContexts=contextFields!=null;
     typeAliases=new haxe.ds.StringMap<nail.NType>();
@@ -486,6 +489,13 @@ class Parser {
     return ~/^[A-Za-z_][A-Za-z_0-9]*:$/.match(token);
   }
 
+  /** Snapshot only declaration metadata; callers own their session state. */
+  public function experimentalLabels():haxe.ds.StringMap<Array<String>> {
+    var result=new haxe.ds.StringMap<Array<String>>();
+    for (name in namedParameters.keys()) result.set(name,namedParameters.get(name).copy());
+    return result;
+  }
+
   function freshExperimentName(kind:String):String
     return '#exp_' + kind + '_' + (generatedName++);
 
@@ -521,6 +531,7 @@ class Parser {
       throw 'Too many positional arguments to '+head.name;
     var supplied:Array<Null<Expr>>=[for (_ in params) null];
     var captures:Array<{name:String, value:Expr}>=[];
+    var inOrder=true;
     for (i in 0...head.positional.length) {
       var captured=freshExperimentName('arg');
       supplied[i]=Var(captured);
@@ -544,11 +555,19 @@ class Parser {
         if (index<0) break; // A subsequent application to the returned value.
       } else break;
       var arg=expression(71);
+      if (index!=captures.length) inOrder=false;
       var captured=freshExperimentName('arg');
       supplied[index]=Var(captured);
       captures.push({name:captured,value:arg});
     }
     if (!sawLabel) throw 'Expected a named argument to '+head.name;
+    // A saturated, ordered call to a declared curried function is just
+    // ordinary application. Keep the capture lowering for all other cases.
+    if (inOrder && captures.length==params.length) {
+      var direct:Expr=Var(head.name);
+      for (capture in captures) direct=Apply(direct,capture.value);
+      return direct;
+    }
     var missing:Array<String>=[];
     for (i in 0...params.length) if (supplied[i]==null) {
       var fresh=freshExperimentName('missing');
