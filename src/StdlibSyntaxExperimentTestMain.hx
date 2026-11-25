@@ -97,6 +97,9 @@ class StdlibSyntaxExperimentTestMain {
       +'def table = mapPut mapEmpty value: 2 key: " a " ; '
       +'mapContains table key: " a " ;';
     new TypeChecker().checkExperimental(newPrefix+named);
+    newCheck.checkExperimental(named);
+    same(experimental.runPlainExperimental(named),[[2,3],[2,3],6,true],
+      'separately loaded whole stdlib exposes real declaration labels');
     same(new Vm(budget).runPlainExperimental(newPrefix+named),[[2,3],[2,3],6,true],
       'real stdlib named calls and partial application in the same source');
     var invalid=false;
