@@ -908,7 +908,13 @@ class Parser {
         expect('=');
         // Names are metadata for this source only, not a new function kind.
         // Register before parsing the body to support recursive references.
-        if (syntaxExperiment && !macroDeclaration) namedParameters.set(name,labels);
+        if (syntaxExperiment && !macroDeclaration) {
+          // A repeated declaration must not replace the metadata of an
+          // earlier definition, even if evaluation subsequently fails.
+          if (namedParameters.exists(name))
+            throw 'Already defined: ' + name;
+          namedParameters.set(name,labels);
+        }
         var body = lambdas(params, scopedExpression(params), positions);
         expect(';');
         for (entry in bindings) {
