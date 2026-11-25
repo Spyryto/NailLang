@@ -125,6 +125,7 @@ class SelfSyntaxExperimentTestMain {
     for (code in [
       'macro f a: a = quote ( unquote a ) ;',
       'def duplicate same: a same: b = a ;',
+      'def f old: x = x ; def f new: y = y ;',
       'def duplicate first: a second: a = a ;',
       'def f first: a = a ; f a: 42 ;',
       'def f a b = a ; f a: 1 a: 2 ;',
