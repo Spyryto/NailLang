@@ -26,3 +26,14 @@ jobs:
         run: |
           haxe syntax-experiment-test-php.hxml
           XDEBUG_MODE=off php build/tests/php-syntax-experiment/index.php
+      - name: Prepare the full experimental stdlib (strict patch)
+        run: |
+          mkdir -p build/tests
+          patch --batch --fuzz=0 -o build/tests/stdlib-experimental.nail stdlib.nail experiments/syntax/stdlib-refactor.patch
+      - name: Compare stdlib on Haxe, JavaScript and PHP
+        run: |
+          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental --interp
+          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -js build/tests/stdlib-syntax.js
+          node build/tests/stdlib-syntax.js
+          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -php build/tests/php-stdlib-syntax
+          XDEBUG_MODE=off php build/tests/php-stdlib-syntax/index.php
