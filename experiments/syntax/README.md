@@ -167,7 +167,9 @@ trattino e pipeline (verificati sui tre target). Le label sono ora
 implementate in una seconda iterazione ancora in validazione. Per
 rendere visibili le label della libreria caricata prima del sorgente
 utente, il parser Haxe ora accetta uno snapshot di metadati e VM e
-checker lo aggiornano dopo il successo della rispettiva operazione.
+checker lo aggiornano secondo la semantica della rispettiva operazione:
+la VM pubblica le label dopo ogni definizione riuscita, mentre il
+checker le pubblica soltanto dopo il successo dell'intera unità.
 
 ```haxe
 var vm = new nail.Vm(70000000);
@@ -251,13 +253,40 @@ half 3 ;
 
 Le specializzazioni indipendenti e la generalizzazione locale sono
 validate su Haxe, JS e PHP (CI 45575052597: 267 verifiche per target).
-La propagazione delle colonne comuni è un'iterazione successiva
-in validazione: per esempio, il risultato di `half` è Ratio anche
+La propagazione delle colonne comuni è validata sui tre target
+(CI 45582160770: 286 verifiche per target): per esempio, il risultato di `half` è Ratio anche
 prima di conoscere se x è Int o Ratio. L'obbligazione relativa
 all'operando non viene eliminata.
 
 La suite SelfSyntaxExperimentTestMain confronta il checker Nail con
 quello Haxe, include casi negativi e controlla direttamente gli schemi
 inferiti. Non implica equivalenza completa dei due checker: in
-particolare confronti numerici e diagnostica richiedono una verifica
-dedicata. L'ABI, la stdlib ufficiale e main restano invariati.
+particolare la diagnostica e l'interazione con tutte le feature
+richiedono una verifica dedicata. I confronti numerici ordinati
+usano ora la stessa tabella interna dei tipi compatibili, con
+risultato Bool; CI 45586136113 verde su Haxe e JS, suite parser PHP
+verde ma confronto finale PHP annullato da un commit successivo. L'ABI, la stdlib ufficiale e main restano invariati.
+
+
+## Consolidamento delle label tra unità
+
+Le definizioni runtime sono immutabili e non transazionali a livello
+di programma: se una forma fallisce, le definizioni precedenti
+rimangono disponibili. La VM deve quindi pubblicare le label
+insieme alla singola definizione riuscita, non alla fine di run.
+Nessuna label è pubblicata per un corpo fallito o una forma non
+eseguita. Il checker mantiene il comportamento transazionale già
+esistente; la fusione dei metadati non elimina quelli delle unità
+precedenti quando viene fornito un parser indipendente.
+
+Una dichiarazione duplicata non può sovrascrivere le label:
+entrambi i parser sperimentali la rifiutano. Le definizioni
+caricate con sintassi ordinaria non acquisiscono automaticamente
+label. Il parser Nail mantiene ancora solo metadati dello stesso
+sorgente; il supporto tra unità è della VM/checker con parser Haxe.
+I nuovi casi negativi e di recupero sono in validazione.
+
+Prima di qualsiasi promozione: completare questa CI, chiarire la
+politica sui metadati tra unità per il parser Nail e decidere
+come integrare la variante patchata senza modificare inavvertitamente
+il bootstrap ufficiale. Nessun merge automatico in main.
