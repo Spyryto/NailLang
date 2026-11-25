@@ -1,0 +1,8 @@
+nail 0.62 ;
+def summ a b = a + b ;
+def fraction numerator: a denominator: b = a / b ;
+def less a b = a < b ;
+3 >> summ b: 2 ;
+summ 1.5 2.5 ;
+fraction denominator: 2 numerator: 3 ;
+less 1 2 ;

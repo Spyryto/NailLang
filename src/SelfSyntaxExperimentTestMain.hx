@@ -71,7 +71,7 @@ class SelfSyntaxExperimentTestMain {
     ok(switch(predicates) {case Cons(_,_):true;case _:false;},'remaining numeric obligation is retained');
   }
   static function main():Void {
-    var source=Resource.getString('stdlib-experimental');
+    var source=Resource.getString('stdlib');
     if (source==null) throw 'Missing experimental stdlib';
     var library=new Vm(70000000);
     library.runExperimental(source);
@@ -151,7 +151,7 @@ class SelfSyntaxExperimentTestMain {
     ok(Json.stringify(new nail.ByteVm(70000000).runPlain(library.compileWithNail(modern)))==Json.stringify(modernHost),
       'modern annotated public labels preserve exact division');
     var stable=new Vm(70000000);
-    stable.loadStdlib();
+    stable.run(Resource.getString('stdlib-reference'));
     for (code in ['def new-name x = x ;','1 >> ( fun x -> x ) ;']) {
       var refused=false;
       try stable.runPlainWithNail(code) catch (_:Dynamic) refused=true;

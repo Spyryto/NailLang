@@ -170,7 +170,9 @@ class Vm {
     throw 'Host source parser disabled in bootstrap-only build';
     #else
     steps = 0;
-    return executeForms(new Parser(source).parse(modules));
+    var parser=new Parser(source,null,false,experimentalCallLabels);
+    var forms=parser.parse(modules);
+    return executeForms(forms,parser.experimentalLabels());
     #end
   }
 

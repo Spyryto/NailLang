@@ -53,7 +53,7 @@ class TypeChecker {
   /** Return the types of top-level expressions; definitions also get inferred. */
   public function check(source:String, ?modules:String->Null<String>):Array<String> {
     lastFailureSpan = null;
-    var parser = new Parser(source);
+    var parser = new Parser(source,null,false,experimentalCallLabels);
     return checkParsed(parser, parser.parse(modules));
   }
 
@@ -92,7 +92,7 @@ class TypeChecker {
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
       newTables, functionContracts,
-      parser.experimentalContexts || parser.languageVersion=='0.61', parser.syntaxExperiment);
+      parser.experimentalContexts || (parser.languageVersion=='0.61' || parser.languageVersion=='0.62'), parser.syntaxExperiment);
     solver.declarations = parser.declaredRelations;
     solver.parameterConstraints=parser.parameterConstraints;
     if (parser.experimentalContexts) {
@@ -135,7 +135,7 @@ class TypeChecker {
       }
     }
     lastModern = parser.modernMode;
-    lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
+    lastOpenRows = parser.experimentalContexts || (parser.languageVersion=='0.61' || parser.languageVersion=='0.62');
     if (parser.modernMode) for (form in forms) switch(form) {
       case Define(name, _): checkedPreviewDefinitions.set(name,true);
       case _:
