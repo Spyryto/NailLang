@@ -152,6 +152,21 @@ class SyntaxExperimentTestMain {
     try new TypeChecker().check('nail 0.61 ; '+typedFraction)
     catch (_:Dynamic) standardError=true;
     assertTrue(standardError,'ordinary type checker keeps syntax opt-in');
+    var sample='nail 0.61 ;\n'+typedFraction+'\ndef half = fraction denominator: 2 ;\nhalf 3 ;';
+    var report=Main.analyzeExperimental(sample);
+    assertTrue(report.ok && report.evaluations[0].type=='Ratio',
+      'experimental analysis exposes result type');
+    var halfSignature='';
+    for (symbol in report.symbols) if (symbol.name=='half') halfSignature=symbol.signature;
+    assertTrue(halfSignature=='Int -> Ratio','experimental analysis exposes signature');
+    var wrong=Main.analyzeExperimental(sample+'\nhalf " bad " ;');
+    assertTrue(!wrong.ok && wrong.diagnostics[0].phase=='type'
+      && wrong.diagnostics[0].span!=null && wrong.diagnostics[0].span.line==5,
+      'experimental analysis retains type error form location');
+    assertTrue(!Main.analyze(sample).ok,'ordinary analysis rejects experimental source');
+    var view=Main.expandExperimental(sample);
+    assertTrue(view.indexOf('fun a ->')>=0 && view.indexOf('#exp_')>=0,
+      'expanded view exposes ordinary lambdas and captures');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
