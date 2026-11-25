@@ -134,11 +134,11 @@ class SourceAnalysis {
   }
 
   public static function analyze(source:String,
-      ?modules:String->Null<String>):AnalysisResult {
+      ?modules:String->Null<String>, ?syntaxExperiment:Bool=false):AnalysisResult {
     var report:AnalysisResult = {ok:false, version:null, diagnostics:[],
       symbols:[], references:[], evaluations:[]};
     var parser:Parser;
-    try parser = new Parser(source)
+    try parser = new Parser(source,null,syntaxExperiment)
     catch (error:Dynamic) {
       var message = Std.string(error);
       var tokens:Array<SourceToken> = [];
