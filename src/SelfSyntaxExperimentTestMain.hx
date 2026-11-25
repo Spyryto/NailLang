@@ -153,6 +153,9 @@ class SelfSyntaxExperimentTestMain {
     rejectNumeric(library,'def summ x y = x + y ; def add-three = summ y: 3 ; add-three true ;','No numeric relation instance');
     rejectNumeric(library,'def summ x y = x + y ; summ ;','Ambiguous numeric constraint');
     // Check the private/public boundary using the ordinary curried call.
+    checkTypes(library,'def f x = let y = x + 1 in let twice = ( fun z -> z + z ) in let ignored = twice 1 in twice 1.5 ; f 3 ;',['Float']);
+    checkTypes(library,'def f x = let y = x + 1 in let id = ( fun z -> z ) in let ignored = id true in id y ; f 3 ;',['Int']);
+    rejectNumeric(library,'def f x = let y = x + 1 in if true then y else 1.5 ; f 3 ;','No numeric relation instance');
     var wire=library.run('tcCanonicalCheckedDefinition " nail 0.61 ; def summ x y = x + y ; " " summ " ;')[0];
     ok(ResultValue.tag(wire)==ResultValue.ERR,'public row evidence cannot discard numeric predicates');
     rejectNumeric(library,'def add-one ( x : Text ) = x + 1 ;','No numeric relation instance');
