@@ -12,6 +12,7 @@ class Parser {
   public final syntaxExperiment:Bool;
   final namedParameters:haxe.ds.StringMap<Array<String>>;
   var generatedName:Int = 0;
+  final experimentBinders:Array<String> = [];
   /** Experimental opt-in contextual DSL interfaces. This deliberately
       does not change the normal 0.54 parser or language version. The
       caller supplies visible field names (from a checked interface). */
@@ -140,6 +141,16 @@ class Parser {
       matches the pure Nail-written lowering and makes bytecode reproducible. */
   function hidden(label:String):String return '#nail_' + label + '_0';
 
+  /** Track only lexical names that hide declaration-level labels. */
+  function scopedExpression(names:Array<String>):Expr {
+    if (!syntaxExperiment) return expression();
+    var depth=experimentBinders.length;
+    for (name in names) experimentBinders.push(name);
+    var result=expression();
+    experimentBinders.resize(depth);
+    return result;
+  }
+
   /** Surface let: ( fun name -> body ) value. A non-recursive, eager binding. */
   function parseLet():Expr {
     var bindingToken = at;
@@ -148,7 +159,7 @@ class Parser {
     expect('=');
     var value = expression();
     expect('in');
-    var body = expression();
+    var body = scopedExpression([name]);
     var binder = provenance.expression(Lambda(name, body), bindingToken, at);
     return Apply(binder, value);
   }
@@ -191,7 +202,7 @@ class Parser {
         headName = first == '_' ? hidden('wild_head') : first;
         tailName = second == '_' ? hidden('wild_tail') : second;
         expect('->');
-        pairBranch = expression();
+        pairBranch = scopedExpression([headName,tailName]);
       }
     }
     if (emptyBranch == null || pairBranch == null || headName == null || tailName == null)
@@ -224,7 +235,7 @@ class Parser {
         if (params.length > 10) throw 'Too many variant bindings';
       }
       expect('->');
-      var body = expression();
+      var body = scopedExpression(params);
       for (branch in branches) if (branch.name == ctor) throw 'Duplicate variant branch';
       branches.push({name:ctor, params:params, body:body});
     }
@@ -432,7 +443,7 @@ class Parser {
       }
       if (params.length == 0) throw 'Function needs at least one parameter';
       expect('->');
-      return lambdas(params, expression(), positions);
+      return lambdas(params, scopedExpression(params), positions);
     }
     if (isNumber(token)) {
       if (modernMode) return token.indexOf('.') >= 0
@@ -501,6 +512,8 @@ class Parser {
       All generated names are impossible to write in surface Nail. */
   function parseNamedCall(left:Expr):Expr {
     var head=namedCallHead(left);
+    if (experimentBinders.indexOf(head.name)>=0)
+      throw 'Named arguments unavailable for shadowed function '+head.name;
     var params=namedParameters.get(head.name);
     if (params == null)
       throw 'Named arguments require a local definition: '+head.name;
@@ -877,7 +890,7 @@ class Parser {
         // Names are metadata for this source only, not a new function kind.
         // Register before parsing the body to support recursive references.
         if (syntaxExperiment && !macroDeclaration) namedParameters.set(name,labels);
-        var body = lambdas(params, expression(), positions);
+        var body = lambdas(params, scopedExpression(params), positions);
         expect(';');
         for (entry in bindings) {
           if (entry.previous==null) contextFields.remove(entry.name);
