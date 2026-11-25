@@ -201,6 +201,37 @@ class SyntaxExperimentTestMain {
     var oldRejected=false;
     try new TypeChecker().check('nail 0.61 ; '+summ) catch (_:Dynamic) oldRejected=true;
     assertTrue(oldRejected,'stable inference is unchanged');
+    var ordered='nail 0.61 ; def pair a b = a ; ';
+    var positionalView=Main.expandExperimental(ordered+'pair 1 2 ;');
+    assertTrue(Main.expandExperimental(ordered+'pair a: 1 b: 2 ;')==positionalView,
+      'saturated named call in order has the same core as positional');
+    assertTrue(Main.expandExperimental(ordered+'pair 1 b: 2 ;')==positionalView,
+      'saturated mixed call in order has the same core');
+    assertTrue(Main.expandExperimental(ordered+'pair b: 2 a: 1 ;').indexOf('#exp_')>=0,
+      'reordered calls retain evaluation captures');
+    assertTrue(Main.expandExperimental(ordered+'def later = pair b: 2 ;').indexOf('#exp_')>=0,
+      'non-prefix partial calls retain captures');
+    var session=new Vm();
+    session.runExperimental('nail 0.61 ; '+fraction);
+    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; fraction denominator: 2 numerator: 3 ;'))=='["R:3/2"]',
+      'runtime remembers declaration labels across source units');
+    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; def half = fraction denominator: 2 ; half 3 ;'))=='["R:3/2"]',
+      'partial application across separate source units');
+    var sessionTypes=new TypeChecker();
+    sessionTypes.checkExperimental('nail 0.61 ; '+fraction);
+    assertTrue(sessionTypes.checkExperimental('nail 0.61 ; fraction numerator: 3 denominator: 2 ;')[0]=='Ratio',
+      'checker remembers declaration labels and inferred predicates');
+    var copied=sessionTypes.copy();
+    assertTrue(copied.checkExperimental('nail 0.61 ; fraction denominator: 2 numerator: 3 ;')[0]=='Ratio',
+      'checker copy preserves labels');
+    var rejected=false;
+    try sessionTypes.checkExperimental('nail 0.61 ; def bad alias: a = a + true ;')
+    catch (_:Dynamic) rejected=true;
+    assertTrue(rejected,'failed static definition rejected');
+    var leaked=false;
+    try sessionTypes.checkExperimental('nail 0.61 ; bad alias: 3 ;')
+    catch (e:Dynamic) leaked=Std.string(e).indexOf('local definition')>=0;
+    assertTrue(leaked,'failed static definition publishes no labels');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
