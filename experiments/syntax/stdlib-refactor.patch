@@ -78,7 +78,7 @@
 +  else if word == " >= " then 30
 +  else if word == " >> " then 25
 +  else -1 ;
-@@ -252,29 +261,59 @@
+@@ -252,29 +261,63 @@
 -def parseDefParams tokens reversed annotations =
 -  if isEmpty tokens then parseError " Missing = in definition "
 -  else let word = parsePeek tokens in
@@ -120,10 +120,13 @@
 +    else " " ;
 +def expLabel tokens =
 +  if isEmpty tokens then " "
-+  else if syntaxTag ( head tokens ) == " Token " then expLabelAt ( parsePeek tokens ) 0 " "
-+  else " " ;
++  else if syntaxTag ( head tokens ) != " Token " then " "
++  else let word = parsePeek tokens in
++    if textLength word < 2 then " "
++    else if textAt word ( textLength word - 1 ) != " : " then " "
++    else expLabelAt word 0 " " ;
 +
-+def expDefParams tokens reversed annotations labels pending =
++def expDefParams tokens reversed annotations labels pending allowLabels =
 +  if isEmpty tokens then parseError " Missing = in definition "
 +  else let word = parsePeek tokens in
 +    if word == " = " then
@@ -140,8 +143,9 @@
 +          syntaxNode " ExpLabels " ( reverse labels ) ] ) tokens
 +    else let label = expLabel tokens in
 +      if label != " " then
-+        if pending != " " then parseError " Missing labelled binder "
-+        else expDefParams ( tail tokens ) reversed annotations labels label
++        if allowLabels == false then parseError " Macro labels are not supported "
++        else if pending != " " then parseError " Missing labelled binder "
++        else expDefParams ( tail tokens ) reversed annotations labels label allowLabels
 +      else if word == " ( " then
 +        let name = parsePeek ( tail tokens ) in
 +        let sep = parsePeek ( tail ( tail tokens ) ) in
@@ -157,20 +161,20 @@
 +        else expDefParams ( tail ( tail ( tail ( tail ( tail tokens ) ) ) ) )
 +          ( cons ( syntaxName name ) reversed )
 +          ( cons ( syntaxNode " Annotation " [ syntaxName name , syntaxName typeName ] ) annotations )
-+          ( cons ( syntaxName public ) labels ) " "
++          ( cons ( syntaxName public ) labels ) " " allowLabels
 +      else if isIdentifier word then
 +        let public = if pending == " " then word else pending in
 +        if hasParam reversed word then parseError " Duplicate parameter name "
 +        else if hasParam labels public then parseError " Duplicate public parameter label "
 +        else expDefParams ( tail tokens ) ( cons ( syntaxName word ) reversed ) annotations
-+          ( cons ( syntaxName public ) labels ) " "
++          ( cons ( syntaxName public ) labels ) " " allowLabels
 +      else parseError " Invalid definition parameter " ;
 +def parseDefParams tokens reversed annotations =
-+  expDefParams tokens reversed annotations reversed " " ;
-@@ -461,1 +500,1 @@
++  expDefParams tokens reversed annotations reversed " " true ;
+@@ -461,1 +504,1 @@
 -def namedFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def namedFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -587,2 +626,18 @@
+@@ -587,2 +630,18 @@
 -# Pratt suffix step handles application at 70 and left-associative operators.
 -def parseSuffix recur minimum parsed =
 +# Temporary surface call marker. Consume the same atomic arguments as
@@ -191,7 +195,7 @@
 +
 +# Pratt suffix step handles application at 70 and left-associative operators.
 +def parseSuffix recur minimum parsed =
-@@ -605,1 +660,7 @@
+@@ -605,1 +664,7 @@
 -    else if isPrefixSyntaxToken rest then
 +    else if expLabel rest != " " then
 +      if minimum > 70 then parsed
@@ -200,12 +204,12 @@
 +        else parseSuffix recur minimum
 +          ( parsePair ( syntaxNode " ExpCall " [ parseTree parsed , parseTree args ] ) ( parseRest args ) )
 +    else if isPrefixSyntaxToken rest then
-@@ -616,1 +677,3 @@
+@@ -616,1 +681,3 @@
 -        else parseSuffix recur minimum ( parsePair ( syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) ) ( parseRest rhs ) ) ;
 +        else let tree = if next == " >> " then syntaxApply ( parseTree rhs ) ( parseTree parsed )
 +          else syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) in
 +          parseSuffix recur minimum ( parsePair tree ( parseRest rhs ) ) ;
-@@ -630,57 +693,60 @@
+@@ -630,57 +697,59 @@
 -def parseNamedBody prefix name params annotations valueType relationType tokens =
 -  let body = parseAt 0 tokens in
 -    if parseFailed body then body
@@ -292,7 +296,7 @@
 +  if isEmpty tokens then parseError " Expected definition name "
 +  else let name = parsePeek tokens in
 +    if isIdentifier name then
-+      let parsed = parseDefParams ( tail tokens ) [] [] in
++      let parsed = expDefParams ( tail tokens ) [] [] [] " " ( prefix == " " ) in
 +      if parseFailed parsed then parsed
 +      else let parts = syntaxChildren ( parseTree parsed ) in
 +        let params = head parts in
@@ -306,8 +310,7 @@
 +          else " _ " in
 +        let startBody = if hasTrailing then tail ( tail ( tail afterParams ) ) else tail afterParams in
 +        if prefix != " " then
-+          if syntaxChildren labels != syntaxChildren params then parseError " Macro labels are not supported "
-+          else if hasTrailing then parseError " Macro relations are not supported "
++          if hasTrailing then parseError " Macro relations are not supported "
 +          else if isEmpty ( syntaxChildren annotations ) == false then
 +            parseError " Macro annotations are not supported "
 +          else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
@@ -323,10 +326,10 @@
 +            ( parsePeek ( tail afterParams ) ) startBody
 +        else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
 +    else parseError " Expected definition name " ;
-@@ -693,1 +759,1 @@
+@@ -693,1 +762,1 @@
 -def recordFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def recordFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -1035,55 +1101,188 @@
+@@ -1035,55 +1104,188 @@
 -def parseFormsScoped tokens reversed aliases globals typed =
 -  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
 -  else let parsed = parseForm tokens in
@@ -570,88 +573,88 @@
 +def parseFormsScoped tokens reversed aliases globals typed = expFormsScoped tokens reversed aliases globals typed [] ;
 +def parseForms tokens reversed = expFormsScoped tokens reversed [] [] false [] ;
 +def parseTypedForms tokens = expFormsScoped tokens [] [] [] true [] ;
-@@ -1191,1 +1390,2 @@
+@@ -1191,1 +1393,2 @@
 -def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
 +def parseSource source =
 +  parseForms tokens: ( source >> tokenizeCode >> stripNailHeader ) reversed: [] ;
-@@ -1472,1 +1672,1 @@
+@@ -1472,1 +1675,1 @@
 -def compileSyntax program = compileExpandedSyntax ( macroExpandSyntax program ) ;
 +def compileSyntax program = program >> macroExpandSyntax >> compileExpandedSyntax ;
-@@ -1474,1 +1674,1 @@
+@@ -1474,1 +1677,1 @@
 -def compileSource source = compileSyntax ( parseSource source ) ;
 +def compileSource source = source >> parseSource >> compileSyntax ;
-@@ -1520,2 +1720,2 @@
+@@ -1520,2 +1723,2 @@
 -def compileExactSource source =
 -  compileExpandedSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileExactSource source =
 +  source >> parseSource >> macroExpandSyntax >> exactRewrite >> compileExpandedSyntax ;
-@@ -1573,2 +1773,2 @@
+@@ -1573,2 +1776,2 @@
 -def compileModernSource source =
 -  compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSource source =
 +  source >> parseSource >> macroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -1632,1 +1832,1 @@
+@@ -1632,1 +1835,1 @@
 -def tcFirst tree = head ( syntaxChildren tree ) ;
 +def tcFirst tree = tree >> syntaxChildren >> head ;
-@@ -1633,1 +1833,1 @@
+@@ -1633,1 +1836,1 @@
 -def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
 +def tcSecond tree = tree >> syntaxChildren >> tail >> head ;
-@@ -1634,1 +1834,1 @@
+@@ -1634,1 +1837,1 @@
 -def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
 +def tcThird tree = tree >> syntaxChildren >> tail >> tail >> head ;
-@@ -1855,1 +2055,1 @@
+@@ -1855,1 +2058,1 @@
 -def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
 +def tcSchemeQuantifiers scheme = scheme >> tcSecond >> syntaxChildren ;
-@@ -1856,1 +2056,1 @@
+@@ -1856,1 +2059,1 @@
 -def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
 +def tcSchemeComparable scheme = scheme >> tcThird >> syntaxChildren ;
-@@ -1857,1 +2057,1 @@
+@@ -1857,1 +2060,1 @@
 -def tcSchemeRowGuards scheme = syntaxChildren ( tcFourth scheme ) ;
 +def tcSchemeRowGuards scheme = scheme >> tcFourth >> syntaxChildren ;
-@@ -2000,1 +2200,1 @@
+@@ -2000,1 +2203,1 @@
 -def tcResultSubs result = syntaxChildren ( tcSecond result ) ;
 +def tcResultSubs result = result >> tcSecond >> syntaxChildren ;
-@@ -2001,1 +2201,1 @@
+@@ -2001,1 +2204,1 @@
 -def tcResultSeed result = syntaxText ( tcThird result ) ;
 +def tcResultSeed result = result >> tcThird >> syntaxText ;
-@@ -2720,2 +2920,1 @@
+@@ -2720,2 +2923,1 @@
 -def tcFourth tree =
 -  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
 +def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
-@@ -2722,2 +2921,1 @@
+@@ -2722,2 +2924,1 @@
 -def tcFifth tree =
 -  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
 +def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
-@@ -2859,4 +3057,2 @@
+@@ -2859,4 +3060,2 @@
 -  else tcCheckSyntax
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntax ;
-@@ -2868,4 +3064,2 @@
+@@ -2868,4 +3067,2 @@
 -  else tcCheckSyntaxTraced
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxTraced ;
-@@ -2880,4 +3074,2 @@
+@@ -2880,4 +3077,2 @@
 -  else tcCheckSyntaxSchemes
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3822,1 +4014,1 @@
+@@ -3822,1 +4017,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4670,2 @@
+@@ -4478,2 +4673,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4677,2 @@
+@@ -4485,3 +4680,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
