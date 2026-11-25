@@ -45,6 +45,31 @@ class SelfSyntaxExperimentTestMain {
       case _: throw 'Expected error text';
     }
   }
+  // Inspect the actual generalized scheme, not only the result of a
+  // concrete application (which could also pass without propagation).
+  static function checkNumericScheme(library:Vm,body:String,name:String,expected:String):Void {
+    var source='nail 0.61 ; '+body;
+    var result=library.invoke('tcCheckSourceSchemes',Text(source));
+    ok(ResultValue.tag(result)==ResultValue.OK,'scheme inference '+body);
+    var scheme=switch(ResultValue.get(result,ResultValue.OK)) {
+      case SyntaxNode('TCCheckedSchemes',Cons(_,Cons(SyntaxNode('TCExportSchemes',Cons(SyntaxNode('TCBinding',Cons(_,Cons(value,Nil))),Nil)),Nil))): value;
+      case _: throw 'Expected a single checked definition scheme';
+    };
+    var term=switch(scheme) {
+      case SyntaxNode('TCScheme',Cons(value,_)): value;
+      case _: throw 'Expected TCScheme';
+    };
+    var output=switch(term) {
+      case SyntaxNode('TCFun',Cons(_,Cons(SyntaxLeaf('TCBase',label),Nil))): label;
+      case _: throw 'Expected concrete codomain: '+Std.string(term);
+    };
+    ok(output==expected,'Nail common numeric result '+body);
+    var checker=new TypeChecker();
+    checker.checkExperimental(source);
+    ok(StringTools.endsWith(checker.signature(name),' -> '+expected),'Haxe common numeric result '+body);
+    var predicates=library.invoke('tcSchemeNumeric',scheme);
+    ok(switch(predicates) {case Cons(_,_):true;case _:false;},'remaining numeric obligation is retained');
+  }
   static function main():Void {
     var source=Resource.getString('stdlib-experimental');
     if (source==null) throw 'Missing experimental stdlib';
@@ -159,6 +184,12 @@ class SelfSyntaxExperimentTestMain {
     var wire=library.run('tcCanonicalCheckedDefinition " nail 0.61 ; def summ x y = x + y ; " " summ " ;')[0];
     ok(ResultValue.tag(wire)==ResultValue.ERR,'public row evidence cannot discard numeric predicates');
     rejectNumeric(library,'def add-one ( x : Text ) = x + 1 ;','No numeric relation instance');
+    checkNumericScheme(library,'def half x = x / 2 ;','half','Ratio');
+    checkNumericScheme(library,'def add-half x = x + ( 1 / 2 ) ;','add-half','Ratio');
+    checkNumericScheme(library,'def chain x = ( x / 2 ) + 1 ;','chain','Ratio');
+    checkTypes(library,'def half x = x / 2 ; half 3 ; half ( 3 / 2 ) ;',['Ratio','Ratio']);
+    rejectNumeric(library,'def half x = x / 2 ; half 1.5 ;','No numeric relation instance');
+    rejectNumeric(library,'def half x = x / 2 ; half ;','Ambiguous numeric constraint');
     trace('Self syntax experiment: '+passed+' differential checks passed');
   }
 }
