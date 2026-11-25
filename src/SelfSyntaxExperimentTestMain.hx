@@ -5,8 +5,7 @@ import nail.BytecodeCompiler;
 import nail.Parser;
 import nail.Vm;
 
-/** Isolated first step of self-parser alignment. Named arguments are not
-    admitted by this Nail-written parser yet. Compare with the Haxe oracle. */
+/** Isolated first step of self-parser alignment. Compare the surface lowering with the Haxe oracle. */
 class SelfSyntaxExperimentTestMain {
   static var passed=0;
   static function ok(condition:Bool,label:String):Void {
@@ -36,10 +35,55 @@ class SelfSyntaxExperimentTestMain {
         'Nail compiler bytecode agrees '+sample.code);
     }
     for (code in ['def bad--name x = x ;','def bad- x = x ;','def -bad x = x ;',
-      '1 >> ;','def pair x y = x ; pair y: 2 x: 1 ;']) {
+      '1 >> ;','def pair x y = x ; pair z: 2 ;']) {
       var refused=false;
       try library.runPlainWithNail(code) catch (_:Dynamic) refused=true;
       ok(refused,'unsupported or malformed syntax rejected '+code);
+    }
+    var namedSamples:Array<{code:String,expected:Array<Dynamic>,direct:Bool}>=[
+      {code:'def pair first: a second: b = a * 10 + b ; pair first: 4 second: 2 ;',expected:[42],direct:true},
+      {code:'def combine a b = a * 10 + b ; combine 4 b: 2 ; combine a: 4 2 ;',expected:[42,42],direct:true},
+      {code:'def combine a b = a * 10 + b ; combine b: 2 a: 4 ; combine b: 2 4 ;',expected:[42,42],direct:false},
+      {code:'def fraction numerator: a denominator: b = a / b ; def half = fraction denominator: 2 ; half 3 ;',expected:[1.5],direct:false},
+      {code:'def pair a b = a * 10 + b ; 4 >> pair b: 2 ;',expected:[42],direct:false},
+      {code:'def pair a b = a * 10 + b ; pair b: ( pair b: 2 a: 0 ) a: 4 ;',expected:[42],direct:false},
+      {code:'def make a = fun b -> a + b ; make a: 40 2 ;',expected:[42],direct:true},
+      {code:'def factorial n = if n == 0 then 1 else n * factorial n: ( n - 1 ) ; factorial n: 5 ;',expected:[120],direct:true},
+      {code:'def one a b = a ; let one = ( fun a -> a ) in one 42 ; one a: 42 b: true ;',expected:[42,42],direct:true}
+    ];
+    for (sample in namedSamples) {
+      // Each sample owns its definitions; the compiler environment is shared
+      // but evaluation must not redefine the same names across samples.
+      var oracle=new Vm(70000000).runPlainExperimental(sample.code);
+      ok(Json.stringify(oracle)==Json.stringify(sample.expected),'host named expected '+sample.code);
+      var code=library.compileWithNail(sample.code);
+      var bytes=new nail.ByteVm(70000000);
+      ok(Json.stringify(bytes.runPlain(code))==Json.stringify(oracle),'Nail named bytecode result '+sample.code);
+      if (sample.direct) {
+        var host=BytecodeCompiler.compile(new Parser(sample.code,null,true).parse());
+        ok(BootstrapImage.encode(host)==BootstrapImage.encode(code),'ordered named bytecode identical '+sample.code);
+      }
+    }
+    for (code in [
+      'def duplicate same: a same: b = a ;',
+      'def duplicate first: a second: a = a ;',
+      'def f first: a = a ; f a: 42 ;',
+      'def f a b = a ; f a: 1 a: 2 ;',
+      'def f a b = a ; f 1 a: 2 ;',
+      'missing a: 1 ;',
+      'def f a b = a ; def wrapper f = f a: 1 ;',
+      'def f a b = a ; let f = ( fun x -> x ) in f a: 1 ;',
+      'def f a b = a ; ( fun f -> f a: 1 ) f ;',
+      'def f a b = a ; match [ 1 ] with | [] -> 0 | f :: rest -> f a: 1 ;'
+    ]) {
+      var refused=false;
+      try library.compileWithNail(code) catch (_:Dynamic) refused=true;
+      // Compiler may return an Error Syntax value rather than throw.
+      if (!refused) switch(library.compileWithNail(code)) {
+        case nail.Value.SyntaxLeaf('Error',_): refused=true;
+        case _: 
+      }
+      ok(refused,'Nail named syntax rejects '+code);
     }
     var stable=new Vm(70000000);
     stable.loadStdlib();
