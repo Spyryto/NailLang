@@ -8,7 +8,7 @@ import nail.SumLowering;
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
   final tokens:Array<String>;
-  /** Opt-in syntax experiment: no released Nail header enables this. */
+  /** New syntax is canonical for 0.62 and unversioned library sources. */
   public final syntaxExperiment:Bool;
   final namedParameters:haxe.ds.StringMap<Array<String>>;
   var generatedName:Int = 0;
@@ -54,9 +54,10 @@ class Parser {
   public function new(source:String,
       ?contextFields:haxe.ds.StringMap<Array<String>>, ?syntaxExperiment:Bool=false,
       ?knownLabels:haxe.ds.StringMap<Array<String>>) {
-    this.syntaxExperiment=syntaxExperiment;
+    languageVersion = numeric.LanguageVersion.declared(source);
+    this.syntaxExperiment=syntaxExperiment || languageVersion==null || languageVersion=='0.62';
     namedParameters=new haxe.ds.StringMap<Array<String>>();
-    if (syntaxExperiment && knownLabels!=null)
+    if (this.syntaxExperiment && knownLabels!=null)
       for (name in knownLabels.keys()) namedParameters.set(name,knownLabels.get(name).copy());
     this.contextFields=contextFields;
     this.experimentalContexts=contextFields!=null;
@@ -64,7 +65,6 @@ class Parser {
     declaredRecordArities=new haxe.ds.StringMap<Int>();
     parameterConstraints=new haxe.ds.StringMap<Array<{name:String,type:nail.NType}>>();
     valueConstraints=new haxe.ds.StringMap<nail.NType>();
-    languageVersion = numeric.LanguageVersion.declared(source);
     modernMode = languageVersion != null;
     exactMode = numeric.NumericDialect.isExact(source);
     declaredDivRows = [];
@@ -846,7 +846,7 @@ class Parser {
             label=keyword.substr(0,keyword.length-1);
             atParameter=at;
           }
-          if ((experimentalContexts || languageVersion=='0.61') && peek()=='(') {
+          if ((experimentalContexts || (languageVersion=='0.61' || languageVersion=='0.62')) && peek()=='(') {
             take();
             p=take();
             if (!isName(p) || params.indexOf(p)>=0)
