@@ -617,27 +617,33 @@
 @@ -2001,1 +2204,1 @@
 -def tcResultSeed result = syntaxText ( tcThird result ) ;
 +def tcResultSeed result = result >> tcThird >> syntaxText ;
-@@ -2172,2 +2375,4 @@
+@@ -2036,2 +2239,3 @@
+-    else tcInferResult instance ( syntaxChildren rowRequired )
+-      ( tcRenameSeed renaming ) ;
++    else tcInferResult instance
++      ( tcInstantiateNumeric ( tcSchemeNumeric scheme ) names ( syntaxChildren rowRequired ) )
++      ( tcRenameSeed renaming ) ;
+@@ -2172,2 +2376,4 @@
 -        else let scheme = tcGeneralize
 -          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
-+        else let scheme =
-+          if isEmpty ( tcPendingNumeric ( tcResultSubs inferred ) ) then
-+            tcGeneralize ( tcResultType inferred ) environment ( tcResultSubs inferred )
-+          else tcScheme ( tcResultType inferred ) [] in
-@@ -2348,5 +2553,7 @@
++        else let generalized = tcGeneralizeNumeric
++          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
++        if syntaxTag generalized == " TCFault " then generalized
++        else let scheme = tcFirst generalized in
+@@ -2187,2 +2393,2 @@
+-                ( tcResultSubs inferred ) ( tcResultSeed inferred ) )
+-              " 1 " ) " 0 "
++                ( syntaxChildren ( tcSecond generalized ) ) ( tcResultSeed inferred ) )
++              " 1 " ) " 0 "
+@@ -2348,5 +2554,2 @@
 -        else let final = tcResultSubs constrained in
 -          let scheme = tcGeneralize provisional environment final in
 -          tcCheckForms rest
 -            ( tcBindGlobal name scheme environment )
 -            final ( tcResultSeed constrained ) reversed aliases relations ;
-+        else match tcFinishNumeric ( tcResultSubs constrained ) with
-+          | Error message -> tcFault message
-+          | Ok final ->
-+            let scheme = tcGeneralize provisional environment final in
-+            tcCheckForms rest
-+              ( tcBindGlobal name scheme environment )
-+              final ( tcResultSeed constrained ) reversed aliases relations ;
-@@ -2503,3 +2710,5 @@
++        else tcPublishNumericDefinition name provisional rest environment
++          ( tcResultSubs constrained ) ( tcResultSeed constrained ) reversed aliases relations ;
+@@ -2503,3 +2706,5 @@
 -      | Ok updated ->
 -        tcValidateRelationRows name source rest relation
 -          updated ( tcNext ( tcResultSeed inferred ) ) environment ;
@@ -646,21 +652,16 @@
 +        | Error message -> tcFault message
 +        | Ok final -> tcValidateRelationRows name source rest relation
 +            final ( tcNext ( tcResultSeed inferred ) ) environment ;
-@@ -2634,5 +2843,8 @@
+@@ -2634,5 +2839,3 @@
 -        | Ok updated ->
 -          let scheme = tcGeneralize provisional environment updated in
 -          tcCheckForms rest
 -            ( tcBindGlobal name scheme environment )
 -            updated ( tcResultSeed inferred ) reversed aliases relations
 +        | Ok updated ->
-+          match tcFinishNumeric updated with
-+          | Error message -> tcFault message
-+          | Ok final ->
-+            let scheme = tcGeneralize provisional environment final in
-+            tcCheckForms rest
-+              ( tcBindGlobal name scheme environment )
-+              final ( tcResultSeed inferred ) reversed aliases relations
-@@ -2643,5 +2855,6 @@
++          tcPublishNumericDefinition name provisional rest environment
++            updated ( tcResultSeed inferred ) reversed aliases relations
+@@ -2643,5 +2846,6 @@
 -      else tcCheckForms rest environment ( tcResultSubs inferred )
 -        ( tcResultSeed inferred )
 -        ( cons
@@ -672,36 +673,36 @@
 +            ( tcResultSeed inferred )
 +            ( cons ( tcNormalize ( tcResultType inferred ) final ) reversed )
 +            aliases relations
-@@ -2720,2 +2933,1 @@
+@@ -2720,2 +2924,1 @@
 -def tcFourth tree =
 -  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
 +def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
-@@ -2722,2 +2934,1 @@
+@@ -2722,2 +2925,1 @@
 -def tcFifth tree =
 -  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
 +def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
-@@ -2859,4 +3070,2 @@
+@@ -2859,4 +3061,2 @@
 -  else tcCheckSyntax
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntax ;
-@@ -2868,4 +3077,2 @@
+@@ -2868,4 +3068,2 @@
 -  else tcCheckSyntaxTraced
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxTraced ;
-@@ -2880,4 +3087,2 @@
+@@ -2880,4 +3078,2 @@
 -  else tcCheckSyntaxSchemes
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3279,1 +3484,52 @@
+@@ -3279,1 +3475,126 @@
 -def tcNumericOperation name =
 +# Pending numeric obligations live alongside existing Eq and row guards.
 +# This first stage resolves constraints within a form only; no predicate
@@ -739,7 +740,7 @@
 +  | [] ->
 +    if isEmpty remaining then Ok substitutions
 +    else if changed then tcSolveNumericPass ( reverse remaining ) substitutions [] false
-+    else Error " Ambiguous numeric constraint; add a type annotation "
++    else Ok ( append ( map ( fun p -> tcBinding " #tc_numeric_pending " p ) remaining ) substitutions )
 +  | predicate :: rest ->
 +    let relation = syntaxText ( tcFirst predicate ) in
 +    let rows = syntaxChildren ( tcDefaultRelation relation ) in
@@ -749,13 +750,87 @@
 +      if isEmpty others then
 +        tcSolveNumericPass rest ( syntaxChildren candidate ) remaining true
 +      else tcSolveNumericPass rest substitutions ( cons predicate remaining ) changed ;
-+def tcFinishNumeric substitutions =
++def tcSolveNumeric substitutions =
 +  let pending = tcPendingNumeric substitutions in
 +  if isEmpty pending then Ok substitutions
 +  else tcSolveNumericPass pending ( tcWithoutNumeric substitutions ) [] false ;
++def tcFinishNumeric substitutions =
++  match tcSolveNumeric substitutions with
++  | Error message -> Error message
++  | Ok solved ->
++    if isEmpty ( tcPendingNumeric solved ) then Ok solved
++    else Error " Ambiguous numeric constraint; add a type annotation " ;
++
++# Keep the legacy four fields of TCScheme untouched unless it actually
++# carries a numeric qualification. No wire-format expansion is implied.
++def tcSchemeNumeric scheme =
++  let extra = tail ( tail ( tail ( tail ( syntaxChildren scheme ) ) ) ) in
++  if isEmpty extra then [] else syntaxChildren ( head extra ) ;
++def tcNormalizePredicate p substitutions =
++  tcNumericPredicate ( syntaxText ( tcFirst p ) )
++    ( tcNormalize ( tcSecond p ) substitutions )
++    ( tcNormalize ( tcThird p ) substitutions )
++    ( tcNormalize ( tcFourth p ) substitutions ) ;
++def tcPredicateVars p =
++  tcFreeTypes [ tcSecond p , tcThird p , tcFourth p ] [] ;
++def tcNumericVars predicates =
++  fold ( fun vars p -> tcUnionVars ( tcPredicateVars p ) vars ) [] predicates ;
++def tcNumericTouches vars other =
++  length ( tcExceptVars vars other ) != length vars ;
++def tcReachNumericStep predicates vars =
++  fold ( fun seen p ->
++    let own = tcPredicateVars p in
++    if tcNumericTouches own seen then tcUnionVars own seen else seen ) vars predicates ;
++# A connected predicate may mention a hidden intermediate type variable.
++# Grow the signature's free-variable set until no new variable is reached.
++def tcReachNumeric predicates vars =
++  let next = tcReachNumericStep predicates vars in
++  if length next == length vars then vars else tcReachNumeric predicates next ;
++def tcNumericQualified ty quantified predicates substitutions =
++  let base = tcSchemeWithRows ty quantified
++    ( tcFindEqQuantifiers quantified substitutions )
++    ( append ( tcRowGuardsInType ty quantified )
++      ( tcRowGuardsFromBindings substitutions substitutions quantified ) ) in
++  syntaxNode " TCScheme " ( append ( syntaxChildren base )
++    [ syntaxNode " TCNumericQuant " predicates ] ) ;
++def tcGeneralized scheme substitutions =
++  syntaxNode " TCGeneralized " [ scheme , syntaxNode " TCSubstitutions " substitutions ] ;
++def tcGeneralizeNumeric ty environment substitutions =
++  match tcSolveNumeric substitutions with
++  | Error message -> tcFault message
++  | Ok solved ->
++    let pending = tcPendingNumeric solved in
++    if isEmpty pending then tcGeneralized ( tcGeneralize ty environment solved ) solved
++    else let normalized = tcNormalize ty solved in
++      let predicates = map ( fun p -> tcNormalizePredicate p solved ) pending in
++      let own = tcFreeType normalized [] in
++      let fixed = tcFreeEnvironment environment solved in
++      let all = tcNumericVars predicates in
++      let reachable = tcReachNumeric predicates own in
++      # Conservative local policy: keep the entire pending group
++      # monomorphic if it touches an outer variable or is disconnected.
++      if isEmpty ( tcExceptVars all reachable ) == false then
++        tcGeneralized ( tcScheme normalized [] ) solved
++      else if length ( tcExceptVars all fixed ) != length all then
++        tcGeneralized ( tcScheme normalized [] ) solved
++      else let quantified = tcExceptVars ( tcUnionVars all own ) fixed in
++        tcGeneralized ( tcNumericQualified normalized quantified predicates solved )
++          ( tcWithoutNumeric solved ) ;
++def tcInstantiateNumeric predicates names substitutions =
++  fold ( fun acc p -> cons ( tcBinding " #tc_numeric_pending "
++    ( tcNormalizePredicate p names ) ) acc ) substitutions predicates ;
++def tcPublishNumericDefinition name ty rest environment substitutions seed reversed aliases relations =
++  let generalized = tcGeneralizeNumeric ty environment substitutions in
++  if syntaxTag generalized == " TCFault " then generalized
++  else let final = syntaxChildren ( tcSecond generalized ) in
++    if isEmpty ( tcPendingNumeric final ) == false then
++      tcFault " Ambiguous numeric constraint; add a type annotation "
++    else tcCheckForms rest
++      ( tcBindGlobal name ( tcFirst generalized ) environment )
++      final seed reversed aliases relations ;
 +
 +def tcNumericOperation name =
-@@ -3322,8 +3578,14 @@
+@@ -3322,8 +3643,14 @@
 -      if syntaxTag left != " TCBase " then
 -        tcFault " Numeric operands require concrete types or an explicit relation "
 -      else if syntaxTag right != " TCBase " then
@@ -778,17 +853,28 @@
 +  tcInferResult output
 +    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
 +    ( tcNext seed ) ;
-@@ -3822,1 +4084,1 @@
+@@ -3822,1 +4149,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4740,2 @@
+@@ -4478,2 +4805,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4747,2 @@
+@@ -4485,3 +4812,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSourceNailMacros source =
 +  source >> parseSource >> nailMacroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
+@@ -5268,4 +5594,6 @@
+-def tcCanonicalRowEvidence scheme =
+-  if syntaxTag scheme != " TCScheme " then
+-    Error " Expected a Nail HM type scheme "
+-  else let original = tcWireCanonicalType ( tcSchemeType scheme ) in
++def tcCanonicalRowEvidence scheme =
++  if syntaxTag scheme != " TCScheme " then
++    Error " Expected a Nail HM type scheme "
++  else if isEmpty ( tcSchemeNumeric scheme ) == false then
++    Error " Numeric predicates are not supported in public row evidence "
++  else let original = tcWireCanonicalType ( tcSchemeType scheme ) in
