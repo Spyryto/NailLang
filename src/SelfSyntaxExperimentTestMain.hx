@@ -65,6 +65,7 @@ class SelfSyntaxExperimentTestMain {
       }
     }
     for (code in [
+      'macro f a: a = quote ( unquote a ) ;',
       'def duplicate same: a same: b = a ;',
       'def duplicate first: a second: a = a ;',
       'def f first: a = a ; f a: 42 ;',
@@ -85,6 +86,11 @@ class SelfSyntaxExperimentTestMain {
       }
       ok(refused,'Nail named syntax rejects '+code);
     }
+    var modern='nail 0.61 ; def fraction numerator: ( a : Int ) denominator: ( b : Int ) = a / b ; fraction numerator: 3 denominator: 2 ;';
+    var modernHost=new Vm(70000000).runPlainExperimental(modern);
+    ok(Json.stringify(modernHost)==Json.stringify(['R:3/2']),'modern typed oracle');
+    ok(Json.stringify(new nail.ByteVm(70000000).runPlain(library.compileWithNail(modern)))==Json.stringify(modernHost),
+      'modern annotated public labels preserve exact division');
     var stable=new Vm(70000000);
     stable.loadStdlib();
     for (code in ['def new-name x = x ;','1 >> ( fun x -> x ) ;']) {
