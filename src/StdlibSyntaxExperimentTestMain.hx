@@ -26,11 +26,11 @@ class StdlibSyntaxExperimentTestMain {
     return source.substr(0,at+end.length)+'\n';
   }
   static function main():Void {
-    var original=Resource.getString('stdlib');
-    var revised=Resource.getString('stdlib-experimental');
-    ok(original!=null && revised!=null && original!=revised,'real patched resource');
+    var original=Resource.getString('stdlib-reference');
+    var revised=Resource.getString('stdlib');
+    ok(original!=null && revised!=null && original!=revised,'real canonical and historical reference resources');
     var stable=new Vm(budget);
-    stable.loadStdlib();
+    stable.run(original);
     var experimental=new Vm(budget);
     experimental.runExperimental(revised);
     var before=stable.names();
