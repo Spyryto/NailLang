@@ -5,50 +5,50 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: nail-syntax-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   syntax:
+    name: Syntax and stdlib - ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [Haxe, JavaScript, PHP]
     steps:
       - uses: actions/checkout@v4
       - uses: krdlab/setup-haxe@v2
         with:
           haxe-version: '4.3.7'
       - uses: actions/setup-node@v4
+        if: matrix.target == 'JavaScript'
         with:
           node-version: '22'
-      - name: Haxe interpreter
-        run: haxe syntax-experiment-test-interp.hxml
-      - name: JavaScript target
-        run: |
-          haxe syntax-experiment-test-js.hxml
-          node build/tests/syntax-experiment.js
-      - name: PHP target
-        run: |
-          haxe syntax-experiment-test-php.hxml
-          XDEBUG_MODE=off php build/tests/php-syntax-experiment/index.php
       - name: Prepare the full experimental stdlib (strict patch)
         run: |
           mkdir -p build/tests
           patch --batch --fuzz=0 -o build/tests/stdlib-experimental.nail stdlib.nail experiments/syntax/stdlib-refactor.patch
-      - name: Self-parser (including named calls) - Haxe
+      - name: Syntax regression
         run: |
-          haxe -cp src -main SelfSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental --interp
-      - name: Stdlib differential - Haxe
+          case "${{ matrix.target }}" in
+            Haxe) haxe syntax-experiment-test-interp.hxml ;;
+            JavaScript) haxe syntax-experiment-test-js.hxml && node build/tests/syntax-experiment.js ;;
+            PHP) haxe syntax-experiment-test-php.hxml && XDEBUG_MODE=off php build/tests/php-syntax-experiment/index.php ;;
+          esac
+      - name: Self-parser differential (including named calls)
         run: |
-          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental --interp
-      - name: Self-parser (including named calls) - JavaScript
+          args=(-cp src -main SelfSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental)
+          case "${{ matrix.target }}" in
+            Haxe) haxe "${args[@]}" --interp ;;
+            JavaScript) haxe "${args[@]}" -js build/tests/self-syntax.js && node build/tests/self-syntax.js ;;
+            PHP) haxe "${args[@]}" -php build/tests/php-self-syntax && XDEBUG_MODE=off php build/tests/php-self-syntax/index.php ;;
+          esac
+      - name: Stdlib differential
         run: |
-          haxe -cp src -main SelfSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -js build/tests/self-syntax.js
-          node build/tests/self-syntax.js
-      - name: Stdlib differential - JavaScript
-        run: |
-          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -js build/tests/stdlib-syntax.js
-          node build/tests/stdlib-syntax.js
-      - name: Self-parser (including named calls) - PHP
-        run: |
-          haxe -cp src -main SelfSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -php build/tests/php-self-syntax
-          XDEBUG_MODE=off php build/tests/php-self-syntax/index.php
-      - name: Stdlib differential - PHP
-        run: |
-          haxe -cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental -php build/tests/php-stdlib-syntax
-          XDEBUG_MODE=off php build/tests/php-stdlib-syntax/index.php
+          args=(-cp src -main StdlibSyntaxExperimentTestMain -resource stdlib.nail@stdlib -resource build/tests/stdlib-experimental.nail@stdlib-experimental)
+          case "${{ matrix.target }}" in
+            Haxe) haxe "${args[@]}" --interp ;;
+            JavaScript) haxe "${args[@]}" -js build/tests/stdlib-syntax.js && node build/tests/stdlib-syntax.js ;;
+            PHP) haxe "${args[@]}" -php build/tests/php-stdlib-syntax && XDEBUG_MODE=off php build/tests/php-stdlib-syntax/index.php ;;
+          esac
