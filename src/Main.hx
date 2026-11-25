@@ -15,6 +15,13 @@ class Main {
   public static function analyze(source:String, ?modules:String->Null<String>):nail.SourceAnalysis.AnalysisResult
     return nail.SourceAnalysis.analyze(source, modules);
 
+  /** Isolated syntax experiment: the official API above remains unchanged. */
+  public static function analyzeExperimental(source:String):nail.SourceAnalysis.AnalysisResult
+    return nail.SourceAnalysis.analyze(source,null,true);
+
+  public static function expandExperimental(source:String):String
+    return nail.ExpansionView.render(new nail.Parser(source,null,true).parse());
+
   /** Execute structured Nail bytecode with the shared primitive runtime. */
   public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
 
