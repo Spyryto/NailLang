@@ -217,3 +217,30 @@ rifiutate esplicitamente; nessuna label esplicita nelle dichiarazioni
 macro. Le firme numeriche vincolate del checker Nail non sono ancora
 allineate a quelle del checker Haxe. La variante ufficiale non cambia.
 Il nuovo percorso è in CI e non è ancora promuovibile in main.
+
+
+## Checker Nail: prima fase di inferenza numerica differita
+
+La patch conserva le obbligazioni numeriche nella lista persistente
+delle sostituzioni, accanto ai guard di riga e ai vincoli Eq.
+Per un operando non ancora risolto, `tcInferNumericApply` introduce
+una variabile per il risultato e un predicato temporaneo.
+`tcFinishNumeric` prova le righe di `tcDefaultRelation` usando
+l'unificazione esistente; una riga unica determina le sostituzioni.
+Le obbligazioni restanti vengono riesaminate a punto fisso.
+
+Il candidato iniziale richiede che tutte le obbligazioni siano risolte
+alla fine di ogni forma e di ogni riga di una relazione esplicita.
+Non cambia il formato TCScheme, né l'ABI. Quando ci sono vincoli
+pendenti, i let locali sono conservativamente monomorfi per evitare
+di perdere la relazione. Non è ancora polimorfismo numerico completo:
+`def summ x y = x + y ;` resta rifiutata dal checker Nail quando il
+vincolo non può essere risolto. Il checker Haxe sperimentale già
+supporta questo caso. Il prossimo passo deve gestire generalizzazione
+e istanziazione dei predicati insieme ai quantificatori, senza
+eliminare vincoli condivisi con lo scope lessicale.
+
+La suite SelfSyntaxExperimentTestMain confronta i tipi delle lambda
+immediatamente applicate e delle definizioni annotate con il checker
+Haxe, e verifica il rifiuto di tipi incompatibili e di ambiguità.
+La prima fase è in validazione; non promuovere in main.
