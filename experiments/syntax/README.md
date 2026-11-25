@@ -162,7 +162,9 @@ Scelte di leggibilità, non regole obbligatorie:
   `tokenizeAt` come alias durante il confronto.
 - Non riscrivere i costruttori o i nomi di funzioni host.
 
-Il parser Nail deve ancora imparare la superficie sperimentale. Per
+Il parser Nail nella stdlib rifattorizzata ora include il primo passo
+verso la superficie sperimentale: identificatori con trattino e pipeline.
+Le label non sono ancora implementate nel parser Nail. Per
 rendere visibili le label della libreria caricata prima del sorgente
 utente, il parser Haxe ora accetta uno snapshot di metadati e VM e
 checker lo aggiornano dopo il successo della rispettiva operazione.
@@ -177,3 +179,15 @@ Il checker può verificare separatamente la sezione collezioni e poi
 il chiamante. Non è ancora una ABI pubblica: non si assegnano alla
 libreria legacy tipi numerici moderni e non si finge che tutta la
 stdlib (che contiene riferimenti in avanti) sia già verificata con HM.
+
+## Primo allineamento del parser Nail
+
+La stessa patch sperimentale estende `isIdentTail`, `infixPower` e
+`parseSuffix` (nessun nuovo costruttore o opcode). `>>` ha precedenza
+25, è associativo a sinistra e genera `syntaxApply rhs lhs`.
+I trattini separano segmenti non vuoti di un identificatore. Il parser
+ufficiale continua a rifiutare entrambe le forme. Il test
+`SelfSyntaxExperimentTestMain` confronta esecuzione e bytecode con il
+parser Haxe, e include input malformati. La CI deve confermare questa
+estensione prima di adottarla. Le label richiederanno un secondo passo
+con gestione dei metadati lessicali. La sintassi discorsiva è sospesa.
