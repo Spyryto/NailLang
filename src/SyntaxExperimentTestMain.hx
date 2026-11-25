@@ -1,6 +1,7 @@
 import haxe.Json;
 import nail.Parser;
 import nail.Vm;
+import nail.TypeChecker;
 
 class SyntaxExperimentTestMain {
   static var count=0;
@@ -26,6 +27,17 @@ class SyntaxExperimentTestMain {
     try new Parser('nail 0.61 ; '+body).parse()
     catch (_:Dynamic) failed=true;
     assertTrue(failed,label+' must remain opt-in');
+  }
+  static function assertTypes(body:String,expected:Array<String>,label:String):Void {
+    var actual=new TypeChecker().checkExperimental('nail 0.61 ; '+body);
+    assertTrue(Json.stringify(actual)==Json.stringify(expected),
+      label+': expected '+Json.stringify(expected)+', received '+Json.stringify(actual));
+  }
+  static function assertTypeError(body:String,fragment:String,label:String):Void {
+    var error='';
+    try new TypeChecker().checkExperimental('nail 0.61 ; '+body)
+    catch (e:Dynamic) error=Std.string(e);
+    assertTrue(error.indexOf(fragment)>=0,label+': wanted '+fragment+', got '+error);
   }
   public static function main():Void {
     var pair='def pair first second = first * 10 + second ; ';
@@ -103,6 +115,43 @@ class SyntaxExperimentTestMain {
     assertError('def bad first: a first = a ;','Duplicate public parameter label',
       'explicit label colliding with an implicit label rejected');
     standardRejects(fraction,'renamed definition parameters');
+    var typedFraction='def fraction numerator: ( a : Int ) denominator: ( b : Int ) = a / b ; ';
+    assertTypes(typedFraction+'fraction 3 2 ; fraction denominator: 2 numerator: 3 ;',
+      ['Ratio','Ratio'],'typed positional and reordered labelled calls');
+    assertTypes(typedFraction+'def half = fraction denominator: 2 ; half 3 ;',
+      ['Ratio'],'typed partial application of renamed parameter');
+    assertTypes(typedFraction+'3 >> fraction denominator: 2 ;',
+      ['Ratio'],'pipeline retains inferred result');
+    var checker=new TypeChecker();
+    checker.checkExperimental('nail 0.61 ; '+typedFraction+'def half = fraction denominator: 2 ;');
+    assertTrue(checker.signature('half')=='Int -> Ratio','partial function has expected signature');
+    assertTypeError(typedFraction+'fraction numerator: " bad " denominator: 2 ;',
+      'cannot unify','wrong type is rejected under the correct label');
+    assertTypeError(typedFraction+'def half = fraction denominator: 2 ; half " bad " ;',
+      'cannot unify','partial application retains its input constraint');
+    var choose='def choose first: a second: b = a ; ';
+    assertTypes(choose+'choose second: true first: 42 ; choose first: " hello " second: 2 ;',
+      ['Int','Text'],'polymorphic function remains polymorphic');
+    assertTypes(choose+'def keep = choose second: true ; keep 42 ; keep " hello " ;',
+      ['Int','Text'],'polymorphic named partial application');
+    assertTypes('def get-name data = data . name ; get-name data: { name = " Nail " } ;',
+      ['Text'],'structural record inference with hyphenated name and label');
+    assertTypeError(choose+'def wrapper choose = choose second: true ;',
+      'shadowed function','definition parameter hides global labels');
+    assertError(choose+'( fun choose -> choose second: true ) ( fun a -> a ) ;',
+      'shadowed function','lambda parameter hides global labels at runtime');
+    assertError(choose+'let choose = ( fun x -> x ) in choose second: true ;',
+      'shadowed function','let binder hides global labels');
+    assertTypes(choose+'let choose = ( fun x -> x ) in choose 42 ;',
+      ['Int'],'ordinary positional call to shadowed local is valid');
+    assertTypes(choose+'( fun choose -> choose 42 ) ( fun x -> x ) ;',
+      ['Int'],'ordinary lambda shadowing stays valid');
+    assertTypes(choose+'( let choose = ( fun x -> x ) in choose 42 ) ; choose first: 42 second: true ;',
+      ['Int','Int'],'outer labels restored after leaving scope');
+    var standardError=false;
+    try new TypeChecker().check('nail 0.61 ; '+typedFraction)
+    catch (_:Dynamic) standardError=true;
+    assertTrue(standardError,'ordinary type checker keeps syntax opt-in');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
