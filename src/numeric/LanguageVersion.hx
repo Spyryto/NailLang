@@ -3,10 +3,10 @@ package numeric;
 /** Only the current and semantically compatible language declarations are
     accepted; source versions do not select numeric modes or bytecode ABIs. */
 class LanguageVersion {
-  public static inline var CURRENT = '0.61';
+  public static inline var CURRENT = '0.62';
 
   public static function supported(version:String):Bool return switch (version) {
-    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51' | '0.52' | '0.53' | '0.54' | '0.55' | '0.56' | '0.57' | '0.58' | '0.59' | '0.60' | CURRENT: true;
+    case '0.45' | '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51' | '0.52' | '0.53' | '0.54' | '0.55' | '0.56' | '0.57' | '0.58' | '0.59' | '0.60' | '0.61' | CURRENT: true;
     case _: false;
   };
 
@@ -24,7 +24,7 @@ class LanguageVersion {
   /** v0.49 relation declarations remain valid in 0.50 through 0.61.
       Pre-1.0 source/ABI compatibility is not otherwise guaranteed. */
   public static function hasGeneralRelations(version:Null<String>):Bool
-    return version == '0.49' || version == '0.50' || version == '0.51' || version == '0.52' || version == '0.53' || version == '0.54' || version == '0.55' || version == '0.56' || version == '0.57' || version == '0.58' || version == '0.59' || version == '0.60' || version == CURRENT;
+    return version == '0.49' || version == '0.50' || version == '0.51' || version == '0.52' || version == '0.53' || version == '0.54' || version == '0.55' || version == '0.56' || version == '0.57' || version == '0.58' || version == '0.59' || version == '0.60' || version == '0.61' || version == CURRENT;
 
   public static function isModern(source:String):Bool
     return declared(source) != null;
@@ -32,7 +32,7 @@ class LanguageVersion {
   public static function hasArithmeticRelations(source:String):Bool
     return switch (declared(source)) {
       case '0.46' | '0.47' | '0.48' | '0.49' | '0.50' | '0.51'
-        | '0.52' | '0.53' | '0.54' | '0.55' | '0.56' | '0.57' | '0.58' | '0.59' | '0.60' | CURRENT: true;
+        | '0.52' | '0.53' | '0.54' | '0.55' | '0.56' | '0.57' | '0.58' | '0.59' | '0.60' | '0.61' | CURRENT: true;
       case _: false;
     };
 }
