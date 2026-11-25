@@ -219,28 +219,45 @@ allineate a quelle del checker Haxe. La variante ufficiale non cambia.
 Il nuovo percorso è in CI e non è ancora promuovibile in main.
 
 
-## Checker Nail: prima fase di inferenza numerica differita
+## Checker Nail: inferenza numerica vincolata
 
 La patch conserva le obbligazioni numeriche nella lista persistente
 delle sostituzioni, accanto ai guard di riga e ai vincoli Eq.
-Per un operando non ancora risolto, `tcInferNumericApply` introduce
-una variabile per il risultato e un predicato temporaneo.
-`tcFinishNumeric` prova le righe di `tcDefaultRelation` usando
+`tcInferNumericApply` introduce una variabile per il risultato e
+un predicato quando gli operandi non sono ancora risolti.
+Il risolutore prova le righe di `tcDefaultRelation` usando
 l'unificazione esistente; una riga unica determina le sostituzioni.
-Le obbligazioni restanti vengono riesaminate a punto fisso.
+L'ultima iterazione propaga anche i tipi comuni a tutte le righe
+compatibili, ripetendo il passaggio fino al punto fisso.
 
-Il candidato iniziale richiede che tutte le obbligazioni siano risolte
-alla fine di ogni forma e di ogni riga di una relazione esplicita.
-Non cambia il formato TCScheme, né l'ABI. Quando ci sono vincoli
-pendenti, i let locali sono conservativamente monomorfi per evitare
-di perdere la relazione. Non è ancora polimorfismo numerico completo:
-`def summ x y = x + y ;` resta rifiutata dal checker Nail quando il
-vincolo non può essere risolto. Il checker Haxe sperimentale già
-supporta questo caso. Il prossimo passo deve gestire generalizzazione
-e istanziazione dei predicati insieme ai quantificatori, senza
-eliminare vincoli condivisi con lo scope lessicale.
+`tcGeneralizeNumeric` seleziona i componenti di predicati raggiungibili
+dal tipo da generalizzare, escludendo quelli connessi allo scope
+esterno. Le obbligazioni non selezionate restano pendenti; quelle
+generalizzate sono conservate in un quinto campo privato opzionale
+`TCNumericQuant` dello schema, assente negli schemi ordinari.
+`tcInstantiateNumeric` usa la stessa rinomina dei quantificatori.
+Le valutazioni e le righe di relazioni esplicite rifiutano
+obbligazioni ancora ambigue. La serializzazione pubblica rifiuta
+gli schemi numerici qualificati anziché perdere informazioni.
 
-La suite SelfSyntaxExperimentTestMain confronta i tipi delle lambda
-immediatamente applicate e delle definizioni annotate con il checker
-Haxe, e verifica il rifiuto di tipi incompatibili e di ambiguità.
-La prima fase è in validazione; non promuovere in main.
+```nail
+nail 0.61 ;
+def summ x y = x + y ;
+summ 2 3 ;
+summ 1.5 2.5 ;
+def half x = x / 2 ;
+half 3 ;
+```
+
+Le specializzazioni indipendenti e la generalizzazione locale sono
+validate su Haxe, JS e PHP (CI 45575052597: 267 verifiche per target).
+La propagazione delle colonne comuni è un'iterazione successiva
+in validazione: per esempio, il risultato di `half` è Ratio anche
+prima di conoscere se x è Int o Ratio. L'obbligazione relativa
+all'operando non viene eliminata.
+
+La suite SelfSyntaxExperimentTestMain confronta il checker Nail con
+quello Haxe, include casi negativi e controlla direttamente gli schemi
+inferiti. Non implica equivalenza completa dei due checker: in
+particolare confronti numerici e diagnostica richiedono una verifica
+dedicata. L'ABI, la stdlib ufficiale e main restano invariati.
