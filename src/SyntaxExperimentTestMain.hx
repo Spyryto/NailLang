@@ -261,7 +261,7 @@ class SyntaxExperimentTestMain {
     var sameUnitRejected=false;
     try repeated.runExperimental('def f old: x = x ; def f new: y = y ;') catch (_:Dynamic) sameUnitRejected=true;
     assertTrue(sameUnitRejected && repeated.names().indexOf('f')<0,'duplicate declarations rejected before executing ambiguous metadata');
-    partial.run('def ordinary x = x ;');
+    partial.run('nail 0.61 ; def ordinary x = x ;');
     var ordinaryRejected=false;
     try partial.runExperimental('ordinary x: 1 ;') catch (e:Dynamic)
       ordinaryRejected=Std.string(e).indexOf('local definition')>=0;
@@ -276,6 +276,9 @@ class SyntaxExperimentTestMain {
     try sessionTypes.checkExperimental('nail 0.61 ; def fraction wrong: x = x ;') catch (_:Dynamic) duplicateTypes=true;
     assertTrue(duplicateTypes && sessionTypes.checkExperimental('nail 0.61 ; fraction numerator: 3 denominator: 2 ;')[0]=='Ratio',
       'duplicate static definition cannot overwrite labels');
+    var promoted='nail 0.62 ; def summ a b = a + b ; 3 >> summ b: 2 ;';
+    assertTrue(new TypeChecker().check(promoted)[0]=='Int','0.62 default checker enables numeric inference and labels');
+    assertTrue(Json.stringify(new Vm().runPlain(promoted))==Json.stringify(['I:5/1']),'0.62 default runtime enables new syntax');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
