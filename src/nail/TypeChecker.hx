@@ -54,6 +54,13 @@ class TypeChecker {
     return checkParsed(parser, parser.parse(modules));
   }
 
+  /** Opt-in surface experiment; reuse the ordinary inference engine. */
+  public function checkExperimental(source:String):Array<String> {
+    lastFailureSpan = null;
+    var parser = new Parser(source,null,true);
+    return checkParsed(parser,parser.parse());
+  }
+
   /** Check forms from their original parser in one pass. Analysis callers
       reuse the parsed program, macro resolution and source coordinates rather
       than reparsing the source (or fetching modules a second time). */
