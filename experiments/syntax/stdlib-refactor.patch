@@ -78,99 +78,575 @@
 +  else if word == " >= " then 30
 +  else if word == " >> " then 25
 +  else -1 ;
-@@ -461,1 +470,1 @@
+@@ -252,29 +261,59 @@
+-def parseDefParams tokens reversed annotations =
+-  if isEmpty tokens then parseError " Missing = in definition "
+-  else let word = parsePeek tokens in
+-    if word == " = " then
+-      parsePair ( syntaxNode " DefParams "
+-        [ syntaxNode " Params " ( reverse reversed ) ,
+-          syntaxNode " Annotations " ( reverse annotations ) ] ) tokens
+-    else if word == " : " then
+-      parsePair ( syntaxNode " DefParams "
+-        [ syntaxNode " Params " ( reverse reversed ) ,
+-          syntaxNode " Annotations " ( reverse annotations ) ] ) tokens
+-    else if word == " ( " then
+-      let name = parsePeek ( tail tokens ) in
+-      let sep = parsePeek ( tail ( tail tokens ) ) in
+-      let typeName = parsePeek ( tail ( tail ( tail tokens ) ) ) in
+-      let close = parsePeek ( tail ( tail ( tail ( tail tokens ) ) ) ) in
+-      if isIdentifier name == false then parseError " Invalid annotated parameter "
+-      else if hasParam reversed name then parseError " Duplicate parameter name "
+-      else if sep != " : " then parseError " Expected : in parameter annotation "
+-      else if isIdentifier typeName == false then parseError " Invalid parameter type "
+-      else if close != " ) " then parseError " Expected ) in parameter annotation "
+-      else parseDefParams ( tail ( tail ( tail ( tail ( tail tokens ) ) ) ) )
+-        ( cons ( syntaxName name ) reversed )
+-        ( cons ( syntaxNode " Annotation " [ syntaxName name , syntaxName typeName ] ) annotations )
+-    else if isIdentifier word then
+-      if hasParam reversed word then parseError " Duplicate parameter name "
+-      else parseDefParams ( tail tokens ) ( cons ( syntaxName word ) reversed ) annotations
+-    else parseError " Invalid definition parameter " ;
+-
++# A label is a Token ending in :, not a string or a hyphenated keyword.
++def expLabelAt word i prefix =
++  if i == textLength word then " "
++  else let ch = textAt word i in
++    if ch == " : " then
++      if i + 1 == textLength word then prefix else " "
++    else if isLetter ch then expLabelAt word ( i + 1 ) ( textConcat prefix ch )
++    else if isDigit ch then
++      if i == 0 then " " else expLabelAt word ( i + 1 ) ( textConcat prefix ch )
++    else " " ;
++def expLabel tokens =
++  if isEmpty tokens then " "
++  else if syntaxTag ( head tokens ) == " Token " then expLabelAt ( parsePeek tokens ) 0 " "
++  else " " ;
++
++def expDefParams tokens reversed annotations labels pending =
++  if isEmpty tokens then parseError " Missing = in definition "
++  else let word = parsePeek tokens in
++    if word == " = " then
++      if pending != " " then parseError " Missing labelled binder "
++      else parsePair ( syntaxNode " DefParams "
++        [ syntaxNode " Params " ( reverse reversed ) ,
++          syntaxNode " Annotations " ( reverse annotations ) ,
++          syntaxNode " ExpLabels " ( reverse labels ) ] ) tokens
++    else if word == " : " then
++      if pending != " " then parseError " Missing labelled binder "
++      else parsePair ( syntaxNode " DefParams "
++        [ syntaxNode " Params " ( reverse reversed ) ,
++          syntaxNode " Annotations " ( reverse annotations ) ,
++          syntaxNode " ExpLabels " ( reverse labels ) ] ) tokens
++    else let label = expLabel tokens in
++      if label != " " then
++        if pending != " " then parseError " Missing labelled binder "
++        else expDefParams ( tail tokens ) reversed annotations labels label
++      else if word == " ( " then
++        let name = parsePeek ( tail tokens ) in
++        let sep = parsePeek ( tail ( tail tokens ) ) in
++        let typeName = parsePeek ( tail ( tail ( tail tokens ) ) ) in
++        let close = parsePeek ( tail ( tail ( tail ( tail tokens ) ) ) ) in
++        let public = if pending == " " then name else pending in
++        if isIdentifier name == false then parseError " Invalid annotated parameter "
++        else if hasParam reversed name then parseError " Duplicate parameter name "
++        else if hasParam labels public then parseError " Duplicate public parameter label "
++        else if sep != " : " then parseError " Expected : in parameter annotation "
++        else if isIdentifier typeName == false then parseError " Invalid parameter type "
++        else if close != " ) " then parseError " Expected ) in parameter annotation "
++        else expDefParams ( tail ( tail ( tail ( tail ( tail tokens ) ) ) ) )
++          ( cons ( syntaxName name ) reversed )
++          ( cons ( syntaxNode " Annotation " [ syntaxName name , syntaxName typeName ] ) annotations )
++          ( cons ( syntaxName public ) labels ) " "
++      else if isIdentifier word then
++        let public = if pending == " " then word else pending in
++        if hasParam reversed word then parseError " Duplicate parameter name "
++        else if hasParam labels public then parseError " Duplicate public parameter label "
++        else expDefParams ( tail tokens ) ( cons ( syntaxName word ) reversed ) annotations
++          ( cons ( syntaxName public ) labels ) " "
++      else parseError " Invalid definition parameter " ;
++def parseDefParams tokens reversed annotations =
++  expDefParams tokens reversed annotations reversed " " ;
+@@ -461,1 +500,1 @@
 -def namedFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def namedFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -616,1 +625,3 @@
+@@ -587,2 +626,18 @@
+-# Pratt suffix step handles application at 70 and left-associative operators.
+-def parseSuffix recur minimum parsed =
++# Temporary surface call marker. Consume the same atomic arguments as
++# ordinary application; final slot assignment occurs after lexical parsing.
++def expParseArgs recur tokens reversed =
++  let label = expLabel tokens in
++  if label != " " then
++    let arg = recur 71 ( tail tokens ) in
++    if parseFailed arg then arg
++    else expParseArgs recur ( parseRest arg )
++      ( cons ( syntaxNode " ExpArg " [ syntaxName label , parseTree arg ] ) reversed )
++  else if isPrefixSyntaxToken tokens then
++    let arg = recur 71 tokens in
++    if parseFailed arg then arg
++    else expParseArgs recur ( parseRest arg )
++      ( cons ( syntaxNode " ExpArg " [ syntaxName " " , parseTree arg ] ) reversed )
++  else parsePair ( syntaxNode " ExpArgs " ( reverse reversed ) ) tokens ;
++
++# Pratt suffix step handles application at 70 and left-associative operators.
++def parseSuffix recur minimum parsed =
+@@ -605,1 +660,7 @@
+-    else if isPrefixSyntaxToken rest then
++    else if expLabel rest != " " then
++      if minimum > 70 then parsed
++      else let args = expParseArgs recur rest [] in
++        if parseFailed args then args
++        else parseSuffix recur minimum
++          ( parsePair ( syntaxNode " ExpCall " [ parseTree parsed , parseTree args ] ) ( parseRest args ) )
++    else if isPrefixSyntaxToken rest then
+@@ -616,1 +677,3 @@
 -        else parseSuffix recur minimum ( parsePair ( syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) ) ( parseRest rhs ) ) ;
 +        else let tree = if next == " >> " then syntaxApply ( parseTree rhs ) ( parseTree parsed )
 +          else syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) in
 +          parseSuffix recur minimum ( parsePair tree ( parseRest rhs ) ) ;
-@@ -693,1 +704,1 @@
+@@ -630,57 +693,60 @@
+-def parseNamedBody prefix name params annotations valueType relationType tokens =
+-  let body = parseAt 0 tokens in
+-    if parseFailed body then body
+-    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
+-    else let lambda = parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) in
+-      let defName = syntaxName ( textConcat prefix name ) in
+-      let node =
+-        if isEmpty ( syntaxChildren annotations ) then
+-          if valueType == " _ " then
+-            if relationType == " _ " then syntaxNode " Define " [ defName , lambda ]
+-            else syntaxNode " AnnotatedDefine "
+-              [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ]
+-          else syntaxNode " AnnotatedDefine "
+-            [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ]
+-        else syntaxNode " AnnotatedDefine "
+-          [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ] in
+-      parsePair node ( tail ( parseRest body ) ) ;
+-
+-def recognizedNumericRelation name =
+-  if name == " Div " then true
+-  else if name == " Add " then true
+-  else if name == " Sub " then true
+-  else name == " Mul " ;
+-
+-def parseNamedDefinition prefix tokens =
+-  if isEmpty tokens then parseError " Expected definition name "
+-  else let name = parsePeek tokens in
+-    if isIdentifier name then
+-      let parsed = parseDefParams ( tail tokens ) [] [] in
+-      if parseFailed parsed then parsed
+-      else let parts = syntaxChildren ( parseTree parsed ) in
+-        let params = head parts in
+-        let annotations = head ( tail parts ) in
+-        let afterParams = parseRest parsed in
+-        let hasTrailing = parsePeek afterParams == " : " in
+-        let valueType = if hasTrailing then
+-          if isEmpty ( syntaxChildren params ) then parsePeek ( tail afterParams )
+-          else " _ "
+-          else " _ " in
+-        let startBody = if hasTrailing then tail ( tail ( tail afterParams ) ) else tail afterParams in
+-        if prefix != " " then
+-          if hasTrailing then parseError " Macro relations are not supported "
+-          else if isEmpty ( syntaxChildren annotations ) == false then
+-            parseError " Macro annotations are not supported "
+-          else parseNamedBody prefix name params annotations " _ " " _ " startBody
+-        else if hasTrailing then
+-          if isIdentifier ( parsePeek ( tail afterParams ) ) == false then
+-            parseError " Expected type after : "
+-          else if parsePeek ( tail ( tail afterParams ) ) != " = " then
+-            parseError " Expected = after constraint "
+-          else if isEmpty ( syntaxChildren params ) then
+-            parseNamedBody prefix name params annotations valueType " _ " startBody
+-          else if length ( syntaxChildren params ) > 16 then parseError " Too many relation parameters "
+-          else parseNamedBody prefix name params annotations " _ "
+-            ( parsePeek ( tail afterParams ) ) startBody
+-        else parseNamedBody prefix name params annotations " _ " " _ " startBody
+-    else parseError " Expected definition name " ;
++def parseNamedBody prefix name params annotations labels valueType relationType tokens =
++  let body = parseAt 0 tokens in
++    if parseFailed body then body
++    else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
++    else let lambda = parseLambdaWrap ( syntaxChildren params ) ( parseTree body ) in
++      let defName = syntaxName ( textConcat prefix name ) in
++      let node =
++        if isEmpty ( syntaxChildren annotations ) then
++          if valueType == " _ " then
++            if relationType == " _ " then syntaxNode " Define " [ defName , lambda ]
++            else syntaxNode " AnnotatedDefine "
++              [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ]
++          else syntaxNode " AnnotatedDefine "
++            [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ]
++        else syntaxNode " AnnotatedDefine "
++          [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ] in
++      let marked = if prefix == " " then syntaxNode " ExpDefinition " [ labels , node ] else node in
++      parsePair marked ( tail ( parseRest body ) ) ;
++
++def recognizedNumericRelation name =
++  if name == " Div " then true
++  else if name == " Add " then true
++  else if name == " Sub " then true
++  else name == " Mul " ;
++
++def parseNamedDefinition prefix tokens =
++  if isEmpty tokens then parseError " Expected definition name "
++  else let name = parsePeek tokens in
++    if isIdentifier name then
++      let parsed = parseDefParams ( tail tokens ) [] [] in
++      if parseFailed parsed then parsed
++      else let parts = syntaxChildren ( parseTree parsed ) in
++        let params = head parts in
++        let annotations = head ( tail parts ) in
++        let labels = head ( tail ( tail parts ) ) in
++        let afterParams = parseRest parsed in
++        let hasTrailing = parsePeek afterParams == " : " in
++        let valueType = if hasTrailing then
++          if isEmpty ( syntaxChildren params ) then parsePeek ( tail afterParams )
++          else " _ "
++          else " _ " in
++        let startBody = if hasTrailing then tail ( tail ( tail afterParams ) ) else tail afterParams in
++        if prefix != " " then
++          if syntaxChildren labels != syntaxChildren params then parseError " Macro labels are not supported "
++          else if hasTrailing then parseError " Macro relations are not supported "
++          else if isEmpty ( syntaxChildren annotations ) == false then
++            parseError " Macro annotations are not supported "
++          else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
++        else if hasTrailing then
++          if isIdentifier ( parsePeek ( tail afterParams ) ) == false then
++            parseError " Expected type after : "
++          else if parsePeek ( tail ( tail afterParams ) ) != " = " then
++            parseError " Expected = after constraint "
++          else if isEmpty ( syntaxChildren params ) then
++            parseNamedBody prefix name params annotations labels valueType " _ " startBody
++          else if length ( syntaxChildren params ) > 16 then parseError " Too many relation parameters "
++          else parseNamedBody prefix name params annotations labels " _ "
++            ( parsePeek ( tail afterParams ) ) startBody
++        else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
++    else parseError " Expected definition name " ;
+@@ -693,1 +759,1 @@
 -def recordFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def recordFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -1191,1 +1202,2 @@
+@@ -1035,55 +1101,183 @@
+-def parseFormsScoped tokens reversed aliases globals typed =
+-  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
+-  else let parsed = parseForm tokens in
+-    if parseFailed parsed then parseTree parsed
+-    else let form = parseTree parsed in
+-      let rest = parseRest parsed in
+-      let tag = syntaxTag form in
+-      if tag == " RelationDecl " then
+-        parseFormsScoped rest ( if typed then cons form reversed else reversed )
+-          aliases globals typed
+-      else if tag == " TypeAliasDecl " then
+-        if syntaxTag ( aliasFind aliases ( aliasName form ) ) != " MissingAlias " then
+-          syntaxLeaf " Error " " Duplicate structural alias "
+-        else parseFormsScoped rest
+-          ( if typed then cons form reversed else reversed )
+-          ( cons form aliases ) globals typed
+-      else if tag == " AnnotatedDefine " then
+-        let parts = syntaxChildren form in
+-        let name = head parts in
+-        let annotations = syntaxChildren ( head ( tail parts ) ) in
+-        let valueType = syntaxText ( head ( tail ( tail parts ) ) ) in
+-        let relationType = syntaxText ( head ( tail ( tail ( tail parts ) ) ) ) in
+-        let body = head ( tail ( tail ( tail ( tail parts ) ) ) ) in
+-        let resolved = if containsContext body then
+-          resolveSyntax body [] annotations aliases globals else body in
+-        if syntaxTag resolved == " Error " then resolved
+-        else let added =
+-          if valueType == " _ " then globals
+-          else cons ( syntaxNode " Annotation " [ name , syntaxName valueType ] ) globals in
+-        parseFormsScoped rest
+-          ( cons ( if typed then
+-              syntaxNode " AnnotatedDefine "
+-                [ name , syntaxNode " Annotations " annotations ,
+-                  syntaxName valueType , syntaxName relationType , resolved ]
+-              else syntaxNode " Define " [ name , resolved ] ) reversed )
+-          aliases added typed
+-      else if tag == " Define " then
+-        let parts = syntaxChildren form in
+-        let original = head ( tail parts ) in
+-        let body = if containsContext original then
+-          resolveSyntax original [] [] aliases globals else original in
+-        if syntaxTag body == " Error " then body
+-        else parseFormsScoped rest
+-          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals typed
+-      else if tag == " Evaluate " then
+-        let original = head ( syntaxChildren form ) in
+-        let body = if containsContext original then
+-          resolveSyntax original [] [] aliases globals else original in
+-        if syntaxTag body == " Error " then body
+-        else parseFormsScoped rest
+-          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals typed
+-      else parseFormsScoped rest ( cons form reversed ) aliases globals typed ;
+-
+-def parseForms tokens reversed = parseFormsScoped tokens reversed [] [] false ;
+-def parseTypedForms tokens = parseFormsScoped tokens [] [] [] true ;
++# Resolve named surface calls before macro expansion or core compilation.
++# Slots use declaration labels; capture names are private and local to a
++# call. Nested arguments are lowered in the enclosing lexical scope.
++def expFirst tree = head ( syntaxChildren tree ) ;
++def expSecond tree = head ( tail ( syntaxChildren tree ) ) ;
++def expArg label value = syntaxNode " ExpArg " [ syntaxName label , value ] ;
++def expError text = syntaxLeaf " Error " text ;
++def expBad tree = syntaxTag tree == " Error " ;
++def expSpine tree args =
++  if syntaxTag tree == " Apply " then
++    expSpine ( expFirst tree ) ( cons ( expArg " " ( expSecond tree ) ) args )
++  else syntaxNode " ExpSpine " [ tree , syntaxNode " ExpArgs " args ] ;
++def expFindFree labels slots =
++  match labels with
++  | [] -> " "
++  | label :: rest ->
++    if mapContains slots ( syntaxText label ) then expFindFree rest slots
++    else syntaxText label ;
++def expApplyArgs fn args =
++  match args with
++  | [] -> fn
++  | arg :: rest ->
++    if expBad fn then fn
++    else if syntaxText ( expFirst arg ) != " " then expError " Too many named arguments "
++    else let value = expSecond arg in
++      if expBad value then value
++      else expApplyArgs ( syntaxApply fn value ) rest ;
++def expCaptureName label = textConcat " #exp_arg_ " label ;
++def expMissingName label = textConcat " #exp_missing_ " label ;
++def expApplySlots fn labels slots direct =
++  match labels with
++  | [] -> fn
++  | item :: rest ->
++    let label = syntaxText item in
++    let arg = match mapFind slots label with
++      | MapMissing -> syntaxVar ( expMissingName label )
++      | MapFound value -> if direct then value else syntaxVar ( expCaptureName label ) in
++    expApplySlots ( syntaxApply fn arg ) rest slots direct ;
++def expWrapMissing labels slots body =
++  match labels with
++  | [] -> body
++  | item :: rest ->
++    let inner = expWrapMissing rest slots body in
++    let label = syntaxText item in
++    if mapContains slots label then inner
++    else syntaxLambda ( expMissingName label ) inner ;
++def expWrapCaptures reversed body =
++  match reversed with
++  | [] -> body
++  | arg :: rest ->
++    expWrapCaptures rest
++      ( syntaxApply ( syntaxLambda ( expCaptureName ( syntaxText ( expFirst arg ) ) ) body )
++        ( expSecond arg ) ) ;
++def expFinishCall fn labels slots captures ordered extra =
++  let full = length slots == length labels in
++  let direct = if full then ordered else false in
++  let applied = expApplySlots fn labels slots direct in
++  let body = if direct then applied
++    else expWrapCaptures captures ( expWrapMissing labels slots applied ) in
++  expApplyArgs body extra ;
++def expAssign fn labels args slots captures ordered =
++  match args with
++  | [] -> expFinishCall fn labels slots captures ordered []
++  | arg :: rest ->
++    let explicit = syntaxText ( expFirst arg ) in
++    let first = expFindFree labels slots in
++    let label = if explicit == " " then first else explicit in
++    if label == " " then expFinishCall fn labels slots captures ordered args
++    else if hasParam labels label == false then expError ( textConcat " Unknown named parameter " label )
++    else if mapContains slots label then expError ( textConcat " Duplicate argument " label )
++    else let value = expSecond arg in
++      if expBad value then value
++      else expAssign fn labels rest ( mapPut slots label value )
++        ( cons ( expArg label value ) captures )
++        ( if ordered then first == label else false ) ;
++def expLowerArgs args labels scope =
++  match args with
++  | [] -> []
++  | arg :: rest -> cons ( expArg ( syntaxText ( expFirst arg ) )
++      ( expLower ( expSecond arg ) labels scope ) ) ( expLowerArgs rest labels scope ) ;
++def expLowerCall tree labels scope =
++  let spine = expSpine ( expFirst tree ) ( syntaxChildren ( expSecond tree ) ) in
++  let fn = expFirst spine in
++  if syntaxTag fn != " Var " then expError " Named arguments require a directly declared function "
++  else let name = syntaxText fn in
++    if setContains scope name then expError ( textConcat " Named arguments unavailable for shadowed function " name )
++    else match mapFind labels name with
++      | MapMissing -> expError ( textConcat " Named arguments require a local definition: " name )
++      | MapFound params ->
++        expAssign fn params ( expLowerArgs ( syntaxChildren ( expSecond spine ) ) labels scope ) [] [] true ;
++def expContains tree =
++  let tag = syntaxTag tree in
++  if tag == " ExpCall " then true
++  else if tag == " Lambda " then expContains ( expSecond tree )
++  else if tag == " Apply " then
++    if expContains ( expFirst tree ) then true else expContains ( expSecond tree )
++  else if tag == " Context " then expContains ( expSecond tree )
++  else if tag == " If " then
++    if expContains ( expFirst tree ) then true
++    else if expContains ( expSecond tree ) then true
++    else expContains ( head ( tail ( tail ( syntaxChildren tree ) ) ) )
++  else false ;
++def expLower tree labels scope =
++  let tag = syntaxTag tree in
++  if tag == " ExpCall " then expLowerCall tree labels scope
++  else if tag == " Lambda " then
++    let name = syntaxText ( expFirst tree ) in
++    let body = expLower ( expSecond tree ) labels ( cons name scope ) in
++    if expBad body then body else syntaxLambda name body
++  else if tag == " Apply " then
++    let fn = expLower ( expFirst tree ) labels scope in
++    if expBad fn then fn
++    else let arg = expLower ( expSecond tree ) labels scope in
++      if expBad arg then arg else syntaxApply fn arg
++  else if tag == " If " then
++    let condition = expLower ( expFirst tree ) labels scope in
++    if expBad condition then condition
++    else let yes = expLower ( expSecond tree ) labels scope in
++      if expBad yes then yes
++      else let no = expLower ( head ( tail ( tail ( syntaxChildren tree ) ) ) ) labels scope in
++        if expBad no then no else syntaxIf condition yes no
++  else if tag == " Context " then
++    if expContains tree then expError " Named arguments in opened contexts are not supported yet " else tree
++  else tree ;
++def expResolve tree labels =
++  if expContains tree then expLower tree labels [] else tree ;
++
++def expFormsScoped tokens reversed aliases globals typed labels =
++  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
++  else let parsed = parseForm tokens in
++    if parseFailed parsed then parseTree parsed
++    else let form = parseTree parsed in
++      let rest = parseRest parsed in
++      let tag = syntaxTag form in
++      if tag == " RelationDecl " then
++        expFormsScoped rest ( if typed then cons form reversed else reversed )
++          aliases globals typed nextLabels
++      else if tag == " TypeAliasDecl " then
++        if syntaxTag ( aliasFind aliases ( aliasName form ) ) != " MissingAlias " then
++          syntaxLeaf " Error " " Duplicate structural alias "
++        else expFormsScoped rest
++          ( if typed then cons form reversed else reversed )
++          ( cons form aliases ) globals typed nextLabels
++      else if tag == " AnnotatedDefine " then
++        let parts = syntaxChildren form in
++        let name = head parts in
++        let annotations = syntaxChildren ( head ( tail parts ) ) in
++        let valueType = syntaxText ( head ( tail ( tail parts ) ) ) in
++        let relationType = syntaxText ( head ( tail ( tail ( tail parts ) ) ) ) in
++        let body = expResolve ( head ( tail ( tail ( tail ( tail parts ) ) ) ) ) nextLabels in
++        let resolved = if containsContext body then
++          resolveSyntax body [] annotations aliases globals else body in
++        if syntaxTag resolved == " Error " then resolved
++        else let added =
++          if valueType == " _ " then globals
++          else cons ( syntaxNode " Annotation " [ name , syntaxName valueType ] ) globals in
++        expFormsScoped rest
++          ( cons ( if typed then
++              syntaxNode " AnnotatedDefine "
++                [ name , syntaxNode " Annotations " annotations ,
++                  syntaxName valueType , syntaxName relationType , resolved ]
++              else syntaxNode " Define " [ name , resolved ] ) reversed )
++          aliases added typed nextLabels
++      else if tag == " Define " then
++        let parts = syntaxChildren form in
++        let original = expResolve ( head ( tail parts ) ) nextLabels in
++        let body = if containsContext original then
++          resolveSyntax original [] [] aliases globals else original in
++        if syntaxTag body == " Error " then body
++        else expFormsScoped rest
++          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals typed nextLabels
++      else if tag == " Evaluate " then
++        let original = expResolve ( head ( syntaxChildren form ) ) nextLabels in
++        let body = if containsContext original then
++          resolveSyntax original [] [] aliases globals else original in
++        if syntaxTag body == " Error " then body
++        else expFormsScoped rest
++          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals typed nextLabels
++      else expFormsScoped rest ( cons form reversed ) aliases globals typed nextLabels ;
++
++def parseFormsScoped tokens reversed aliases globals typed = expFormsScoped tokens reversed aliases globals typed [] ;
++def parseForms tokens reversed = expFormsScoped tokens reversed [] [] false [] ;
++def parseTypedForms tokens = expFormsScoped tokens [] [] [] true [] ;
+@@ -1191,1 +1385,2 @@
 -def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
 +def parseSource source =
 +  parseForms tokens: ( source >> tokenizeCode >> stripNailHeader ) reversed: [] ;
-@@ -1472,1 +1484,1 @@
+@@ -1472,1 +1667,1 @@
 -def compileSyntax program = compileExpandedSyntax ( macroExpandSyntax program ) ;
 +def compileSyntax program = program >> macroExpandSyntax >> compileExpandedSyntax ;
-@@ -1474,1 +1486,1 @@
+@@ -1474,1 +1669,1 @@
 -def compileSource source = compileSyntax ( parseSource source ) ;
 +def compileSource source = source >> parseSource >> compileSyntax ;
-@@ -1520,2 +1532,2 @@
+@@ -1520,2 +1715,2 @@
 -def compileExactSource source =
 -  compileExpandedSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileExactSource source =
 +  source >> parseSource >> macroExpandSyntax >> exactRewrite >> compileExpandedSyntax ;
-@@ -1573,2 +1585,2 @@
+@@ -1573,2 +1768,2 @@
 -def compileModernSource source =
 -  compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSource source =
 +  source >> parseSource >> macroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -1632,1 +1644,1 @@
+@@ -1632,1 +1827,1 @@
 -def tcFirst tree = head ( syntaxChildren tree ) ;
 +def tcFirst tree = tree >> syntaxChildren >> head ;
-@@ -1633,1 +1645,1 @@
+@@ -1633,1 +1828,1 @@
 -def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
 +def tcSecond tree = tree >> syntaxChildren >> tail >> head ;
-@@ -1634,1 +1646,1 @@
+@@ -1634,1 +1829,1 @@
 -def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
 +def tcThird tree = tree >> syntaxChildren >> tail >> tail >> head ;
-@@ -1855,1 +1867,1 @@
+@@ -1855,1 +2050,1 @@
 -def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
 +def tcSchemeQuantifiers scheme = scheme >> tcSecond >> syntaxChildren ;
-@@ -1856,1 +1868,1 @@
+@@ -1856,1 +2051,1 @@
 -def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
 +def tcSchemeComparable scheme = scheme >> tcThird >> syntaxChildren ;
-@@ -1857,1 +1869,1 @@
+@@ -1857,1 +2052,1 @@
 -def tcSchemeRowGuards scheme = syntaxChildren ( tcFourth scheme ) ;
 +def tcSchemeRowGuards scheme = scheme >> tcFourth >> syntaxChildren ;
-@@ -2000,1 +2012,1 @@
+@@ -2000,1 +2195,1 @@
 -def tcResultSubs result = syntaxChildren ( tcSecond result ) ;
 +def tcResultSubs result = result >> tcSecond >> syntaxChildren ;
-@@ -2001,1 +2013,1 @@
+@@ -2001,1 +2196,1 @@
 -def tcResultSeed result = syntaxText ( tcThird result ) ;
 +def tcResultSeed result = result >> tcThird >> syntaxText ;
-@@ -2720,2 +2732,1 @@
+@@ -2720,2 +2915,1 @@
 -def tcFourth tree =
 -  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
 +def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
-@@ -2722,2 +2733,1 @@
+@@ -2722,2 +2916,1 @@
 -def tcFifth tree =
 -  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
 +def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
-@@ -2859,4 +2869,2 @@
+@@ -2859,4 +3052,2 @@
 -  else tcCheckSyntax
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntax ;
-@@ -2868,4 +2876,2 @@
+@@ -2868,4 +3059,2 @@
 -  else tcCheckSyntaxTraced
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxTraced ;
-@@ -2880,4 +2886,2 @@
+@@ -2880,4 +3069,2 @@
 -  else tcCheckSyntaxSchemes
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3822,1 +3826,1 @@
+@@ -3822,1 +4009,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4482,2 @@
+@@ -4478,2 +4665,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4489,2 @@
+@@ -4485,3 +4672,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
