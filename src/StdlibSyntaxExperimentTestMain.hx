@@ -78,7 +78,6 @@ class StdlibSyntaxExperimentTestMain {
       'tcPredicateVars',
       'tcPublishNumericDefinition',
       'tcReachNumeric',
-      'tcReachNumericStep',
       'tcSchemeNumeric',
       'tcSolveNumeric',
       'tcSolveNumericPass',
