@@ -21,7 +21,7 @@ class LanguageVersion {
     return tokens[1].text;
   }
 
-  /** v0.49 relation declarations remain valid in 0.50 through 0.61.
+  /** v0.49 relation declarations remain valid in 0.50 through 0.62.
       Pre-1.0 source/ABI compatibility is not otherwise guaranteed. */
   public static function hasGeneralRelations(version:Null<String>):Bool
     return version == '0.49' || version == '0.50' || version == '0.51' || version == '0.52' || version == '0.53' || version == '0.54' || version == '0.55' || version == '0.56' || version == '0.57' || version == '0.58' || version == '0.59' || version == '0.60' || version == '0.61' || version == CURRENT;
