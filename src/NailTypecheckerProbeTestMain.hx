@@ -265,7 +265,11 @@ class NailTypecheckerProbeTestMain {
     checkGood(boot,'1.25 / 0.5 ;',['Float']);
     checkGood(boot,'( 3 / 2 ) + 1 ;',['Ratio']);
     checkBad(boot,'1 + 0.5 ;','No numeric relation instance');
-    checkBad(boot,'def add x y = x + y ;','concrete types');
+    var inferredNumeric='nail 0.62 ; def add x y = x + y ; add 1 2 ; add 1.5 2.5 ;';
+    var numericResult=inspect(boot,inferredNumeric);
+    eq(numericResult.ok,true,'0.62 inferred arithmetic constraints');
+    eq(numericResult.types,['Int','Float'],'Nail numeric scheme specialization');
+    eq(new TypeChecker().check(inferredNumeric),numericResult.types,'Haxe numeric scheme specialization');
     checkGood(boot,'1 == 2 ;',['Bool']);
     checkGood(boot,'" A " != " B " ;',['Bool']);
     checkGood(boot,'[ 1 , 2 ] == [ 1 , 3 ] ;',['Bool']);
