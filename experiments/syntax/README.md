@@ -162,9 +162,9 @@ Scelte di leggibilità, non regole obbligatorie:
   `tokenizeAt` come alias durante il confronto.
 - Non riscrivere i costruttori o i nomi di funzioni host.
 
-Il parser Nail nella stdlib rifattorizzata ora include il primo passo
-verso la superficie sperimentale: identificatori con trattino e pipeline.
-Le label non sono ancora implementate nel parser Nail. Per
+Il parser Nail nella stdlib rifattorizzata riconosce identificatori con
+trattino e pipeline (verificati sui tre target). Le label sono ora
+implementate in una seconda iterazione ancora in validazione. Per
 rendere visibili le label della libreria caricata prima del sorgente
 utente, il parser Haxe ora accetta uno snapshot di metadati e VM e
 checker lo aggiornano dopo il successo della rispettiva operazione.
@@ -188,6 +188,32 @@ La stessa patch sperimentale estende `isIdentTail`, `infixPower` e
 I trattini separano segmenti non vuoti di un identificatore. Il parser
 ufficiale continua a rifiutare entrambe le forme. Il test
 `SelfSyntaxExperimentTestMain` confronta esecuzione e bytecode con il
-parser Haxe, e include input malformati. La CI deve confermare questa
-estensione prima di adottarla. Le label richiederanno un secondo passo
-con gestione dei metadati lessicali. La sintassi discorsiva è sospesa.
+parser Haxe, e include input malformati. Questa prima estensione è
+stata validata sui tre target. La sintassi discorsiva è sospesa.
+
+
+## Secondo allineamento: argomenti nominati
+
+Il parser Nail nella variante patchata conserva temporaneamente
+`ExpDefinition` (label pubbliche + definizione) e `ExpCall`
+(applicazione di superficie). `expFormsScoped` registra i parametri
+pubblici prima di risolvere il corpo. `expLower` attraversa
+Lambda/Apply/If rispettando i binder lessicali; `expAssign` assegna
+gli argomenti agli slot in ordine di sorgente. I marker spariscono
+prima della macro expansion e della compilazione: nessuna modifica
+al Core AST, a SyntaxBridge o al bytecode.
+
+Le chiamate sature ordinate usano direttamente Apply, come il parser
+Haxe. Negli altri casi vengono emesse catture e lambda per i parametri
+mancanti. I nomi privati delle catture sono deterministici e locali
+alla chiamata; non devono necessariamente coincidere con il contatore
+del parser Haxe. I test confrontano il bytecode delle chiamate ordinate
+e i risultati di quelle riordinate/parziali. Sono inclusi casi
+negativi di label sconosciute, duplicate e oscurate da binder.
+
+Confini: label disponibili nello stesso sorgente, non ancora tra
+sessioni del parser Nail; chiamate nominate in contesti aperti
+rifiutate esplicitamente; nessuna label esplicita nelle dichiarazioni
+macro. Le firme numeriche vincolate del checker Nail non sono ancora
+allineate a quelle del checker Haxe. La variante ufficiale non cambia.
+Il nuovo percorso è in CI e non è ancora promuovibile in main.
