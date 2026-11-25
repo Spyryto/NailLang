@@ -140,7 +140,21 @@ class SelfSyntaxExperimentTestMain {
     checkTypes(library,'( fun x -> x + x ) 1.5 ;',['Float']);
     rejectNumeric(library,'( fun x -> x + 1 ) true ;','No numeric relation instance');
     rejectNumeric(library,'( fun x -> x + 1 ) 1.5 ;','No numeric relation instance');
-    rejectNumeric(library,'def summ x y = x + y ;','Ambiguous numeric constraint');
+    checkTypes(library,'def summ x y = x + y ; summ 2 3 ; summ 1.5 2.5 ; summ ( 1 / 2 ) 3 ;',['Int','Float','Ratio']);
+    checkTypes(library,'def summ x y = x + y ; def add-three = summ y: 3 ; add-three 10 ; add-three ( 1 / 2 ) ;',['Int','Ratio']);
+    checkTypes(library,'def summ x y = x + y ; def add-three = summ 3 ; add-three 10 ;',['Int']);
+    checkTypes(library,'def summ x y = x + y ; def twice x = summ x x ; twice 2 ; twice 1.5 ;',['Int','Float']);
+    checkTypes(library,'def fraction numerator: a denominator: b = a / b ; def half = fraction denominator: 2 ; half 3 ;',['Ratio']);
+    checkTypes(library,'def f x = let y = x + 1 in y + 2 ; f 3 ;',['Int']);
+    checkTypes(library,'def summ x y = x + y ; def apply f x = f x ; apply ( summ y: 3 ) 10 ;',['Int']);
+    checkTypes(library,'let twice = ( fun x -> x + x ) in let ignored = twice 1 in twice 1.5 ;',['Float']);
+    rejectNumeric(library,'def summ x y = x + y ; summ true 3 ;','No numeric relation instance');
+    rejectNumeric(library,'def summ x y = x + y ; summ 1.5 3 ;','No numeric relation instance');
+    rejectNumeric(library,'def summ x y = x + y ; def add-three = summ y: 3 ; add-three true ;','No numeric relation instance');
+    rejectNumeric(library,'def summ x y = x + y ; summ ;','Ambiguous numeric constraint');
+    // Check the private/public boundary using the ordinary curried call.
+    var wire=library.run('tcCanonicalCheckedDefinition " nail 0.61 ; def summ x y = x + y ; " " summ " ;')[0];
+    ok(ResultValue.tag(wire)==ResultValue.ERR,'public row evidence cannot discard numeric predicates');
     rejectNumeric(library,'def add-one ( x : Text ) = x + 1 ;','No numeric relation instance');
     trace('Self syntax experiment: '+passed+' differential checks passed');
   }
