@@ -70,6 +70,30 @@ Il normale `vm.runPlain(source)` e `new Parser(source)` **non attivano**
 questa sintassi. Il parser rimane quello Haxe e il bootstrap scritto in
 Nail non conosce ancora le nuove forme.
 
+### Controllo statico esplicito
+
+```haxe
+var checker = new nail.TypeChecker();
+var types = checker.checkExperimental(source);
+```
+
+Si usa lo stesso parser sperimentale e lo stesso inferencer HM della
+0.61. Per le operazioni numeriche il checker conserva le regole
+esistenti: annotare i tipi degli operandi quando non sono inferibili.
+
+```nail
+def fraction numerator: ( a : Int ) denominator: ( b : Int ) = a / b ;
+def half = fraction denominator: 2 ;
+half 3 ; # Ratio
+```
+
+La firma di half è Int -> Ratio. La versione senza annotazioni
+resta eseguibile nella VM, ma non implica inferenza numerica
+automatica. Una variabile lessicale omonima (parametro, let, pattern)
+oscura le label della definizione globale: la chiamata posizionale
+resta ammessa, quella nominata viene rifiutata. Le label non sono
+ancora proprietà delle funzioni come valori di prima classe.
+
 ## Confini, da verificare prima di ogni promozione
 
 - Identificatori composti stile `def set contains: item in: entries`
@@ -78,9 +102,10 @@ Nail non conosce ancora le nuove forme.
   non ancora per import, extern o funzioni della stdlib.
 - Le keyword richiedono il `:`: `item: 2`, non `item 2`.
 - La punteggiatura richiede ancora spazi intorno ai token.
-- Il type checker completo e il bootstrap Nail v0.61 non usano ancora
-  questo percorso. Non dichiarare che la nuova superficie sia già
-  analizzabile tipicamente o disponibile in Nail Lab.
+- Il checker Haxe ha un ingresso esplicito sperimentale. Il bootstrap,
+  SourceAnalysis standard e Nail Lab non usano ancora questo percorso.
+- Le funzioni con contratti numerici relazionali conservano i limiti
+  esistenti sulle applicazioni parziali.
 - Il riscritto usa nomi interni impossibili da scrivere nel sorgente
   (`#exp_...`), così non può catturare accidentalmente variabili locali.
 
