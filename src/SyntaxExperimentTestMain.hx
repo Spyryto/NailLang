@@ -232,6 +232,50 @@ class SyntaxExperimentTestMain {
     try sessionTypes.checkExperimental('nail 0.61 ; bad alias: 3 ;')
     catch (e:Dynamic) leaked=Std.string(e).indexOf('local definition')>=0;
     assertTrue(leaked,'failed static definition publishes no labels');
+    // Execution is intentionally not transactional: successful definitions
+    // before an error remain available, and metadata must match that fact.
+    var partial=new Vm();
+    var failed=false;
+    try partial.runExperimental('def done first: a second: b = a ; missing ; def future x = x ;')
+    catch (_:Dynamic) failed=true;
+    assertTrue(failed,'partial runtime failure');
+    assertTrue(Json.stringify(partial.runPlainExperimental('done second: 2 first: 42 ;'))==Json.stringify([42]),
+      'labels of successful definitions survive runtime failure');
+    var futureRejected=false;
+    try partial.runExperimental('future x: 1 ;') catch (e:Dynamic)
+      futureRejected=Std.string(e).indexOf('local definition')>=0;
+    assertTrue(futureRejected,'unexecuted definitions do not publish labels');
+    var bodyFailed=false;
+    try partial.runExperimental('def broken = missing ;') catch (_:Dynamic) bodyFailed=true;
+    assertTrue(bodyFailed && partial.names().indexOf('broken')<0,'failing definition does not bind a name');
+    var brokenRejected=false;
+    try partial.runExperimental('broken x: 1 ;') catch (e:Dynamic)
+      brokenRejected=Std.string(e).indexOf('local definition')>=0;
+    assertTrue(brokenRejected,'failing definition publishes no labels');
+    var duplicateRejected=false;
+    try partial.runExperimental('def done new: x = x ;') catch (_:Dynamic) duplicateRejected=true;
+    assertTrue(duplicateRejected,'duplicate session declaration rejected');
+    assertTrue(Json.stringify(partial.runPlainExperimental('done first: 42 second: 0 ;'))==Json.stringify([42]),
+      'failed redeclaration cannot change existing labels');
+    var repeated=new Vm();
+    var sameUnitRejected=false;
+    try repeated.runExperimental('def f old: x = x ; def f new: y = y ;') catch (_:Dynamic) sameUnitRejected=true;
+    assertTrue(sameUnitRejected && repeated.names().indexOf('f')<0,'duplicate declarations rejected before executing ambiguous metadata');
+    partial.run('def ordinary x = x ;');
+    var ordinaryRejected=false;
+    try partial.runExperimental('ordinary x: 1 ;') catch (e:Dynamic)
+      ordinaryRejected=Std.string(e).indexOf('local definition')>=0;
+    assertTrue(ordinaryRejected,'ordinary source does not fabricate label metadata');
+    assertTrue(Json.stringify(partial.runPlainExperimental('ordinary 3 ; done first: 42 second: 2 ;'))==Json.stringify([3,42]),
+      'mixed source units preserve positional and labelled use');
+    var independent=new Parser('nail 0.61 ; def id value: x = x ;',null,true);
+    sessionTypes.checkParsed(independent,independent.parse());
+    assertTrue(sessionTypes.checkExperimental('nail 0.61 ; id value: true ; fraction numerator: 3 denominator: 2 ;').join(',')=='Bool,Ratio',
+      'checking an independently parsed unit retains earlier declaration labels');
+    var duplicateTypes=false;
+    try sessionTypes.checkExperimental('nail 0.61 ; def fraction wrong: x = x ;') catch (_:Dynamic) duplicateTypes=true;
+    assertTrue(duplicateTypes && sessionTypes.checkExperimental('nail 0.61 ; fraction numerator: 3 denominator: 2 ;')[0]=='Ratio',
+      'duplicate static definition cannot overwrite labels');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
