@@ -73,6 +73,7 @@ class StdlibSyntaxExperimentTestMain {
       'tcNumericCommon',
       'tcNumericPredicate',
       'tcNumericQualified',
+      'tcNumericRows',
       'tcNumericTerms',
       'tcNumericTouches',
       'tcNumericVars',
