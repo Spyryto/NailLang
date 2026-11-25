@@ -617,44 +617,176 @@
 @@ -2001,1 +2204,1 @@
 -def tcResultSeed result = syntaxText ( tcThird result ) ;
 +def tcResultSeed result = result >> tcThird >> syntaxText ;
-@@ -2720,2 +2923,1 @@
+@@ -2172,2 +2375,4 @@
+-        else let scheme = tcGeneralize
+-          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
++        else let scheme =
++          if isEmpty ( tcPendingNumeric ( tcResultSubs inferred ) ) then
++            tcGeneralize ( tcResultType inferred ) environment ( tcResultSubs inferred )
++          else tcScheme ( tcResultType inferred ) [] in
+@@ -2348,5 +2553,7 @@
+-        else let final = tcResultSubs constrained in
+-          let scheme = tcGeneralize provisional environment final in
+-          tcCheckForms rest
+-            ( tcBindGlobal name scheme environment )
+-            final ( tcResultSeed constrained ) reversed aliases relations ;
++        else match tcFinishNumeric ( tcResultSubs constrained ) with
++          | Error message -> tcFault message
++          | Ok final ->
++            let scheme = tcGeneralize provisional environment final in
++            tcCheckForms rest
++              ( tcBindGlobal name scheme environment )
++              final ( tcResultSeed constrained ) reversed aliases relations ;
+@@ -2503,3 +2710,5 @@
+-      | Ok updated ->
+-        tcValidateRelationRows name source rest relation
+-          updated ( tcNext ( tcResultSeed inferred ) ) environment ;
++      | Ok updated ->
++        match tcFinishNumeric updated with
++        | Error message -> tcFault message
++        | Ok final -> tcValidateRelationRows name source rest relation
++            final ( tcNext ( tcResultSeed inferred ) ) environment ;
+@@ -2634,5 +2843,8 @@
+-        | Ok updated ->
+-          let scheme = tcGeneralize provisional environment updated in
+-          tcCheckForms rest
+-            ( tcBindGlobal name scheme environment )
+-            updated ( tcResultSeed inferred ) reversed aliases relations
++        | Ok updated ->
++          match tcFinishNumeric updated with
++          | Error message -> tcFault message
++          | Ok final ->
++            let scheme = tcGeneralize provisional environment final in
++            tcCheckForms rest
++              ( tcBindGlobal name scheme environment )
++              final ( tcResultSeed inferred ) reversed aliases relations
+@@ -2643,5 +2855,6 @@
+-      else tcCheckForms rest environment ( tcResultSubs inferred )
+-        ( tcResultSeed inferred )
+-        ( cons
+-          ( tcNormalize ( tcResultType inferred ) ( tcResultSubs inferred ) )
+-          reversed ) aliases relations
++      else match tcFinishNumeric ( tcResultSubs inferred ) with
++        | Error message -> tcFault message
++        | Ok final -> tcCheckForms rest environment final
++            ( tcResultSeed inferred )
++            ( cons ( tcNormalize ( tcResultType inferred ) final ) reversed )
++            aliases relations
+@@ -2720,2 +2933,1 @@
 -def tcFourth tree =
 -  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
 +def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
-@@ -2722,2 +2924,1 @@
+@@ -2722,2 +2934,1 @@
 -def tcFifth tree =
 -  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
 +def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
-@@ -2859,4 +3060,2 @@
+@@ -2859,4 +3070,2 @@
 -  else tcCheckSyntax
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntax ;
-@@ -2868,4 +3067,2 @@
+@@ -2868,4 +3077,2 @@
 -  else tcCheckSyntaxTraced
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxTraced ;
-@@ -2880,4 +3077,2 @@
+@@ -2880,4 +3087,2 @@
 -  else tcCheckSyntaxSchemes
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3822,1 +4017,1 @@
+@@ -3279,1 +3484,52 @@
+-def tcNumericOperation name =
++# Pending numeric obligations live alongside existing Eq and row guards.
++# This first stage resolves constraints within a form only; no predicate
++# is ever silently discarded by generalization or module serialization.
++def tcPendingNumeric entries =
++  match entries with
++  | [] -> []
++  | entry :: rest ->
++    if tcBindingName entry == " #tc_numeric_pending " then
++      cons ( tcBindingValue entry ) ( tcPendingNumeric rest )
++    else tcPendingNumeric rest ;
++def tcWithoutNumeric entries =
++  filter ( fun entry -> tcBindingName entry != " #tc_numeric_pending " ) entries ;
++def tcNumericPredicate relation left right result =
++  syntaxNode " TCNumericPredicate " [ syntaxName relation , left , right , result ] ;
++def tcTryNumericRow predicate row substitutions =
++  let inputs = tcRelationInputs row in
++  match tcUnify ( tcSecond predicate ) ( head inputs ) substitutions with
++  | Error _ -> []
++  | Ok first ->
++    match tcUnify ( tcThird predicate ) ( head ( tail inputs ) ) first with
++    | Error _ -> []
++    | Ok second ->
++      match tcUnify ( tcFourth predicate ) ( tcRelationOutput row ) second with
++      | Error _ -> []
++      | Ok final -> [ syntaxNode " TCSubstitutions " final ] ;
++def tcNumericCandidates predicate rows substitutions =
++  match rows with
++  | [] -> []
++  | row :: rest ->
++    append ( tcTryNumericRow predicate row substitutions )
++      ( tcNumericCandidates predicate rest substitutions ) ;
++def tcSolveNumericPass predicates substitutions remaining changed =
++  match predicates with
++  | [] ->
++    if isEmpty remaining then Ok substitutions
++    else if changed then tcSolveNumericPass ( reverse remaining ) substitutions [] false
++    else Error " Ambiguous numeric constraint; add a type annotation "
++  | predicate :: rest ->
++    let relation = syntaxText ( tcFirst predicate ) in
++    let rows = syntaxChildren ( tcDefaultRelation relation ) in
++    match tcNumericCandidates predicate rows substitutions with
++    | [] -> Error ( textConcat " No numeric relation instance: " relation )
++    | candidate :: others ->
++      if isEmpty others then
++        tcSolveNumericPass rest ( syntaxChildren candidate ) remaining true
++      else tcSolveNumericPass rest substitutions ( cons predicate remaining ) changed ;
++def tcFinishNumeric substitutions =
++  let pending = tcPendingNumeric substitutions in
++  if isEmpty pending then Ok substitutions
++  else tcSolveNumericPass pending ( tcWithoutNumeric substitutions ) [] false ;
++
++def tcNumericOperation name =
+@@ -3322,8 +3578,14 @@
+-      if syntaxTag left != " TCBase " then
+-        tcFault " Numeric operands require concrete types or an explicit relation "
+-      else if syntaxTag right != " TCBase " then
+-        tcFault " Numeric operands require concrete types or an explicit relation "
+-      else let output = tcNumericResult ( tcNumericOperation op )
+-        ( syntaxText left ) ( syntaxText right ) in
+-        if syntaxTag output == " TCFault " then output
+-        else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg ) ;
++      if syntaxTag left == " TCBase " then
++        if syntaxTag right == " TCBase " then
++          let output = tcNumericResult ( tcNumericOperation op ) ( syntaxText left ) ( syntaxText right ) in
++          if syntaxTag output == " TCFault " then output
++          else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg )
++        else tcDeferNumeric ( tcNumericOperation op ) left right secondArg
++      else tcDeferNumeric ( tcNumericOperation op ) left right secondArg ;
++def tcDeferNumeric relation left right inferred =
++  let seed = tcResultSeed inferred in
++  let output = tcVar seed in
++  let predicate = tcNumericPredicate relation left right output in
++  tcInferResult output
++    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
++    ( tcNext seed ) ;
+@@ -3822,1 +4084,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4673,2 @@
+@@ -4478,2 +4740,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4680,2 @@
+@@ -4485,3 +4747,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
