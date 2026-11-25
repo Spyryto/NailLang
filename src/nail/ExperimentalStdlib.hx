@@ -9,14 +9,14 @@ class ExperimentalStdlib {
   static var checkedPrelude:Null<TypeChecker>;
 
   static function source():String {
-    var value=Resource.getString('stdlib-experimental');
-    if (value==null) throw 'Experimental stdlib not included in this build';
+    var value=Resource.getString('stdlib');
+    if (value==null) throw 'Missing canonical stdlib';
     return value;
   }
 
   static function requireLegacy(code:String):Void {
     if (numeric.LanguageVersion.isModern(code) || numeric.NumericDialect.isExact(code))
-      throw 'Experimental stdlib uses legacy Number semantics; remove the nail version header or select the 0.61 syntax mode';
+      throw 'Experimental stdlib uses legacy Number semantics; remove the nail version header or select the 0.62 syntax mode';
   }
 
   static function environment():TypeChecker {
