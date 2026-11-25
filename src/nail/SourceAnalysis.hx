@@ -134,11 +134,13 @@ class SourceAnalysis {
   }
 
   public static function analyze(source:String,
-      ?modules:String->Null<String>):AnalysisResult {
+      ?modules:String->Null<String>, ?syntaxExperiment:Bool=false,
+      ?environment:TypeChecker):AnalysisResult {
     var report:AnalysisResult = {ok:false, version:null, diagnostics:[],
       symbols:[], references:[], evaluations:[]};
     var parser:Parser;
-    try parser = new Parser(source)
+    var checker=environment==null ? new TypeChecker() : environment.copy();
+    try parser = syntaxExperiment ? checker.experimentalParser(source) : new Parser(source)
     catch (error:Dynamic) {
       var message = Std.string(error);
       var tokens:Array<SourceToken> = [];
@@ -167,7 +169,6 @@ class SourceAnalysis {
     }
     report.references = references(forms, bindings, parser.provenance);
 
-    var checker = new TypeChecker();
     var inferred:Array<String>;
     try inferred = checker.checkParsed(parser, forms)
     catch (error:Dynamic) {

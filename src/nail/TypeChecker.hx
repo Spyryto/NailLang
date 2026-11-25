@@ -1,5 +1,7 @@
 package nail;
 
+import nail.TypeScheme.NumericPredicate;
+
 import haxe.ds.IntMap;
 import haxe.ds.StringMap;
 import nail.Ast.Expr;
@@ -28,6 +30,7 @@ class TypeChecker {
   var nextId:Int;
   var lastModern:Bool = false;
   var lastOpenRows:Bool = false;
+  var experimentalCallLabels=new StringMap<Array<String>>();
   // Only names from a successfully checked definition may be previewed.
   var checkedPreviewDefinitions:StringMap<Bool> = new StringMap<Bool>();
   var relationByName:haxe.ds.StringMap<String>;
@@ -54,6 +57,17 @@ class TypeChecker {
     return checkParsed(parser, parser.parse(modules));
   }
 
+  /** Use the same snapshot when analysis and execution parse a separate unit. */
+  public function experimentalParser(source:String):Parser
+    return new Parser(source,null,true,experimentalCallLabels);
+
+  /** Opt-in surface experiment; reuse the ordinary inference engine. */
+  public function checkExperimental(source:String):Array<String> {
+    lastFailureSpan = null;
+    var parser = experimentalParser(source);
+    return checkParsed(parser,parser.parse());
+  }
+
   /** Check forms from their original parser in one pass. Analysis callers
       reuse the parsed program, macro resolution and source coordinates rather
       than reparsing the source (or fetching modules a second time). */
@@ -78,7 +92,7 @@ class TypeChecker {
     var solver = new Inference(nextId, global, records, sums, sumCases,
       constructorOwners, relationByName, parser.modernMode,
       newTables, functionContracts,
-      parser.experimentalContexts || parser.languageVersion=='0.61');
+      parser.experimentalContexts || parser.languageVersion=='0.61', parser.syntaxExperiment);
     solver.declarations = parser.declaredRelations;
     solver.parameterConstraints=parser.parameterConstraints;
     if (parser.experimentalContexts) {
@@ -109,6 +123,17 @@ class TypeChecker {
     relationByName = solver.relations;
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
+    if (parser.syntaxExperiment) {
+      // checkParsed also accepts independently constructed parsers.
+      // Retain metadata from earlier successful units and publish only
+      // declarations that actually belong to this checked program.
+      var labels=parser.experimentalLabels();
+      for (form in forms) switch (form) {
+        case Define(name, _) if (labels.exists(name)):
+          experimentalCallLabels.set(name,labels.get(name).copy());
+        case _:
+      }
+    }
     lastModern = parser.modernMode;
     lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
     if (parser.modernMode) for (form in forms) switch(form) {
@@ -201,6 +226,8 @@ class TypeChecker {
       throw 'Public interface: constrained export requires a relation-aware ABI';
     var found = global.get(name);
     if (found == null) throw 'Public interface: unknown export ' + name;
+    if (found.numeric != null && found.numeric.length > 0)
+      throw 'Public interface: inferred numeric constraints are experimental';
     if (found.quantified.length > 0 || found.comparable.length > 0)
       throw 'Public interface: polymorphic export requires a quantified ABI: ' + name;
     var work:Array<NType> = [found.term];
@@ -234,6 +261,8 @@ class TypeChecker {
         scheme.comparable == null || scheme.quantified.length > 64 ||
         scheme.comparable.length > 64)
       throw 'Public interface: invalid quantified scheme';
+    if (scheme.numeric != null && scheme.numeric.length > 0)
+      throw 'Public interface: inferred numeric constraints are experimental';
     var quantified = new IntMap<Bool>();
     for (id in scheme.quantified) {
       if (id < 0 || quantified.exists(id))
@@ -381,6 +410,8 @@ class TypeChecker {
     var scheme=global.get(name);
     if (scheme==null)
       throw 'Row scheme preview: definition unavailable';
+    if (scheme.numeric != null && scheme.numeric.length > 0)
+      throw 'Row scheme preview: inferred numeric constraints unsupported';
     return RowSchemeProducer.encodeInferred(scheme);
   }
 
@@ -457,6 +488,8 @@ class TypeChecker {
     instance.nextId = nextId;
     instance.lastModern = lastModern;
     instance.lastOpenRows = lastOpenRows;
+    for (name in experimentalCallLabels.keys())
+      instance.experimentalCallLabels.set(name,experimentalCallLabels.get(name).copy());
     instance.generalContracts = new StringMap();
     for (name in generalContracts.keys())
       instance.generalContracts.set(name,generalContracts.get(name));
@@ -473,7 +506,7 @@ class TypeChecker {
   public function signature(name:String):String {
     return new Inference(nextId, global, records, sums, sumCases, constructorOwners,
       relationByName, lastModern,
-      generalContracts, functionContracts).signature(name);
+      generalContracts, functionContracts, lastOpenRows, true).signature(name);
   }
 
   public function names():Array<String> {
@@ -518,6 +551,8 @@ private class Inference {
   final substitutions:IntMap<NType> = new IntMap<NType>();
   final eqRequired:IntMap<Bool> = new IntMap<Bool>();
   final openRows:Bool;
+  final inferNumeric:Bool;
+  var pendingNumeric:Array<NumericPredicate> = [];
   public var parameterConstraints:StringMap<Array<{name:String,type:NType}>>=new StringMap();
   public var valueConstraints:StringMap<NType>=new StringMap();
 
@@ -527,8 +562,9 @@ private class Inference {
       modernMode:Bool = false,
       ?knownTables:StringMap<RelationContract>,
       ?knownContracts:StringMap<RelationContract>,
-      openRows:Bool = false) {
+      openRows:Bool = false, inferNumeric:Bool = false) {
     this.openRows=openRows;
+    this.inferNumeric=inferNumeric;
     nextId = start;
     generalContracts = new StringMap();
     if (knownTables != null)
@@ -971,6 +1007,12 @@ private class Inference {
       var target = replacements.get(id);
       requireEquality(target == null ? TVariable(id) : target);
     }
+    if (scheme.numeric != null && scheme.numeric.length > 0) {
+      if (!inferNumeric) throw 'Type error: inferred numeric constraints require experimental checking';
+      for (p in scheme.numeric) pendingNumeric.push({op:p.op,
+        left:replacement(p.left,replacements), right:replacement(p.right,replacements),
+        result:replacement(p.result,replacements)});
+    }
     return replacement(scheme.term, replacements);
   }
 
@@ -1061,7 +1103,117 @@ private class Inference {
     return results.pop();
   }
 
+  static function numericName(op:String):String return switch(op) {
+    case '+': 'Add'; case '-': 'Sub'; case '*': 'Mul'; case '/': 'Div';
+    case _: 'Compare(' + op + ')';
+  }
+
+  /** Filter the existing finite numeric relation; repeated variables must
+      agree within a row. No coercion or default type is introduced. */
+  function numericRows(p:NumericPredicate):Array<Array<NType>> {
+    var rows:Array<Array<NType>>=[];
+    var relation=numericName(p.op);
+    var comparison=StringTools.startsWith(relation,'Compare');
+    var terms=[prune(p.left),prune(p.right),prune(p.result)];
+    for (row in numeric.NumericRelation.rows(numeric.NumericRelation.modernName(comparison?'Add':relation))) {
+      var values=[row.left,row.right,comparison?TBoolean:row.result];
+      var assigned=new IntMap<NType>();
+      var valid=true;
+      for (i in 0...3) switch(terms[i]) {
+        case TVariable(id):
+          if (assigned.exists(id) && !Type.enumEq(assigned.get(id),values[i])) valid=false;
+          assigned.set(id,values[i]);
+        case concrete: if (!Type.enumEq(concrete,values[i])) valid=false;
+      }
+      if (valid) rows.push(values);
+    }
+    return rows;
+  }
+
+  /** Propagate forced columns to a fixed point. Remaining predicates stay
+      attached to a scheme, or must be discharged before a closed result. */
+  function solveNumeric():Void {
+    if (!inferNumeric) return;
+    var changed=true;
+    while (changed) {
+      changed=false;
+      var remaining:Array<NumericPredicate>=[];
+      for (p in pendingNumeric) {
+        var rows=numericRows(p);
+        if (rows.length==0)
+          throw 'Type error: no '+numericName(p.op)+' instance for '+describe(p.left)
+            +' and '+describe(p.right)+' with result '+describe(p.result);
+        var terms=[p.left,p.right,p.result];
+        for (i in 0...3) switch(prune(terms[i])) {
+          case TVariable(id):
+            var value=rows[0][i];
+            var same=true;
+            for (row in rows) if (!Type.enumEq(row[i],value)) same=false;
+            if (same) {bindVariable(id,value);changed=true;}
+          case _:
+        }
+        if (rows.length!=1) remaining.push(p);
+      }
+      pendingNumeric=remaining;
+    }
+  }
+
+  function predicateVars(p:NumericPredicate):IntMap<Bool> {
+    var vars=new IntMap<Bool>();
+    free(p.left,vars);free(p.right,vars);free(p.result,vars);
+    return vars;
+  }
+
+  /** Connected predicates are generalized together. If any variable is
+      fixed by the lexical environment, keep the entire component local. */
+  function generalizeNumeric(candidates:IntMap<Bool>,bound:IntMap<Bool>):Array<NumericPredicate> {
+    var selected:Array<NumericPredicate>=[];
+    var visited:Array<NumericPredicate>=[];
+    var roots=[for (id in candidates.keys()) id];
+    for (root in roots) {
+      var component=new IntMap<Bool>();
+      component.set(root,true);
+      var predicates:Array<NumericPredicate>=[];
+      var changed=true;
+      while(changed) {
+        changed=false;
+        for (p in pendingNumeric) {
+          if (predicates.indexOf(p)>=0) continue;
+          var vars=predicateVars(p);
+          var touches=false;
+          for (id in vars.keys()) if (component.exists(id)) touches=true;
+          if (touches) {
+            predicates.push(p);
+            for (id in vars.keys()) component.set(id,true);
+            changed=true;
+          }
+        }
+      }
+      if (predicates.length==0 || visited.indexOf(predicates[0])>=0) continue;
+      for (p in predicates) visited.push(p);
+      var local=false;
+      for (id in component.keys()) if (bound.exists(id)) local=true;
+      if (local) {
+        for (id in component.keys()) bound.set(id,true);
+      } else {
+        for (id in component.keys()) candidates.set(id,true);
+        for (p in predicates) selected.push({op:p.op,left:normalize(p.left),
+          right:normalize(p.right),result:normalize(p.result)});
+        for (p in predicates) pendingNumeric.remove(p);
+      }
+    }
+    return selected;
+  }
+
+  function requireNoPendingNumeric():Void {
+    solveNumeric();
+    if (pendingNumeric.length>0)
+      throw 'Type error: ambiguous numeric constraint '+numericName(pendingNumeric[0].op)
+        +'; add a type annotation';
+  }
+
   function generalize(t:NType, env:StringMap<TypeScheme>):TypeScheme {
+    solveNumeric();
     t = normalize(t);
     var candidates = new IntMap<Bool>();
     free(t, candidates);
@@ -1072,6 +1224,7 @@ private class Inference {
       for (id in scheme.quantified) vars.remove(id);
       for (id in vars.keys()) bound.set(id, true);
     }
+    var numeric=generalizeNumeric(candidates,bound);
     var quantified:Array<Int> = [];
     var comparable:Array<Int> = [];
     for (id in candidates.keys()) if (!bound.exists(id)) {
@@ -1080,7 +1233,9 @@ private class Inference {
     }
     quantified.sort((a, b) -> a - b);
     comparable.sort((a, b) -> a - b);
-    return poly(t, quantified, comparable);
+    var scheme=poly(t, quantified, comparable);
+    if (numeric.length>0) scheme.numeric=numeric;
+    return scheme;
   }
 
   static function scopeCopy(env:StringMap<TypeScheme>):StringMap<TypeScheme> {
@@ -1264,7 +1419,12 @@ private class Inference {
           } else {
             var rhsType = results.pop();
             var op = MacroExpander.globalName(name).substr('#modern'.length);
-            results.push(numeric.NumericRelation.operate(op,
+            if (inferNumeric) {
+              var result=fresh();
+              pendingNumeric.push({op:op,left:frame.saved,right:rhsType,result:result});
+              solveNumeric();
+              results.push(result);
+            } else results.push(numeric.NumericRelation.operate(op,
               normalize(frame.saved), normalize(rhsType)));
             work.pop();
           }
@@ -1773,9 +1933,16 @@ private class Inference {
         }
         unify(provisional, t);
         globals.set(name, generalize(t, globals));
+        requireNoPendingNumeric();
       case Evaluate(expr):
         validateMatches(expr);
-        inferred.push(infer(expr, globals));
+        var result=infer(expr, globals);
+        if (inferNumeric) {
+          solveNumeric();
+          // Evaluation is closed. Do not silently erase an unresolved predicate.
+          requireNoPendingNumeric();
+        }
+        inferred.push(result);
       }
     }
     return [for (t in inferred) describe(t)];
@@ -1788,10 +1955,12 @@ private class Inference {
       return numeric.NumericRelation.signature(relations.get(name));
     var scheme = globals.get(name);
     if (scheme == null) throw 'Type error: unknown name ' + name;
-    return describe(instantiate(scheme));
+    var ty=instantiate(scheme);
+    solveNumeric();
+    return describe(ty,pendingNumeric);
   }
 
-  function describe(ty:NType):String {
+  function describe(ty:NType, ?predicates:Array<NumericPredicate>):String {
     var vars = new IntMap<String>();
     var eq:Array<String> = [];
     var count = 0;
@@ -1874,7 +2043,17 @@ private class Inference {
       }
     }
     var result = output.toString();
-    return eq.length == 0 ? result : 'Eq ' + eq.join(', ') + ' => ' + result;
+    var constraints:Array<String>=[];
+    if (predicates!=null) {
+      function term(t:NType):String return switch(prune(t)) {
+        case TVariable(id): label(id);
+        case _: describe(t);
+      }
+      for (p in predicates) constraints.push(numericName(p.op)+' '+term(p.left)
+        +' '+term(p.right)+' '+term(p.result));
+    }
+    if (eq.length>0) constraints.unshift('Eq '+eq.join(', '));
+    return constraints.length==0 ? result : constraints.join(', ')+' => '+result;
   }
 }
 

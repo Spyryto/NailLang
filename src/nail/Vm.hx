@@ -15,6 +15,7 @@ private enum EvalFrame {
 /** Small, pure Nail evaluator. No JS / PHP target branches. */
 class Vm {
   final root:Env;
+  var experimentalCallLabels=new haxe.ds.StringMap<Array<String>>();
   final maxSteps:Int;
   var steps:Int = 0;
 
@@ -136,7 +137,7 @@ class Vm {
 
   /** Execute core forms through one definition/evaluation path.
       Haxe's declaration lowering remains the independent bootstrap seed. */
-  function executeForms(forms:Array<Form>):Array<Value> {
+  function executeForms(forms:Array<Form>, ?labels:haxe.ds.StringMap<Array<String>>):Array<Value> {
     var output:Array<Value> = [];
     for (form in forms) {
       var lowered:Array<Form> = switch (form) {
@@ -148,6 +149,14 @@ class Vm {
         case Define(name, body):
           if (root.hasHere(name)) throw 'Already defined: ' + name;
           root.bind(name, evaluate(body, root));
+          // Runtime definitions commit individually. Publish metadata at
+          // that same point, never for an unevaluated or rejected form.
+          // Lowered record/sum constructors are not labelled declarations.
+          switch (form) {
+            case Define(_, _) if (labels != null && labels.exists(name)):
+              experimentalCallLabels.set(name,labels.get(name).copy());
+            case _:
+          }
         case Evaluate(body): output.push(evaluate(body, root));
         case _: throw 'Unlowered declaration';
       }
@@ -164,6 +173,22 @@ class Vm {
     return executeForms(new Parser(source).parse(modules));
     #end
   }
+
+  /** Explicit opt-in to experimental surface syntax. Does not change the
+      versioned runtime, public compiler or source-free bootstrap. */
+  public function runExperimental(source:String):Array<Value> {
+    #if nail_seed_only
+    throw 'Host source parser disabled in bootstrap-only build';
+    #else
+    steps = 0;
+    var parser=new Parser(source,null,true,experimentalCallLabels);
+    var forms=parser.parse();
+    return executeForms(forms,parser.experimentalLabels());
+    #end
+  }
+
+  public function runPlainExperimental(source:String):Array<Dynamic>
+    return RuntimeValues.plainResults(runExperimental(source));
 
   /** Execute a first-class Syntax Program built by code running in Nail. */
   public function runSyntax(tree:Value):Array<Value> {

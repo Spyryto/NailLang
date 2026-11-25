@@ -8,6 +8,11 @@ import nail.SumLowering;
 /** Whitespace-delimited lexer + small precedence parser, with desugaring to Expr. */
 class Parser {
   final tokens:Array<String>;
+  /** Opt-in syntax experiment: no released Nail header enables this. */
+  public final syntaxExperiment:Bool;
+  final namedParameters:haxe.ds.StringMap<Array<String>>;
+  var generatedName:Int = 0;
+  final experimentBinders:Array<String> = [];
   /** Experimental opt-in contextual DSL interfaces. This deliberately
       does not change the normal 0.54 parser or language version. The
       caller supplies visible field names (from a checked interface). */
@@ -30,6 +35,7 @@ class Parser {
   var at:Int = 0;
 
   static final namePattern = ~/^[A-Za-z_][A-Za-z_0-9]*$/;
+  static final hyphenNamePattern = ~/^[A-Za-z_][A-Za-z_0-9]*(?:-[A-Za-z_0-9]+)*$/;
   static final recordTypePattern = ~/^[A-Z][A-Za-z_0-9]*$/;
   static final typeParamPattern = ~/^[a-z][a-z0-9_]*$/;
   static final numberPattern = ~/^-?(?:\d+(?:\.\d+)?|\.\d+)$/;
@@ -46,7 +52,12 @@ class Parser {
 
 
   public function new(source:String,
-      ?contextFields:haxe.ds.StringMap<Array<String>>) {
+      ?contextFields:haxe.ds.StringMap<Array<String>>, ?syntaxExperiment:Bool=false,
+      ?knownLabels:haxe.ds.StringMap<Array<String>>) {
+    this.syntaxExperiment=syntaxExperiment;
+    namedParameters=new haxe.ds.StringMap<Array<String>>();
+    if (syntaxExperiment && knownLabels!=null)
+      for (name in knownLabels.keys()) namedParameters.set(name,knownLabels.get(name).copy());
     this.contextFields=contextFields;
     this.experimentalContexts=contextFields!=null;
     typeAliases=new haxe.ds.StringMap<nail.NType>();
@@ -70,8 +81,8 @@ class Parser {
   // String boundaries are separate whitespace-delimited tokens: " hello world ".
   // Contents are joined with one space and decoded as JSON string escapes.
   // Comments are ignored outside quoted text only.
-  static function isName(s:Null<String>):Bool {
-    if (s == null || !namePattern.match(s)) return false;
+  function isName(s:Null<String>):Bool {
+    if (s == null || !(syntaxExperiment ? hyphenNamePattern : namePattern).match(s)) return false;
     return switch (s) {
       case 'nail' | 'import' | 'from' | 'export' | 'macro' | 'quote' | 'unquote' | 'expand' | 'def' | 'type' | 'if' | 'then' | 'else' | 'fun' | 'function' | 'true' | 'false' | 'let' | 'in' | 'match' | 'with': false;
       case _: true;
@@ -80,7 +91,7 @@ class Parser {
 
   static function isNumber(s:Null<String>):Bool return s != null && numberPattern.match(s);
 
-  static function beginsAtom(s:Null<String>):Bool {
+  function beginsAtom(s:Null<String>):Bool {
     return switch (s) {
       case 'quote' | 'unquote' | 'expand' | '(' | '[' | '[]' | '{' | 'fun' | 'function' | 'if' | 'let' | 'match' | 'true' | 'false': true;
       case _: (s != null && StringTools.startsWith(s, '\u0001')) || isName(s) || isNumber(s);
@@ -133,6 +144,16 @@ class Parser {
       matches the pure Nail-written lowering and makes bytecode reproducible. */
   function hidden(label:String):String return '#nail_' + label + '_0';
 
+  /** Track only lexical names that hide declaration-level labels. */
+  function scopedExpression(names:Array<String>):Expr {
+    if (!syntaxExperiment) return expression();
+    var depth=experimentBinders.length;
+    for (name in names) experimentBinders.push(name);
+    var result=expression();
+    experimentBinders.resize(depth);
+    return result;
+  }
+
   /** Surface let: ( fun name -> body ) value. A non-recursive, eager binding. */
   function parseLet():Expr {
     var bindingToken = at;
@@ -141,7 +162,7 @@ class Parser {
     expect('=');
     var value = expression();
     expect('in');
-    var body = expression();
+    var body = scopedExpression([name]);
     var binder = provenance.expression(Lambda(name, body), bindingToken, at);
     return Apply(binder, value);
   }
@@ -184,7 +205,7 @@ class Parser {
         headName = first == '_' ? hidden('wild_head') : first;
         tailName = second == '_' ? hidden('wild_tail') : second;
         expect('->');
-        pairBranch = expression();
+        pairBranch = scopedExpression([headName,tailName]);
       }
     }
     if (emptyBranch == null || pairBranch == null || headName == null || tailName == null)
@@ -217,7 +238,7 @@ class Parser {
         if (params.length > 10) throw 'Too many variant bindings';
       }
       expect('->');
-      var body = expression();
+      var body = scopedExpression(params);
       for (branch in branches) if (branch.name == ctor) throw 'Duplicate variant branch';
       branches.push({name:ctor, params:params, body:body});
     }
@@ -425,7 +446,7 @@ class Parser {
       }
       if (params.length == 0) throw 'Function needs at least one parameter';
       expect('->');
-      return lambdas(params, expression(), positions);
+      return lambdas(params, scopedExpression(params), positions);
     }
     if (isNumber(token)) {
       if (modernMode) return token.indexOf('.') >= 0
@@ -463,6 +484,108 @@ class Parser {
     throw 'Unexpected token ' + token + ' at token ' + at;
   }
 
+  static function isNamedArgument(token:Null<String>):Bool {
+    if (token == null || !StringTools.endsWith(token, ':')) return false;
+    return ~/^[A-Za-z_][A-Za-z_0-9]*:$/.match(token);
+  }
+
+  /** Snapshot only declaration metadata; callers own their session state. */
+  public function experimentalLabels():haxe.ds.StringMap<Array<String>> {
+    var result=new haxe.ds.StringMap<Array<String>>();
+    for (name in namedParameters.keys()) result.set(name,namedParameters.get(name).copy());
+    return result;
+  }
+
+  function freshExperimentName(kind:String):String
+    return '#exp_' + kind + '_' + (generatedName++);
+
+  /** Recognize only a local, statically known function name. Prefix positional
+      applications are collected without evaluating any argument twice. */
+  function namedCallHead(expr:Expr):{name:String, positional:Array<Expr>} {
+    var args:Array<Expr>=[];
+    var node=expr;
+    while(true) switch(node) {
+      case Apply(fn,arg):
+        args.unshift(arg);
+        node=fn;
+      case Var(name):
+        return {name:name,positional:args};
+      case _:
+        throw 'Named arguments require a directly declared function';
+    }
+    throw 'Unreachable';
+  }
+
+  /** Lower named/mixed applications into the existing Lambda/Apply core.
+      Captures evaluate once, in source order, before the resulting function
+      is called; missing arguments remain curried in declaration order.
+      All generated names are impossible to write in surface Nail. */
+  function parseNamedCall(left:Expr):Expr {
+    var head=namedCallHead(left);
+    if (experimentBinders.indexOf(head.name)>=0)
+      throw 'Named arguments unavailable for shadowed function '+head.name;
+    var params=namedParameters.get(head.name);
+    if (params == null)
+      throw 'Named arguments require a local definition: '+head.name;
+    if (head.positional.length > params.length)
+      throw 'Too many positional arguments to '+head.name;
+    var supplied:Array<Null<Expr>>=[for (_ in params) null];
+    var captures:Array<{name:String, value:Expr}>=[];
+    var inOrder=true;
+    for (i in 0...head.positional.length) {
+      var captured=freshExperimentName('arg');
+      supplied[i]=Var(captured);
+      captures.push({name:captured,value:head.positional[i]});
+    }
+    var sawLabel=false;
+    while (true) {
+      var token=peek();
+      if (token==null) break;
+      var index=-1;
+      if (isNamedArgument(token)) {
+        var label=token.substr(0,token.length-1);
+        index=params.indexOf(label);
+        if (index<0) throw 'Unknown named parameter '+label+' for '+head.name;
+        if (supplied[index]!=null) throw 'Duplicate argument '+label+' for '+head.name;
+        take();
+        sawLabel=true;
+      } else if (sawLabel && beginsAtom(peek())) {
+        for (i in 0...params.length)
+          if (supplied[i]==null) {index=i;break;}
+        if (index<0) break; // A subsequent application to the returned value.
+      } else break;
+      var arg=expression(71);
+      if (index!=captures.length) inOrder=false;
+      var captured=freshExperimentName('arg');
+      supplied[index]=Var(captured);
+      captures.push({name:captured,value:arg});
+    }
+    if (!sawLabel) throw 'Expected a named argument to '+head.name;
+    // A saturated, ordered call to a declared curried function is just
+    // ordinary application. Keep the capture lowering for all other cases.
+    if (inOrder && captures.length==params.length) {
+      var direct:Expr=Var(head.name);
+      for (capture in captures) direct=Apply(direct,capture.value);
+      return direct;
+    }
+    var missing:Array<String>=[];
+    for (i in 0...params.length) if (supplied[i]==null) {
+      var fresh=freshExperimentName('missing');
+      supplied[i]=Var(fresh);
+      missing.push(fresh);
+    }
+    var body:Expr=Var(head.name);
+    for (arg in supplied) body=Apply(body,arg);
+    var i=missing.length;
+    while(i>0) {i--;body=Lambda(missing[i],body);}
+    i=captures.length;
+    while(i>0) {
+      i--;
+      body=Apply(Lambda(captures[i].name,body),captures[i].value);
+    }
+    return body;
+  }
+
   function expression(minimum:Int = 0):Expr {
     var first = at;
     return provenance.expression(expressionSuffix(atom(), minimum), first, at);
@@ -480,8 +603,21 @@ class Parser {
         if (first >= 0) left = provenance.expression(left, first, at);
         continue;
       }
+      if (syntaxExperiment && minimum <= 70 && isNamedArgument(peek())) {
+        left = parseNamedCall(left);
+        if (first >= 0) left = provenance.expression(left, first, at);
+        continue;
+      }
       if (beginsAtom(peek()) && minimum <= 70) {
         left = Apply(left, expression(71));
+        if (first >= 0) left = provenance.expression(left, first, at);
+        continue;
+      }
+      // A >>=free core application: value >> function = function value.
+      // Precedence 25, left-associative, below comparisons and arithmetic.
+      if (syntaxExperiment && peek() == '>>' && minimum <= 25) {
+        take();
+        left=Apply(expression(26), left);
         if (first >= 0) left = provenance.expression(left, first, at);
         continue;
       }
@@ -694,6 +830,7 @@ class Parser {
         var name = take();
         if (!isName(name)) throw 'Expected definition name';
         var params:Array<String> = [];
+        var labels:Array<String> = [];
         var positions:Array<Int> = [];
         var constraints:Array<{name:String,type:nail.NType}>=[];
         var bindings:Array<{name:String, previous:Null<Array<String>>}>=[];
@@ -702,6 +839,13 @@ class Parser {
         while (peek() != '=' && peek() != ':') {
           var atParameter = at;
           var p:String;
+          // Public call label is independent of the lexical binder.
+          var label:Null<String>=null;
+          if (syntaxExperiment && !macroDeclaration && isNamedArgument(peek())) {
+            var keyword=take();
+            label=keyword.substr(0,keyword.length-1);
+            atParameter=at;
+          }
           if ((experimentalContexts || languageVersion=='0.61') && peek()=='(') {
             take();
             p=take();
@@ -724,6 +868,12 @@ class Parser {
             p=take();
             if (!isName(p) || params.indexOf(p) >= 0)
               throw 'Invalid or duplicate definition parameter';
+          }
+          if (syntaxExperiment && !macroDeclaration) {
+            var publicName=label==null ? p : label;
+            if (labels.indexOf(publicName)>=0)
+              throw 'Duplicate public parameter label '+publicName;
+            labels.push(publicName);
           }
           params.push(p);
           positions.push(atParameter);
@@ -756,7 +906,16 @@ class Parser {
             ? numeric.NumericRelation.modernName(relation) : relation);
         }
         expect('=');
-        var body = lambdas(params, expression(), positions);
+        // Names are metadata for this source only, not a new function kind.
+        // Register before parsing the body to support recursive references.
+        if (syntaxExperiment && !macroDeclaration) {
+          // A repeated declaration must not replace the metadata of an
+          // earlier definition, even if evaluation subsequently fails.
+          if (namedParameters.exists(name))
+            throw 'Already defined: ' + name;
+          namedParameters.set(name,labels);
+        }
+        var body = lambdas(params, scopedExpression(params), positions);
         expect(';');
         for (entry in bindings) {
           if (entry.previous==null) contextFields.remove(entry.name);

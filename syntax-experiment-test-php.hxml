@@ -1,0 +1,4 @@
+-cp src
+-main SyntaxExperimentTestMain
+-php build/tests/php-syntax-experiment
+-resource stdlib.nail@stdlib
