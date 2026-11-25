@@ -216,9 +216,8 @@ negativi di label sconosciute, duplicate e oscurate da binder.
 Confini: label disponibili nello stesso sorgente, non ancora tra
 sessioni del parser Nail; chiamate nominate in contesti aperti
 rifiutate esplicitamente; nessuna label esplicita nelle dichiarazioni
-macro. Le firme numeriche vincolate del checker Nail non sono ancora
-allineate a quelle del checker Haxe. La variante ufficiale non cambia.
-Il nuovo percorso è in CI e non è ancora promuovibile in main.
+macro. L'allineamento dei predicati numerici è descritto nella sezione
+successiva. La variante ufficiale non cambia.
 
 
 ## Checker Nail: inferenza numerica vincolata
@@ -284,9 +283,40 @@ entrambi i parser sperimentali la rifiutano. Le definizioni
 caricate con sintassi ordinaria non acquisiscono automaticamente
 label. Il parser Nail mantiene ancora solo metadati dello stesso
 sorgente; il supporto tra unità è della VM/checker con parser Haxe.
-I nuovi casi negativi e di recupero sono in validazione.
+I nuovi casi negativi e di recupero sono stati validati sui tre target.
 
-Prima di qualsiasi promozione: completare questa CI, chiarire la
-politica sui metadati tra unità per il parser Nail e decidere
-come integrare la variante patchata senza modificare inavvertitamente
-il bootstrap ufficiale. Nessun merge automatico in main.
+Prima di qualsiasi promozione: chiarire la politica sui metadati
+tra unità per il parser Nail e decidere come integrare la variante
+patchata. Nessun merge automatico in main.
+
+
+## Bootstrap sperimentale riproducibile — risultato verificato
+
+Commit di riferimento: `3e9a2a37af9d100bfd4357578d92d57278698a45`.
+
+- [CI sperimentale](https://github.com/Spyryto/NailLang/actions/runs/45598491439): 978 verifiche (326 per target) e bootstrap completo verdi.
+- [CI ordinaria](https://github.com/Spyryto/NailLang/actions/runs/45598500543): nove job verdi.
+- Stage zero Haxe, stage uno Nail e stage due Nail producono lo stesso
+  nastro di bytecode ordinato, senza normalizzazione aggiuntiva.
+- SHA-256 del nastro: `f4741db092193d23d80649e76acae74220d8b5f7562655bd23c672b6310a948b`.
+- Le distribuzioni source-free JS e PHP eseguono il programma di prova;
+  il controllo dei confini esclude il parser e il compilatore Haxe.
+  Il test JS verifica anche la compilazione statica Nail e il rifiuto
+  di una chiamata numerica invalida.
+- Tempo misurato del fixed point nel job CI: circa 73 minuti
+  (da 10:49:13 a 12:02:21 UTC, inclusa la compilazione del driver).
+  È un costo concreto di consolidamento, non un benchmark del
+  linguaggio. Il candidato è corretto nei casi verificati, ma non
+  abbiamo ancora profilato il costo delle nuove traversate del parser.
+
+### Decisione di integrazione proposta (non ancora applicata)
+
+Non mantenere una patch permanente come seconda stdlib. Nella prossima
+versione, integrare le modifiche nel sorgente canonico e costruire il
+bootstrap da quello, rendendo coerente il gate della sintassi Haxe
+con la versione ufficiale. Conservare gli artefatti storici, non
+promettere retrocompatibilità pre-1.0. Prima di farlo, decidere se
+le label sono soltanto metadati di unità di compilazione o una
+proprietà esportabile delle definizioni. L'ABI dei moduli rimane
+invariato in questo esperimento. Nessuna estensione ai contesti DSL
+aperti o sintassi discorsiva. La PR #63 resta Draft.
