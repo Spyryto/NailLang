@@ -63,6 +63,14 @@ class StdlibSyntaxExperimentTestMain {
       'expSpine',
       'expWrapCaptures',
       'expWrapMissing',
+      'tcDeferNumeric',
+      'tcFinishNumeric',
+      'tcNumericCandidates',
+      'tcNumericPredicate',
+      'tcPendingNumeric',
+      'tcSolveNumericPass',
+      'tcTryNumericRow',
+      'tcWithoutNumeric',
       'tokenize-at'
     ];
     same(after.filter(name -> before.indexOf(name)<0),expectedAdded,
