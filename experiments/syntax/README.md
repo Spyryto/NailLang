@@ -1,3 +1,7 @@
+# Historical experiment notes
+
+The following notes document the branch before promotion to the canonical 0.62 candidate. The patch is retained in Git history at commit `127e73eafcb1de8162fa2b04939616a765585d45`; it is no longer a build input. Current changes and limitations are in [0.62 candidate notes](../../docs/releases/0.62.md).
+
 # Esperimento di sintassi: identificatori, argomenti nominati, applicazione
 
 **Ramo:** `experiments/syntax-curried-keywords`. Nessuna modifica alla versione
