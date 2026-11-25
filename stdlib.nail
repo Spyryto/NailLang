@@ -2,27 +2,27 @@
 # All list traversal uses source-level exhaustive matching (no native map/filter/fold).
 
 def id x = x ;
-def compose f g x = f ( g x ) ;
+def compose f g x = x >> g >> f ;
 
-def map f xs =
+def map using: f items: xs =
   match xs with
   | [] -> []
   | x :: rest -> cons ( f x ) ( map f rest ) ;
 
-def filter f xs =
+def filter predicate: f items: xs =
   match xs with
   | [] -> []
   | x :: rest ->
     if f x then cons x ( filter f rest )
     else filter f rest ;
 
-def fold f init xs =
+def fold using: f initial: init items: xs =
   match xs with
   | [] -> init
   | x :: rest -> fold f ( f init x ) rest ;
 
-def reverse xs = fold ( fun acc x -> cons x acc ) [] xs ;
-def length xs = fold ( fun n x -> n + 1 ) 0 xs ;
+def reverse xs = xs >> fold ( fun acc x -> cons x acc ) [] ;
+def length xs = xs >> fold ( fun n x -> n + 1 ) 0 ;
 
 # v0.37 collections BEGIN
 # Persistent association-list Map and equality-based Set, implemented in Nail.
@@ -56,7 +56,7 @@ def mapDelete entries key =
 
 # Put inserts at the front; replacement has exactly one occurrence of key.
 def mapPut entries key value =
-  cons ( MapEntry key value ) ( mapDelete entries key ) ;
+  cons ( MapEntry key value ) ( mapDelete entries key: key ) ;
 
 def setEmpty = [] ;
 def setContains entries item =
@@ -74,7 +74,7 @@ def setDelete entries item =
     else cons entry ( setDelete rest item ) ;
 
 def setAdd entries item =
-  if setContains entries item then entries else cons item entries ;
+  if setContains entries item: item then entries else cons item entries ;
 # v0.37 collections END
 
 
@@ -87,17 +87,19 @@ def isSpace ch =
   else if ch == " \r " then true
   else false ;
 
-def tokenizeAt source i n word reversed =
+def tokenize-at source index: i limit: n word reversed =
   if i == n then
     reverse ( if word == " " then reversed else cons word reversed )
   else
     let ch = textAt source i in
     if isSpace ch then
-      if word == " " then tokenizeAt source ( i + 1 ) n " " reversed
-      else tokenizeAt source ( i + 1 ) n " " ( cons word reversed )
-    else tokenizeAt source ( i + 1 ) n ( textConcat word ch ) reversed ;
+      if word == " " then tokenize-at source ( i + 1 ) n " " reversed
+      else tokenize-at source ( i + 1 ) n " " ( cons word reversed )
+    else tokenize-at source ( i + 1 ) n ( textConcat word ch ) reversed ;
 
-def tokenize source = tokenizeAt source 0 ( textLength source ) " " [] ;
+# Retain the original callable name for host callers during the experiment.
+def tokenizeAt = tokenize-at ;
+def tokenize source = tokenize-at source index: 0 limit: ( textLength source ) word: " " reversed: [] ;
 
 # One deliberately tiny self-hosted recognizer.
 # Grammar: def <name> <arg> = <arg> <op> <literal> ;
@@ -122,7 +124,7 @@ def parseTinyDefTokens ts =
     else if op == " + " then [ " Define " , name , param , " Add " , lhs , rhs ]
     else [] ;
 
-def parseTinyDef source = parseTinyDefTokens ( tokenize source ) ;
+def parseTinyDef source = source >> tokenize >> parseTinyDefTokens ;
 
 # v0.8: self-hosted recursive Pratt parser. The Haxe parser remains the
 # bootstrap. All parser state is a homogeneous list of Syntax values:
@@ -147,7 +149,7 @@ def parseRest pair = tail pair ;
 def parseError message = [ syntaxLeaf " Error " message ] ;
 def parseFailed pair = syntaxTag ( parseTree pair ) == " Error " ;
 def parsePeek tokens =
-  if isEmpty tokens then " <eof> " else syntaxText ( head tokens ) ;
+  if isEmpty tokens then " <eof> " else tokens >> head >> syntaxText ;
 
 def textContainsAt characters ch i =
   if i == textLength characters then false
@@ -161,6 +163,12 @@ def isIdentTail source i =
   else let ch = textAt source i in
     if isLetter ch then isIdentTail source ( i + 1 )
     else if isDigit ch then isIdentTail source ( i + 1 )
+    else if ch == " - " then
+      if i + 1 == textLength source then false
+      else let next = textAt source ( i + 1 ) in
+        if isLetter next then isIdentTail source ( i + 2 )
+        else if isDigit next then isIdentTail source ( i + 2 )
+        else false
     else false ;
 def isMacroKeyword word =
   if word == " quote " then true
@@ -228,6 +236,7 @@ def infixPower word =
   else if word == " <= " then 30
   else if word == " > " then 30
   else if word == " >= " then 30
+  else if word == " >> " then 25
   else -1 ;
 
 def parseLambdaWrap params body =
@@ -249,35 +258,69 @@ def parseParams stop tokens reversed =
 
 # Annotated definition binders are temporarily Syntax metadata, erased
 # before compilation. All ordinary functions still lower to Lambda/Apply.
-def parseDefParams tokens reversed annotations =
+# A label is a Token ending in :, not a string or a hyphenated keyword.
+def expLabelAt word i prefix =
+  if i == textLength word then " "
+  else let ch = textAt word i in
+    if ch == " : " then
+      if i + 1 == textLength word then prefix else " "
+    else if isLetter ch then expLabelAt word ( i + 1 ) ( textConcat prefix ch )
+    else if isDigit ch then
+      if i == 0 then " " else expLabelAt word ( i + 1 ) ( textConcat prefix ch )
+    else " " ;
+def expLabel tokens =
+  if isEmpty tokens then " "
+  else if syntaxTag ( head tokens ) != " Token " then " "
+  else let word = parsePeek tokens in
+    if textLength word < 2 then " "
+    else if textAt word ( textLength word - 1 ) != " : " then " "
+    else expLabelAt word 0 " " ;
+
+def expDefParams tokens reversed annotations labels pending allowLabels =
   if isEmpty tokens then parseError " Missing = in definition "
   else let word = parsePeek tokens in
     if word == " = " then
-      parsePair ( syntaxNode " DefParams "
+      if pending != " " then parseError " Missing labelled binder "
+      else parsePair ( syntaxNode " DefParams "
         [ syntaxNode " Params " ( reverse reversed ) ,
-          syntaxNode " Annotations " ( reverse annotations ) ] ) tokens
+          syntaxNode " Annotations " ( reverse annotations ) ,
+          syntaxNode " ExpLabels " ( reverse labels ) ] ) tokens
     else if word == " : " then
-      parsePair ( syntaxNode " DefParams "
+      if pending != " " then parseError " Missing labelled binder "
+      else parsePair ( syntaxNode " DefParams "
         [ syntaxNode " Params " ( reverse reversed ) ,
-          syntaxNode " Annotations " ( reverse annotations ) ] ) tokens
-    else if word == " ( " then
-      let name = parsePeek ( tail tokens ) in
-      let sep = parsePeek ( tail ( tail tokens ) ) in
-      let typeName = parsePeek ( tail ( tail ( tail tokens ) ) ) in
-      let close = parsePeek ( tail ( tail ( tail ( tail tokens ) ) ) ) in
-      if isIdentifier name == false then parseError " Invalid annotated parameter "
-      else if hasParam reversed name then parseError " Duplicate parameter name "
-      else if sep != " : " then parseError " Expected : in parameter annotation "
-      else if isIdentifier typeName == false then parseError " Invalid parameter type "
-      else if close != " ) " then parseError " Expected ) in parameter annotation "
-      else parseDefParams ( tail ( tail ( tail ( tail ( tail tokens ) ) ) ) )
-        ( cons ( syntaxName name ) reversed )
-        ( cons ( syntaxNode " Annotation " [ syntaxName name , syntaxName typeName ] ) annotations )
-    else if isIdentifier word then
-      if hasParam reversed word then parseError " Duplicate parameter name "
-      else parseDefParams ( tail tokens ) ( cons ( syntaxName word ) reversed ) annotations
-    else parseError " Invalid definition parameter " ;
-
+          syntaxNode " Annotations " ( reverse annotations ) ,
+          syntaxNode " ExpLabels " ( reverse labels ) ] ) tokens
+    else let label = expLabel tokens in
+      if label != " " then
+        if allowLabels == false then parseError " Macro labels are not supported "
+        else if pending != " " then parseError " Missing labelled binder "
+        else expDefParams ( tail tokens ) reversed annotations labels label allowLabels
+      else if word == " ( " then
+        let name = parsePeek ( tail tokens ) in
+        let sep = parsePeek ( tail ( tail tokens ) ) in
+        let typeName = parsePeek ( tail ( tail ( tail tokens ) ) ) in
+        let close = parsePeek ( tail ( tail ( tail ( tail tokens ) ) ) ) in
+        let public = if pending == " " then name else pending in
+        if isIdentifier name == false then parseError " Invalid annotated parameter "
+        else if hasParam reversed name then parseError " Duplicate parameter name "
+        else if hasParam labels public then parseError " Duplicate public parameter label "
+        else if sep != " : " then parseError " Expected : in parameter annotation "
+        else if isIdentifier typeName == false then parseError " Invalid parameter type "
+        else if close != " ) " then parseError " Expected ) in parameter annotation "
+        else expDefParams ( tail ( tail ( tail ( tail ( tail tokens ) ) ) ) )
+          ( cons ( syntaxName name ) reversed )
+          ( cons ( syntaxNode " Annotation " [ syntaxName name , syntaxName typeName ] ) annotations )
+          ( cons ( syntaxName public ) labels ) " " allowLabels
+      else if isIdentifier word then
+        let public = if pending == " " then word else pending in
+        if hasParam reversed word then parseError " Duplicate parameter name "
+        else if hasParam labels public then parseError " Duplicate public parameter label "
+        else expDefParams ( tail tokens ) ( cons ( syntaxName word ) reversed ) annotations
+          ( cons ( syntaxName public ) labels ) " " allowLabels
+      else parseError " Invalid definition parameter " ;
+def parseDefParams tokens reversed annotations =
+  expDefParams tokens reversed annotations reversed " " true ;
 # Callback `recur` is the Pratt parser itself: Number -> [Syntax] -> [Syntax].
 # This avoids mutually recursive top-level definitions and keeps HM inference.
 def parseListItems recur tokens reversed =
@@ -458,7 +501,7 @@ def parseFunctionMatch recur tokens =
 
 # Named record fields are a pure parsing/typing sugar for #recordMake.
 # Both lists preserve the user's source ordering, including evaluation order.
-def namedFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
+def namedFieldName field = field >> syntaxChildren >> head >> syntaxText ;
 def namedFieldExists fields name =
   match fields with
   | [] -> false
@@ -584,6 +627,19 @@ def isDotOperator tokens =
   else if syntaxTag ( head tokens ) == " Token " then parsePeek tokens == " . "
   else false ;
 
+# Temporary surface call marker. Consume the same atomic arguments as
+# ordinary application; final slot assignment occurs after lexical parsing.
+def expParseArgs recur tokens reversed =
+  let label = expLabel tokens in
+  let named = label != " " in
+  let hasArg = if named then true else isPrefixSyntaxToken tokens in
+  if hasArg then
+    let arg = recur 71 ( if named then tail tokens else tokens ) in
+    if parseFailed arg then arg
+    else expParseArgs recur ( parseRest arg )
+      ( cons ( expArg label ( parseTree arg ) ) reversed )
+  else parsePair ( syntaxNode " ExpArgs " ( reverse reversed ) ) tokens ;
+
 # Pratt suffix step handles application at 70 and left-associative operators.
 def parseSuffix recur minimum parsed =
   if parseFailed parsed then parsed
@@ -602,6 +658,12 @@ def parseSuffix recur minimum parsed =
                   ( syntaxLiteral " Text " field ) )
                 ( tail fields ) )
           else parseError " Expected field name after . "
+    else if expLabel rest != " " then
+      if minimum > 70 then parsed
+      else let args = expParseArgs recur rest [] in
+        if parseFailed args then args
+        else parseSuffix recur minimum
+          ( parsePair ( syntaxNode " ExpCall " [ parseTree parsed , parseTree args ] ) ( parseRest args ) )
     else if isPrefixSyntaxToken rest then
       if minimum <= 70 then
         let arg = recur 71 rest in
@@ -613,7 +675,9 @@ def parseSuffix recur minimum parsed =
       else
         let rhs = recur ( power + 1 ) ( tail rest ) in
         if parseFailed rhs then rhs
-        else parseSuffix recur minimum ( parsePair ( syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) ) ( parseRest rhs ) ) ;
+        else let tree = if next == " >> " then syntaxApply ( parseTree rhs ) ( parseTree parsed )
+          else syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) in
+          parseSuffix recur minimum ( parsePair tree ( parseRest rhs ) ) ;
 
 def parseAt minimum tokens =
   parseSuffix parseAt minimum ( parsePrefix parseAt tokens ) ;
@@ -627,7 +691,7 @@ def hasConstraintBeforeEquals tokens =
   else if parsePeek tokens == " : " then true
   else hasConstraintBeforeEquals ( tail tokens ) ;
 
-def parseNamedBody prefix name params annotations valueType relationType tokens =
+def parseNamedBody prefix name params annotations labels valueType relationType tokens =
   let body = parseAt 0 tokens in
     if parseFailed body then body
     else if parsePeek ( parseRest body ) != " ; " then parseError " Expected ; "
@@ -643,7 +707,8 @@ def parseNamedBody prefix name params annotations valueType relationType tokens 
             [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ]
         else syntaxNode " AnnotatedDefine "
           [ defName , annotations , syntaxName valueType , syntaxName relationType , lambda ] in
-      parsePair node ( tail ( parseRest body ) ) ;
+      let marked = if prefix == " " then syntaxNode " ExpDefinition " [ labels , node ] else node in
+      parsePair marked ( tail ( parseRest body ) ) ;
 
 def recognizedNumericRelation name =
   if name == " Div " then true
@@ -655,11 +720,12 @@ def parseNamedDefinition prefix tokens =
   if isEmpty tokens then parseError " Expected definition name "
   else let name = parsePeek tokens in
     if isIdentifier name then
-      let parsed = parseDefParams ( tail tokens ) [] [] in
+      let parsed = expDefParams ( tail tokens ) [] [] [] " " ( prefix == " " ) in
       if parseFailed parsed then parsed
       else let parts = syntaxChildren ( parseTree parsed ) in
         let params = head parts in
         let annotations = head ( tail parts ) in
+        let labels = head ( tail ( tail parts ) ) in
         let afterParams = parseRest parsed in
         let hasTrailing = parsePeek afterParams == " : " in
         let valueType = if hasTrailing then
@@ -671,18 +737,18 @@ def parseNamedDefinition prefix tokens =
           if hasTrailing then parseError " Macro relations are not supported "
           else if isEmpty ( syntaxChildren annotations ) == false then
             parseError " Macro annotations are not supported "
-          else parseNamedBody prefix name params annotations " _ " " _ " startBody
+          else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
         else if hasTrailing then
           if isIdentifier ( parsePeek ( tail afterParams ) ) == false then
             parseError " Expected type after : "
           else if parsePeek ( tail ( tail afterParams ) ) != " = " then
             parseError " Expected = after constraint "
           else if isEmpty ( syntaxChildren params ) then
-            parseNamedBody prefix name params annotations valueType " _ " startBody
+            parseNamedBody prefix name params annotations labels valueType " _ " startBody
           else if length ( syntaxChildren params ) > 16 then parseError " Too many relation parameters "
-          else parseNamedBody prefix name params annotations " _ "
+          else parseNamedBody prefix name params annotations labels " _ "
             ( parsePeek ( tail afterParams ) ) startBody
-        else parseNamedBody prefix name params annotations " _ " " _ " startBody
+        else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
     else parseError " Expected definition name " ;
 
 
@@ -690,7 +756,7 @@ def parseNamedDefinition prefix tokens =
 # v0.17: record declarations are type-aware syntax sugar. Parser and compiler
 # live in Nail: RecordType becomes ordinary DEFINE forms, not an opcode.
 
-def recordFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
+def recordFieldName field = field >> syntaxChildren >> head >> syntaxText ;
 def recordFieldExists fields name =
   match fields with
   | [] -> false
@@ -1032,61 +1098,190 @@ def containsContext tree =
         else containsContext ( head ( tail ( tail parts ) ) )
     else false ;
 
-def parseFormsScoped tokens reversed aliases globals typed =
+# Resolve named surface calls before macro expansion or core compilation.
+# Slots use declaration labels; capture names are private and local to a
+# call. Nested arguments are lowered in the enclosing lexical scope.
+def expFirst tree = head ( syntaxChildren tree ) ;
+def expSecond tree = head ( tail ( syntaxChildren tree ) ) ;
+def expArg label value = syntaxNode " ExpArg " [ syntaxName label , value ] ;
+def expError text = syntaxLeaf " Error " text ;
+def expBad tree = syntaxTag tree == " Error " ;
+def expSpine tree args =
+  if syntaxTag tree == " Apply " then
+    expSpine ( expFirst tree ) ( cons ( expArg " " ( expSecond tree ) ) args )
+  else syntaxNode " ExpSpine " [ tree , syntaxNode " ExpArgs " args ] ;
+def expFindFree labels slots =
+  match labels with
+  | [] -> " "
+  | label :: rest ->
+    if mapContains slots ( syntaxText label ) then expFindFree rest slots
+    else syntaxText label ;
+def expApplyArgs fn args =
+  match args with
+  | [] -> fn
+  | arg :: rest ->
+    if expBad fn then fn
+    else if syntaxText ( expFirst arg ) != " " then expError " Too many named arguments "
+    else let value = expSecond arg in
+      if expBad value then value
+      else expApplyArgs ( syntaxApply fn value ) rest ;
+def expCaptureName label = textConcat " #exp_arg_ " label ;
+def expMissingName label = textConcat " #exp_missing_ " label ;
+def expApplySlots fn labels slots direct =
+  labels >> fold ( fun acc item ->
+    let label = syntaxText item in
+    let arg = match mapFind slots label with
+      | MapMissing -> syntaxVar ( expMissingName label )
+      | MapFound value -> if direct then value else syntaxVar ( expCaptureName label ) in
+    syntaxApply acc arg ) fn ;
+def expWrapMissing labels slots body =
+  match labels with
+  | [] -> body
+  | item :: rest ->
+    let inner = expWrapMissing rest slots body in
+    let label = syntaxText item in
+    if mapContains slots label then inner
+    else syntaxLambda ( expMissingName label ) inner ;
+def expWrapCaptures reversed body =
+  reversed >> fold ( fun acc arg ->
+    syntaxApply ( syntaxLambda ( expCaptureName ( syntaxText ( expFirst arg ) ) ) acc )
+      ( expSecond arg ) ) body ;
+def expFinishCall fn labels slots captures ordered extra =
+  let full = length slots == length labels in
+  let direct = if full then ordered else false in
+  let applied = expApplySlots fn labels slots direct in
+  let body = if direct then applied
+    else expWrapCaptures captures ( expWrapMissing labels slots applied ) in
+  expApplyArgs body extra ;
+def expAssign fn labels args slots captures ordered =
+  match args with
+  | [] -> expFinishCall fn labels slots captures ordered []
+  | arg :: rest ->
+    let explicit = syntaxText ( expFirst arg ) in
+    let first = expFindFree labels slots in
+    let label = if explicit == " " then first else explicit in
+    if label == " " then expFinishCall fn labels slots captures ordered args
+    else if hasParam labels label == false then expError ( textConcat " Unknown named parameter " label )
+    else if mapContains slots label then expError ( textConcat " Duplicate argument " label )
+    else let value = expSecond arg in
+      if expBad value then value
+      else expAssign fn labels rest ( mapPut slots label value )
+        ( cons ( expArg label value ) captures )
+        ( if ordered then first == label else false ) ;
+def expLowerArgs args labels scope =
+  args >> map ( fun arg ->
+    expArg ( syntaxText ( expFirst arg ) )
+      ( expLower ( expSecond arg ) labels scope ) ) ;
+def expLowerCall tree labels scope =
+  let spine = expSpine ( expFirst tree ) ( syntaxChildren ( expSecond tree ) ) in
+  let fn = expFirst spine in
+  if syntaxTag fn != " Var " then expError " Named arguments require a directly declared function "
+  else let name = syntaxText fn in
+    if setContains scope name then expError ( textConcat " Named arguments unavailable for shadowed function " name )
+    else match mapFind labels name with
+      | MapMissing -> expError ( textConcat " Named arguments require a local definition: " name )
+      | MapFound params ->
+        expAssign fn params ( expLowerArgs ( syntaxChildren ( expSecond spine ) ) labels scope ) [] [] true ;
+def expContains tree =
+  let tag = syntaxTag tree in
+  if tag == " ExpCall " then true
+  else if tag == " Lambda " then expContains ( expSecond tree )
+  else if tag == " Apply " then
+    if expContains ( expFirst tree ) then true else expContains ( expSecond tree )
+  else if tag == " Context " then expContains ( expSecond tree )
+  else if tag == " If " then
+    if expContains ( expFirst tree ) then true
+    else if expContains ( expSecond tree ) then true
+    else expContains ( head ( tail ( tail ( syntaxChildren tree ) ) ) )
+  else false ;
+def expLower tree labels scope =
+  let tag = syntaxTag tree in
+  if tag == " ExpCall " then expLowerCall tree labels scope
+  else if tag == " Lambda " then
+    let name = syntaxText ( expFirst tree ) in
+    let body = expLower ( expSecond tree ) labels ( cons name scope ) in
+    if expBad body then body else syntaxLambda name body
+  else if tag == " Apply " then
+    let fn = expLower ( expFirst tree ) labels scope in
+    if expBad fn then fn
+    else let arg = expLower ( expSecond tree ) labels scope in
+      if expBad arg then arg else syntaxApply fn arg
+  else if tag == " If " then
+    let condition = expLower ( expFirst tree ) labels scope in
+    if expBad condition then condition
+    else let yes = expLower ( expSecond tree ) labels scope in
+      if expBad yes then yes
+      else let no = expLower ( head ( tail ( tail ( syntaxChildren tree ) ) ) ) labels scope in
+        if expBad no then no else syntaxIf condition yes no
+  else if tag == " Context " then
+    if expContains tree then expError " Named arguments in opened contexts are not supported yet " else tree
+  else tree ;
+def expResolve tree labels =
+  if expContains tree then expLower tree labels [] else tree ;
+
+def expFormsScoped tokens reversed aliases globals typed labels =
   if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
   else let parsed = parseForm tokens in
     if parseFailed parsed then parseTree parsed
-    else let form = parseTree parsed in
+    else let raw = parseTree parsed in
+      let marked = syntaxTag raw == " ExpDefinition " in
+      let form = if marked then expSecond raw else raw in
+      let duplicate = if marked then mapContains labels ( syntaxText ( expFirst form ) ) else false in
+      if duplicate then expError " Duplicate definition "
+      else let nextLabels = if marked then
+        mapPut labels ( syntaxText ( expFirst form ) ) ( syntaxChildren ( expFirst raw ) )
+        else labels in
       let rest = parseRest parsed in
       let tag = syntaxTag form in
       if tag == " RelationDecl " then
-        parseFormsScoped rest ( if typed then cons form reversed else reversed )
-          aliases globals typed
+        expFormsScoped rest ( if typed then cons form reversed else reversed )
+          aliases globals typed nextLabels
       else if tag == " TypeAliasDecl " then
         if syntaxTag ( aliasFind aliases ( aliasName form ) ) != " MissingAlias " then
           syntaxLeaf " Error " " Duplicate structural alias "
-        else parseFormsScoped rest
+        else expFormsScoped rest
           ( if typed then cons form reversed else reversed )
-          ( cons form aliases ) globals typed
+          ( cons form aliases ) globals typed nextLabels
       else if tag == " AnnotatedDefine " then
         let parts = syntaxChildren form in
         let name = head parts in
         let annotations = syntaxChildren ( head ( tail parts ) ) in
         let valueType = syntaxText ( head ( tail ( tail parts ) ) ) in
         let relationType = syntaxText ( head ( tail ( tail ( tail parts ) ) ) ) in
-        let body = head ( tail ( tail ( tail ( tail parts ) ) ) ) in
+        let body = expResolve ( head ( tail ( tail ( tail ( tail parts ) ) ) ) ) nextLabels in
         let resolved = if containsContext body then
           resolveSyntax body [] annotations aliases globals else body in
         if syntaxTag resolved == " Error " then resolved
         else let added =
           if valueType == " _ " then globals
           else cons ( syntaxNode " Annotation " [ name , syntaxName valueType ] ) globals in
-        parseFormsScoped rest
+        expFormsScoped rest
           ( cons ( if typed then
               syntaxNode " AnnotatedDefine "
                 [ name , syntaxNode " Annotations " annotations ,
                   syntaxName valueType , syntaxName relationType , resolved ]
               else syntaxNode " Define " [ name , resolved ] ) reversed )
-          aliases added typed
+          aliases added typed nextLabels
       else if tag == " Define " then
         let parts = syntaxChildren form in
-        let original = head ( tail parts ) in
+        let original = expResolve ( head ( tail parts ) ) nextLabels in
         let body = if containsContext original then
           resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
-        else parseFormsScoped rest
-          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals typed
+        else expFormsScoped rest
+          ( cons ( syntaxNode " Define " [ head parts , body ] ) reversed ) aliases globals typed nextLabels
       else if tag == " Evaluate " then
-        let original = head ( syntaxChildren form ) in
+        let original = expResolve ( head ( syntaxChildren form ) ) nextLabels in
         let body = if containsContext original then
           resolveSyntax original [] [] aliases globals else original in
         if syntaxTag body == " Error " then body
-        else parseFormsScoped rest
-          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals typed
-      else parseFormsScoped rest ( cons form reversed ) aliases globals typed ;
+        else expFormsScoped rest
+          ( cons ( syntaxNode " Evaluate " [ body ] ) reversed ) aliases globals typed nextLabels
+      else expFormsScoped rest ( cons form reversed ) aliases globals typed nextLabels ;
 
-def parseForms tokens reversed = parseFormsScoped tokens reversed [] [] false ;
-def parseTypedForms tokens = parseFormsScoped tokens [] [] [] true ;
+def parseFormsScoped tokens reversed aliases globals typed = expFormsScoped tokens reversed aliases globals typed [] ;
+def parseForms tokens reversed = expFormsScoped tokens reversed [] [] false [] ;
+def parseTypedForms tokens = expFormsScoped tokens [] [] [] true [] ;
 
 
 # v0.9: Self-hosted tokenizer for code. It preserves text literals as
@@ -1177,7 +1372,8 @@ def supportedSourceVersion version =
   else if version == " 0.58 " then true
   else if version == " 0.59 " then true
   else if version == " 0.60 " then true
-  else version == " 0.61 " ;
+  else if version == " 0.61 " then true
+  else version == " 0.62 " ;
 
 def stripNailHeader tokens =
   if parsePeek tokens == " nail " then
@@ -1188,7 +1384,8 @@ def stripNailHeader tokens =
       else tokens
   else tokens ;
 
-def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
+def parseSource source =
+  parseForms tokens: ( source >> tokenizeCode >> stripNailHeader ) reversed: [] ;
 
 # v0.10: Compiler written in Nail. The output is structured stack bytecode
 # represented as immutable Syntax data; no opcode-generating host primitives.
@@ -1469,9 +1666,9 @@ def compileExpandedSyntax expanded =
         ( syntaxChildren ( expandTypeDeclarations expanded ) ) )
   else expanded ;
 
-def compileSyntax program = compileExpandedSyntax ( macroExpandSyntax program ) ;
+def compileSyntax program = program >> macroExpandSyntax >> compileExpandedSyntax ;
 
-def compileSource source = compileSyntax ( parseSource source ) ;
+def compileSource source = source >> parseSource >> compileSyntax ;
 
 
 # v0.29-runtime: opt-in, type-preserving rewrite of the self-parsed Syntax
@@ -1518,7 +1715,7 @@ def exactRewrite tree =
   else syntaxNode tag ( map exactRewrite ( syntaxChildren tree ) ) ;
 
 def compileExactSource source =
-  compileExpandedSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+  source >> parseSource >> macroExpandSyntax >> exactRewrite >> compileExpandedSyntax ;
 
 
 # v0.45: source-language semantics are selected by explicit "nail 0.45 ;"
@@ -1571,7 +1768,7 @@ def modernRewrite tree =
   else syntaxNode tag ( map modernRewrite ( syntaxChildren tree ) ) ;
 
 def compileModernSource source =
-  compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
+  source >> parseSource >> macroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
 
 # --------------------------------------------------------------------------
 # Experimental Nail-written type inference, stage A (not yet the v0.54 ABI).
@@ -1629,9 +1826,9 @@ def tcTraceForm fault =
     [ tcFirst fault , tcSecond fault ,
       syntaxNode " TCFormTrail "
         ( cons syntaxNil ( syntaxChildren ( tcThird fault ) ) ) ] ;
-def tcFirst tree = head ( syntaxChildren tree ) ;
-def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
-def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
+def tcFirst tree = tree >> syntaxChildren >> head ;
+def tcSecond tree = tree >> syntaxChildren >> tail >> head ;
+def tcThird tree = tree >> syntaxChildren >> tail >> tail >> head ;
 def tcBinding name value =
   syntaxNode " TCBinding " [ syntaxLeaf " TCName " name , value ] ;
 def tcBindingName binding = syntaxText ( tcFirst binding ) ;
@@ -1852,9 +2049,9 @@ def tcSchemeQualified ty quantifiers comparable =
   tcSchemeWithRows ty quantifiers comparable [] ;
 def tcScheme ty quantifiers = tcSchemeQualified ty quantifiers [] ;
 def tcSchemeType scheme = tcFirst scheme ;
-def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
-def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
-def tcSchemeRowGuards scheme = syntaxChildren ( tcFourth scheme ) ;
+def tcSchemeQuantifiers scheme = scheme >> tcSecond >> syntaxChildren ;
+def tcSchemeComparable scheme = scheme >> tcThird >> syntaxChildren ;
+def tcSchemeRowGuards scheme = scheme >> tcFourth >> syntaxChildren ;
 
 def tcContainsVar label variables =
   match variables with
@@ -1997,8 +2194,8 @@ def tcInferResult ty substitutions seed =
     [ ty , syntaxNode " TCSubstitutions " substitutions ,
       syntaxLeaf " TCSeed " seed ] ;
 def tcResultType result = tcFirst result ;
-def tcResultSubs result = syntaxChildren ( tcSecond result ) ;
-def tcResultSeed result = syntaxText ( tcThird result ) ;
+def tcResultSubs result = result >> tcSecond >> syntaxChildren ;
+def tcResultSeed result = result >> tcThird >> syntaxText ;
 def tcRenamingState substitutions seed =
   syntaxNode " TCRenamingState "
     [ syntaxNode " TCSubstitutions " substitutions ,
@@ -2033,7 +2230,8 @@ def tcInstantiate scheme substitutions seed =
   else let rowRequired = tcInstantiateRowGuards
     ( tcSchemeRowGuards scheme ) names ( syntaxChildren required ) in
     if syntaxTag rowRequired == " TCFault " then rowRequired
-    else tcInferResult instance ( syntaxChildren rowRequired )
+    else tcInferResult instance
+      ( tcInstantiateNumeric ( tcSchemeNumeric scheme ) names ( syntaxChildren rowRequired ) )
       ( tcRenameSeed renaming ) ;
 
 # A deliberately limited typed prelude for the independent checker.
@@ -2169,8 +2367,10 @@ def tcInferExpression tree environment substitutions seed =
         else tcTraceExpr ( tcTraceExpr matchCheck " 1 " ) " 0 "
       else let inferred = tcInferExpression arg environment substitutions seed in
         if syntaxTag inferred == " TCFault " then tcTraceExpr inferred " 1 "
-        else let scheme = tcGeneralize
+        else let generalized = tcGeneralizeNumeric
           ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
+        if syntaxTag generalized == " TCFault " then generalized
+        else let scheme = tcFirst generalized in
           # Bottom-like fallback is scoped exclusively to a validated match.
           # It is not a generally callable polymorphic primitive.
           let scoped = if tcIsSumMatchSubject subject then
@@ -2184,7 +2384,7 @@ def tcInferExpression tree environment substitutions seed =
             ( tcTraceExpr
               ( tcInferExpression ( tcSecond fn )
                 ( cons ( tcBinding subject scheme ) scoped )
-                ( tcResultSubs inferred ) ( tcResultSeed inferred ) )
+                ( syntaxChildren ( tcSecond generalized ) ) ( tcResultSeed inferred ) )
               " 1 " ) " 0 "
     else
       let inferredFn = tcInferExpression fn environment substitutions seed in
@@ -2345,11 +2545,8 @@ def tcCheckAnnotatedDefinition form rest environment substitutions seed reversed
             else tcRequireContract provisional contract after
               ( tcResultSeed parameters ) in
         if syntaxTag constrained == " TCFault " then constrained
-        else let final = tcResultSubs constrained in
-          let scheme = tcGeneralize provisional environment final in
-          tcCheckForms rest
-            ( tcBindGlobal name scheme environment )
-            final ( tcResultSeed constrained ) reversed aliases relations ;
+        else tcPublishNumericDefinition name provisional rest environment
+          ( tcResultSubs constrained ) ( tcResultSeed constrained ) reversed aliases relations ;
 
 # Finite n-ary first-order relations. Each row holds a nonempty list
 # of input types and one result type; every input tuple has one result.
@@ -2501,8 +2698,10 @@ def tcValidateRelationRows name source rows relation substitutions seed environm
         ( tcResultSubs inferred ) with
       | Error message -> tcFault message
       | Ok updated ->
-        tcValidateRelationRows name source rest relation
-          updated ( tcNext ( tcResultSeed inferred ) ) environment ;
+        match tcFinishNumeric updated with
+        | Error message -> tcFault message
+        | Ok final -> tcValidateRelationRows name source rest relation
+            final ( tcNext ( tcResultSeed inferred ) ) environment ;
 
 def tcCheckRelationDefinition name relationName source annotations
   rest environment substitutions seed reversed aliases relations =
@@ -2632,19 +2831,18 @@ def tcCheckFormsBody forms environment substitutions seed reversed aliases relat
           ( tcResultSubs inferred ) with
         | Error message -> tcFault message
         | Ok updated ->
-          let scheme = tcGeneralize provisional environment updated in
-          tcCheckForms rest
-            ( tcBindGlobal name scheme environment )
+          tcPublishNumericDefinition name provisional rest environment
             updated ( tcResultSeed inferred ) reversed aliases relations
     else if tag == " Evaluate " then
       let inferred = tcInferExpression ( tcFirst form ) environment
         substitutions seed in
       if syntaxTag inferred == " TCFault " then inferred
-      else tcCheckForms rest environment ( tcResultSubs inferred )
-        ( tcResultSeed inferred )
-        ( cons
-          ( tcNormalize ( tcResultType inferred ) ( tcResultSubs inferred ) )
-          reversed ) aliases relations
+      else match tcFinishNumeric ( tcResultSubs inferred ) with
+        | Error message -> tcFault message
+        | Ok final -> tcCheckForms rest environment final
+            ( tcResultSeed inferred )
+            ( cons ( tcNormalize ( tcResultType inferred ) final ) reversed )
+            aliases relations
     else tcFault ( textConcat " Unsupported top-level form: " tag ) ;
 
 # Public experimental entry points. Errors are ordinary Result[Syntax,Text],
@@ -2717,10 +2915,8 @@ def tcCheckSyntaxSchemes program =
 # Keep the annotation/alias/relation metadata in Nail while allowing the
 # existing Syntax-level expander to transform the expression bodies once.
 # Private static placeholders preserve the source order of declarations.
-def tcFourth tree =
-  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
-def tcFifth tree =
-  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
+def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
+def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
 
 def tcPrepareTypedMacros forms seed reversed metadata =
   match forms with
@@ -2856,19 +3052,15 @@ def tcCheckSource source =
   let tokens = tokenizeCode source in
   if parsePeek tokens != " nail " then
     Error " Nail typechecker currently requires versioned modern source "
-  else tcCheckSyntax
-    ( modernRewrite
-      ( tcExpandTypedMacros
-        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
+  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
+    >> modernRewrite >> tcCheckSyntax ;
 
 def tcCheckSourceTraced source =
   let tokens = tokenizeCode source in
   if parsePeek tokens != " nail " then
     Error ( tcFault " Nail typechecker currently requires versioned modern source " )
-  else tcCheckSyntaxTraced
-    ( modernRewrite
-      ( tcExpandTypedMacros
-        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
+  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
+    >> modernRewrite >> tcCheckSyntaxTraced ;
 
 # Checks the full program atomically and returns only schemes from its
 # source-level definitions alongside the original expression results.
@@ -2877,10 +3069,8 @@ def tcCheckSourceSchemes source =
   let tokens = tokenizeCode source in
   if parsePeek tokens != " nail " then
     Error " Nail typechecker currently requires versioned modern source "
-  else tcCheckSyntaxSchemes
-    ( modernRewrite
-      ( tcExpandTypedMacros
-        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
+  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
+    >> modernRewrite >> tcCheckSyntaxSchemes ;
 
 # Structural rows: TCStruct(fields) is closed; TCRowField(name,type,tail)
 # describes an open record. Reorder only *explicitly known* row prefixes.
@@ -3276,12 +3466,163 @@ def tcProjectField receiver field environment substitutions seed =
 # *both* operands. Do not fake a single Int -> Int -> Int type for +.
 # The initial implementation supports only fully applied expressions;
 # unconstrained or partially applied overloaded operators fail closed.
+# Pending numeric obligations live alongside existing Eq and row guards.
+# No predicate is silently discarded during generalization or export.
+def tcPendingNumeric entries =
+  match entries with
+  | [] -> []
+  | entry :: rest ->
+    if tcBindingName entry == " #tc_numeric_pending " then
+      cons ( tcBindingValue entry ) ( tcPendingNumeric rest )
+    else tcPendingNumeric rest ;
+def tcWithoutNumeric entries =
+  filter ( fun entry -> tcBindingName entry != " #tc_numeric_pending " ) entries ;
+def tcNumericPredicate relation left right result =
+  syntaxNode " TCNumericPredicate " [ syntaxName relation , left , right , result ] ;
+def tcNumericTerms predicate =
+  [ tcSecond predicate , tcThird predicate , tcFourth predicate ] ;
+# Comparisons share the arithmetic domain but always return Bool.
+# Keep this internal: Compare is not a new public relation declaration.
+def tcNumericRows relation =
+  if relation == " Compare " then
+    syntaxChildren ( tcDefaultRelation " Add " ) >> map ( fun row ->
+      tcRelationRow ( append ( tcRelationInputs row ) [ tcBase " Bool " ] ) )
+  else syntaxChildren ( tcDefaultRelation relation ) ;
+def tcTryNumericRow predicate row substitutions =
+  match tcUnifyTypes ( tcNumericTerms predicate )
+    ( append ( tcRelationInputs row ) [ tcRelationOutput row ] ) substitutions with
+  | Error _ -> []
+  | Ok final -> [ syntaxNode " TCSubstitutions " final ] ;
+def tcNumericCandidates predicate rows substitutions =
+  match rows with
+  | [] -> []
+  | row :: rest ->
+    append ( tcTryNumericRow predicate row substitutions )
+      ( tcNumericCandidates predicate rest substitutions ) ;
+# All successful trials use the same input substitutions. Commit only
+# concrete column values common to every trial; keep ambiguous predicates.
+def tcNumericCommon terms candidates substitutions =
+  match terms with
+  | [] -> Ok substitutions
+  | term :: rest ->
+    let current = tcFollow term substitutions in
+    if syntaxTag current != " TCVar " then tcNumericCommon rest candidates substitutions
+    else let value = tcNormalize term ( syntaxChildren ( head candidates ) ) in
+      let different = filter ( fun candidate ->
+        syntaxText ( tcNormalize term ( syntaxChildren candidate ) ) != syntaxText value )
+        ( tail candidates ) in
+      if syntaxTag value != " TCBase " then Error " Invalid numeric candidate "
+      else if isEmpty different == false then tcNumericCommon rest candidates substitutions
+      else match tcUnify term value substitutions with
+      | Error message -> Error message
+      | Ok next -> tcNumericCommon rest candidates next ;
+def tcSolveNumericPass predicates substitutions remaining changed =
+  match predicates with
+  | [] ->
+    if isEmpty remaining then Ok substitutions
+    else if changed then tcSolveNumericPass ( reverse remaining ) substitutions [] false
+    else Ok ( append ( map ( fun p -> tcBinding " #tc_numeric_pending " p ) remaining ) substitutions )
+  | predicate :: rest ->
+    let relation = syntaxText ( tcFirst predicate ) in
+    let rows = tcNumericRows relation in
+    match tcNumericCandidates predicate rows substitutions with
+    | [] -> Error ( textConcat " No numeric relation instance: " relation )
+    | candidate :: others ->
+      if isEmpty others then
+        tcSolveNumericPass rest ( syntaxChildren candidate ) remaining true
+      else match tcNumericCommon ( tcNumericTerms predicate ) ( cons candidate others ) substitutions with
+        | Error message -> Error message
+        | Ok next -> tcSolveNumericPass rest next ( cons predicate remaining )
+          ( if changed then true else length next != length substitutions ) ;
+def tcSolveNumeric substitutions =
+  let pending = tcPendingNumeric substitutions in
+  if isEmpty pending then Ok substitutions
+  else tcSolveNumericPass pending ( tcWithoutNumeric substitutions ) [] false ;
+def tcFinishNumeric substitutions =
+  match tcSolveNumeric substitutions with
+  | Error message -> Error message
+  | Ok solved ->
+    if isEmpty ( tcPendingNumeric solved ) then Ok solved
+    else Error " Ambiguous numeric constraint; add a type annotation " ;
+
+# Keep the legacy four fields of TCScheme untouched unless it actually
+# carries a numeric qualification. No wire-format expansion is implied.
+def tcSchemeNumeric scheme =
+  let extra = tail ( tail ( tail ( tail ( syntaxChildren scheme ) ) ) ) in
+  if isEmpty extra then [] else syntaxChildren ( head extra ) ;
+def tcNormalizePredicate p substitutions =
+  tcNumericPredicate ( syntaxText ( tcFirst p ) )
+    ( tcNormalize ( tcSecond p ) substitutions )
+    ( tcNormalize ( tcThird p ) substitutions )
+    ( tcNormalize ( tcFourth p ) substitutions ) ;
+def tcPredicateVars p =
+  tcFreeTypes ( tcNumericTerms p ) [] ;
+def tcNumericVars predicates =
+  fold ( fun vars p -> tcUnionVars ( tcPredicateVars p ) vars ) [] predicates ;
+def tcNumericTouches vars other =
+  length ( tcExceptVars vars other ) != length vars ;
+# Grow a component until no further predicate shares one of its variables.
+def tcReachNumeric predicates vars =
+  let next = fold ( fun seen p ->
+    let own = tcPredicateVars p in
+    if tcNumericTouches own seen then tcUnionVars own seen else seen ) vars predicates in
+  if length next == length vars then vars else tcReachNumeric predicates next ;
+def tcNumericQualified ty quantified predicates substitutions =
+  let base = tcSchemeWithRows ty quantified
+    ( tcFindEqQuantifiers quantified substitutions )
+    ( append ( tcRowGuardsInType ty quantified )
+      ( tcRowGuardsFromBindings substitutions substitutions quantified ) ) in
+  if isEmpty predicates then base
+  else syntaxNode " TCScheme " ( append ( syntaxChildren base )
+    [ syntaxNode " TCNumericQuant " predicates ] ) ;
+def tcGeneralized scheme substitutions =
+  syntaxNode " TCGeneralized " [ scheme , syntaxNode " TCSubstitutions " substitutions ] ;
+def tcGeneralizeNumeric ty environment substitutions =
+  match tcSolveNumeric substitutions with
+  | Error message -> tcFault message
+  | Ok solved ->
+    let pending = tcPendingNumeric solved in
+    if isEmpty pending then tcGeneralized ( tcGeneralize ty environment solved ) solved
+    else let normalized = tcNormalize ty solved in
+      let predicates = map ( fun p -> tcNormalizePredicate p solved ) pending in
+      let own = tcFreeType normalized [] in
+      let fixed = tcFreeEnvironment environment solved in
+      # Only components reachable from this type and disconnected from
+      # the lexical environment may be generalized. Unrelated obligations
+      # remain pending in their original scope.
+      let blocked = tcReachNumeric predicates fixed in
+      let reachable = tcReachNumeric predicates ( tcExceptVars own blocked ) in
+      let belongs = fun p -> tcNumericTouches ( tcPredicateVars p ) reachable in
+      let selected = filter belongs predicates in
+      let remaining = filter ( fun p -> belongs p == false ) predicates in
+      let excluded = tcUnionVars blocked ( tcNumericVars remaining ) in
+      let quantified = tcExceptVars ( tcUnionVars own ( tcNumericVars selected ) ) excluded in
+      tcGeneralized ( tcNumericQualified normalized quantified selected solved )
+        ( append ( map ( fun p -> tcBinding " #tc_numeric_pending " p ) remaining )
+          ( tcWithoutNumeric solved ) ) ;
+def tcInstantiateNumeric predicates names substitutions =
+  fold ( fun acc p -> cons ( tcBinding " #tc_numeric_pending "
+    ( tcNormalizePredicate p names ) ) acc ) substitutions predicates ;
+def tcPublishNumericDefinition name ty rest environment substitutions seed reversed aliases relations =
+  let generalized = tcGeneralizeNumeric ty environment substitutions in
+  if syntaxTag generalized == " TCFault " then generalized
+  else let final = syntaxChildren ( tcSecond generalized ) in
+    if isEmpty ( tcPendingNumeric final ) == false then
+      tcFault " Ambiguous numeric constraint; add a type annotation "
+    else tcCheckForms rest
+      ( tcBindGlobal name ( tcFirst generalized ) environment )
+      final seed reversed aliases relations ;
+
 def tcNumericOperation name =
   let op = tcGlobalName name in
   if op == " #modern+ " then " Add "
   else if op == " #modern- " then " Sub "
   else if op == " #modern* " then " Mul "
   else if op == " #modern/ " then " Div "
+  else if op == " #modern< " then " Compare "
+  else if op == " #modern<= " then " Compare "
+  else if op == " #modern> " then " Compare "
+  else if op == " #modern>= " then " Compare "
   else " _ " ;
 
 def tcIsNumericApply tree =
@@ -3291,21 +3632,11 @@ def tcIsNumericApply tree =
     if syntaxTag operator != " Var " then false
     else tcNumericOperation ( syntaxText operator ) != " _ " ;
 
+# Reuse the finite relation instead of duplicating the numeric rules.
 def tcNumericResult relation left right =
-  if left == " Int " then
-    if right == " Int " then
-      if relation == " Div " then tcBase " Ratio "
-      else tcBase " Int "
-    else if right == " Ratio " then tcBase " Ratio "
-    else tcFault " No numeric relation instance "
-  else if left == " Ratio " then
-    if right == " Int " then tcBase " Ratio "
-    else if right == " Ratio " then tcBase " Ratio "
-    else tcFault " No numeric relation instance "
-  else if left == " Float " then
-    if right == " Float " then tcBase " Float "
-    else tcFault " No numeric relation instance "
-  else tcFault " No numeric relation instance " ;
+  let output = tcFindRelationResult [ tcBase left , tcBase right ] ( tcNumericRows relation ) in
+  if syntaxTag output == " TCMissing " then tcFault " No numeric relation instance "
+  else output ;
 
 def tcInferNumericApply tree environment substitutions seed =
   let call = tcFirst tree in
@@ -3319,14 +3650,20 @@ def tcInferNumericApply tree environment substitutions seed =
     if syntaxTag secondArg == " TCFault " then tcTraceExpr secondArg " 1 "
     else let left = tcFollow ( tcResultType firstArg ) ( tcResultSubs secondArg ) in
       let right = tcFollow ( tcResultType secondArg ) ( tcResultSubs secondArg ) in
-      if syntaxTag left != " TCBase " then
-        tcFault " Numeric operands require concrete types or an explicit relation "
-      else if syntaxTag right != " TCBase " then
-        tcFault " Numeric operands require concrete types or an explicit relation "
-      else let output = tcNumericResult ( tcNumericOperation op )
-        ( syntaxText left ) ( syntaxText right ) in
-        if syntaxTag output == " TCFault " then output
-        else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg ) ;
+      if syntaxTag left == " TCBase " then
+        if syntaxTag right == " TCBase " then
+          let output = tcNumericResult ( tcNumericOperation op ) ( syntaxText left ) ( syntaxText right ) in
+          if syntaxTag output == " TCFault " then output
+          else tcInferResult output ( tcResultSubs secondArg ) ( tcResultSeed secondArg )
+        else tcDeferNumeric ( tcNumericOperation op ) left right secondArg
+      else tcDeferNumeric ( tcNumericOperation op ) left right secondArg ;
+def tcDeferNumeric relation left right inferred =
+  let seed = tcResultSeed inferred in
+  let output = tcVar seed in
+  let predicate = tcNumericPredicate relation left right output in
+  tcInferResult output
+    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
+    ( tcNext seed ) ;
 
 # Eq qualifications are stored in the same persistent substitution stream
 # as type bindings, under disjoint compiler-private keys. This gives each
@@ -3819,7 +4156,7 @@ def nmPack result remaining =
 def nmValue step = step . result ;
 def nmRemaining step = step . remaining ;
 def nmTraceOf step = step . trace ;
-def nmBad step = nmIsError ( nmValue step ) ;
+def nmBad step = step >> nmValue >> nmIsError ;
 def nmOutOfFuel fuel =
   nmPack ( syntaxLeaf " MacroError " " macro expansion work limit exceeded " ) fuel ;
 def nmDefaultFuel = 25000 ;
@@ -4476,15 +4813,14 @@ def nailMacroExpandSyntaxBudgeted program fuel =
       ( syntaxChildren program ) [] [] [] " m " nmNoBindings remaining ) ;
 
 def nailMacroExpandSyntax program =
-  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
+  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
 
 # v0.59 experimental: local hygienic macros are expanded by Nail itself
 # before the existing, Nail-owned modern numeric lowering/codegen path.
 # The public compiler still uses the independent Haxe expansion oracle.
 # Imported macro-module resolution is not admitted by this entry point.
 def compileModernSourceNailMacros source =
-  compileExpandedSyntax
-    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
+  source >> parseSource >> nailMacroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
 
 # Low-budget entry point exercises the failure path on every runtime target.
 def nailMacroExpandSyntaxTinyBudget program =
@@ -5268,6 +5604,8 @@ def tcWireEqFor variables comparable renaming =
 def tcCanonicalRowEvidence scheme =
   if syntaxTag scheme != " TCScheme " then
     Error " Expected a Nail HM type scheme "
+  else if isEmpty ( tcSchemeNumeric scheme ) == false then
+    Error " Numeric predicates are not supported in public row evidence "
   else let original = tcWireCanonicalType ( tcSchemeType scheme ) in
     if syntaxTag original == " TCFault " then
       Error ( tcFaultMessage original )
