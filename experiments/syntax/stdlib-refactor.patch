@@ -693,11 +693,10 @@
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3279,1 +3466,126 @@
+@@ -3279,1 +3466,141 @@
 -def tcNumericOperation name =
 +# Pending numeric obligations live alongside existing Eq and row guards.
-+# This first stage resolves constraints within a form only; no predicate
-+# is ever silently discarded by generalization or module serialization.
++# No predicate is silently discarded during generalization or export.
 +def tcPendingNumeric entries =
 +  match entries with
 +  | [] -> []
@@ -709,23 +708,36 @@
 +  filter ( fun entry -> tcBindingName entry != " #tc_numeric_pending " ) entries ;
 +def tcNumericPredicate relation left right result =
 +  syntaxNode " TCNumericPredicate " [ syntaxName relation , left , right , result ] ;
++def tcNumericTerms predicate =
++  [ tcSecond predicate , tcThird predicate , tcFourth predicate ] ;
 +def tcTryNumericRow predicate row substitutions =
-+  let inputs = tcRelationInputs row in
-+  match tcUnify ( tcSecond predicate ) ( head inputs ) substitutions with
++  match tcUnifyTypes ( tcNumericTerms predicate )
++    ( append ( tcRelationInputs row ) [ tcRelationOutput row ] ) substitutions with
 +  | Error _ -> []
-+  | Ok first ->
-+    match tcUnify ( tcThird predicate ) ( head ( tail inputs ) ) first with
-+    | Error _ -> []
-+    | Ok second ->
-+      match tcUnify ( tcFourth predicate ) ( tcRelationOutput row ) second with
-+      | Error _ -> []
-+      | Ok final -> [ syntaxNode " TCSubstitutions " final ] ;
++  | Ok final -> [ syntaxNode " TCSubstitutions " final ] ;
 +def tcNumericCandidates predicate rows substitutions =
 +  match rows with
 +  | [] -> []
 +  | row :: rest ->
 +    append ( tcTryNumericRow predicate row substitutions )
 +      ( tcNumericCandidates predicate rest substitutions ) ;
++# All successful trials use the same input substitutions. Commit only
++# concrete column values common to every trial; keep ambiguous predicates.
++def tcNumericCommon terms candidates substitutions =
++  match terms with
++  | [] -> Ok substitutions
++  | term :: rest ->
++    let current = tcFollow term substitutions in
++    if syntaxTag current != " TCVar " then tcNumericCommon rest candidates substitutions
++    else let value = tcNormalize term ( syntaxChildren ( head candidates ) ) in
++      let different = filter ( fun candidate ->
++        syntaxText ( tcNormalize term ( syntaxChildren candidate ) ) != syntaxText value )
++        ( tail candidates ) in
++      if syntaxTag value != " TCBase " then Error " Invalid numeric candidate "
++      else if isEmpty different == false then tcNumericCommon rest candidates substitutions
++      else match tcUnify term value substitutions with
++      | Error message -> Error message
++      | Ok next -> tcNumericCommon rest candidates next ;
 +def tcSolveNumericPass predicates substitutions remaining changed =
 +  match predicates with
 +  | [] ->
@@ -740,7 +752,10 @@
 +    | candidate :: others ->
 +      if isEmpty others then
 +        tcSolveNumericPass rest ( syntaxChildren candidate ) remaining true
-+      else tcSolveNumericPass rest substitutions ( cons predicate remaining ) changed ;
++      else match tcNumericCommon ( tcNumericTerms predicate ) ( cons candidate others ) substitutions with
++        | Error message -> Error message
++        | Ok next -> tcSolveNumericPass rest next ( cons predicate remaining )
++          ( if changed then true else length next != length substitutions ) ;
 +def tcSolveNumeric substitutions =
 +  let pending = tcPendingNumeric substitutions in
 +  if isEmpty pending then Ok substitutions
@@ -763,7 +778,7 @@
 +    ( tcNormalize ( tcThird p ) substitutions )
 +    ( tcNormalize ( tcFourth p ) substitutions ) ;
 +def tcPredicateVars p =
-+  tcFreeTypes [ tcSecond p , tcThird p , tcFourth p ] [] ;
++  tcFreeTypes ( tcNumericTerms p ) [] ;
 +def tcNumericVars predicates =
 +  fold ( fun vars p -> tcUnionVars ( tcPredicateVars p ) vars ) [] predicates ;
 +def tcNumericTouches vars other =
@@ -821,7 +836,7 @@
 +      final seed reversed aliases relations ;
 +
 +def tcNumericOperation name =
-@@ -3322,8 +3634,14 @@
+@@ -3322,8 +3649,14 @@
 -      if syntaxTag left != " TCBase " then
 -        tcFault " Numeric operands require concrete types or an explicit relation "
 -      else if syntaxTag right != " TCBase " then
@@ -844,21 +859,21 @@
 +  tcInferResult output
 +    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
 +    ( tcNext seed ) ;
-@@ -3822,1 +4140,1 @@
+@@ -3822,1 +4155,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4796,2 @@
+@@ -4478,2 +4811,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4803,2 @@
+@@ -4485,3 +4818,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSourceNailMacros source =
 +  source >> parseSource >> nailMacroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -5268,4 +5585,6 @@
+@@ -5268,4 +5600,6 @@
 -def tcCanonicalRowEvidence scheme =
 -  if syntaxTag scheme != " TCScheme " then
 -    Error " Expected a Nail HM type scheme "
