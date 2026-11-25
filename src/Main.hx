@@ -22,6 +22,16 @@ class Main {
   public static function expandExperimental(source:String):String
     return nail.ExpansionView.render(new nail.Parser(source,null,true).parse());
 
+  /** Explicit legacy-numeric dogfooding mode; not the official 0.61 library. */
+  public static function analyzeExperimentalStdlib(source:String):nail.SourceAnalysis.AnalysisResult
+    return nail.ExperimentalStdlib.analyze(source);
+
+  public static function expandExperimentalStdlib(source:String):String
+    return nail.ExperimentalStdlib.expand(source);
+
+  public static function runExperimentalStdlib(source:String, maxSteps:Int=2000000):Array<Dynamic>
+    return nail.ExperimentalStdlib.run(source,maxSteps);
+
   /** Execute structured Nail bytecode with the shared primitive runtime. */
   public static function createByteVm(maxSteps:Int = 100000):ByteVm return new ByteVm(maxSteps);
 
