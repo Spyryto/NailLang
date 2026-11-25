@@ -57,3 +57,58 @@ jobs:
             JavaScript) haxe "${args[@]}" -js build/tests/stdlib-syntax.js && node build/tests/stdlib-syntax.js ;;
             PHP) haxe "${args[@]}" -php build/tests/php-stdlib-syntax && XDEBUG_MODE=off php build/tests/php-stdlib-syntax/index.php ;;
           esac
+
+  candidate-bootstrap:
+    name: Candidate source-free bootstrap (strict fixed point)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: '4.3.7'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare candidate library
+        run: |
+          mkdir -p build/tests
+          patch --batch --fuzz=0 -o build/tests/stdlib-experimental.nail stdlib.nail experiments/syntax/stdlib-refactor.patch
+      - name: Generate candidate stage zero with the experimental Haxe parser
+        run: haxe seed-image.hxml -D nail_syntax_candidate
+      - name: Require exact equality of stage zero, one and two
+        run: |
+          haxe rebootstrap-node.hxml -D nail_syntax_candidate
+          node build/tests/rebootstrap-node.js
+          test -s build/bootstrap-candidate/self-image.json
+      - name: Package source-free candidate JS and PHP
+        run: |
+          # In this isolated job only, use the candidate image as the
+          # embedded resource. The ordinary CI and its artifact are separate.
+          mkdir -p build/bootstrap
+          cp build/bootstrap-candidate/self-image.json build/bootstrap/self-image.json
+          haxe boot-js.hxml
+          haxe boot-php.hxml
+          node tools/check-boot-boundary.mjs
+      - name: Exercise named calls, pipelines and checked numeric inference
+        run: |
+          cat > build/tests/candidate.nail <<'EOF'
+          nail 0.61 ;
+          def summ x y = x + y ;
+          def half x = x / 2 ;
+          def fraction numerator: a denominator: b = a / b ;
+          summ 2 3 ;
+          summ 1.5 2.5 ;
+          3 >> fraction denominator: 2 ;
+          half 3 ;
+          EOF
+          node -e 'const fs=require("node:fs"); const {NailSeedBoot}=require("./build/boot/js/nailseed-boot.js"); const vm=NailSeedBoot.create(100000000); const src=fs.readFileSync("build/tests/candidate.nail","utf8"); vm.compileTypecheckedExperimental(src); const r=vm.runPlain(src); if(JSON.stringify(r)!==JSON.stringify(["I:5/1",4,"R:3/2","R:3/2"])) throw Error(JSON.stringify(r)); let rejected=false; try {vm.compileTypecheckedExperimental("nail 0.61 ; def summ x y = x + y ; summ true 3 ;")} catch(e) {rejected=true;} if(!rejected) throw Error("numeric constraint lost");'
+          out=$(XDEBUG_MODE=off php build/boot/php/index.php build/tests/candidate.nail)
+          printf '%s\n' "$out" | php -r '$rows=array_map(fn($line)=>json_decode($line,true),file("php://stdin",FILE_IGNORE_NEW_LINES)); if($rows!==["I:5/1",4,"R:3/2","R:3/2"] && $rows!==["I:5/1",4.0,"R:3/2","R:3/2"]) exit(1);'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naillang-experimental-source-free-js-php
+          path: |
+            build/bootstrap-candidate/self-image.json
+            build/boot/js/nailseed-boot.js
+            build/boot/php/**
+          if-no-files-found: error
