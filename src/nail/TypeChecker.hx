@@ -30,6 +30,7 @@ class TypeChecker {
   var nextId:Int;
   var lastModern:Bool = false;
   var lastOpenRows:Bool = false;
+  var experimentalCallLabels=new StringMap<Array<String>>();
   // Only names from a successfully checked definition may be previewed.
   var checkedPreviewDefinitions:StringMap<Bool> = new StringMap<Bool>();
   var relationByName:haxe.ds.StringMap<String>;
@@ -59,7 +60,7 @@ class TypeChecker {
   /** Opt-in surface experiment; reuse the ordinary inference engine. */
   public function checkExperimental(source:String):Array<String> {
     lastFailureSpan = null;
-    var parser = new Parser(source,null,true);
+    var parser = new Parser(source,null,true,experimentalCallLabels);
     return checkParsed(parser,parser.parse());
   }
 
@@ -118,6 +119,7 @@ class TypeChecker {
     relationByName = solver.relations;
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
+    if (parser.syntaxExperiment) experimentalCallLabels=parser.experimentalLabels();
     lastModern = parser.modernMode;
     lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
     if (parser.modernMode) for (form in forms) switch(form) {
@@ -472,6 +474,8 @@ class TypeChecker {
     instance.nextId = nextId;
     instance.lastModern = lastModern;
     instance.lastOpenRows = lastOpenRows;
+    for (name in experimentalCallLabels.keys())
+      instance.experimentalCallLabels.set(name,experimentalCallLabels.get(name).copy());
     instance.generalContracts = new StringMap();
     for (name in generalContracts.keys())
       instance.generalContracts.set(name,generalContracts.get(name));
