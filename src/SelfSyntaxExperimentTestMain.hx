@@ -190,6 +190,16 @@ class SelfSyntaxExperimentTestMain {
     checkTypes(library,'def half x = x / 2 ; half 3 ; half ( 3 / 2 ) ;',['Ratio','Ratio']);
     rejectNumeric(library,'def half x = x / 2 ; half 1.5 ;','No numeric relation instance');
     rejectNumeric(library,'def half x = x / 2 ; half ;','Ambiguous numeric constraint');
+    checkTypes(library,'1 < 2 ; 1 <= 2 ; 2 > 1 ; 2 >= 1 ;',['Bool','Bool','Bool','Bool']);
+    checkTypes(library,'( 1 / 2 ) < 1 ; 1 >= ( 1 / 2 ) ; 1.5 <= 2.5 ;',['Bool','Bool','Bool']);
+    checkTypes(library,'def less a b = a < b ; less 1 2 ; less 1.5 2.5 ; less ( 1 / 2 ) 3 ;',['Bool','Bool','Bool']);
+    checkNumericScheme(library,'def small x = x < 2 ;','small','Bool');
+    checkTypes(library,'def small x = x < 2 ; small 1 ; small ( 1 / 2 ) ;',['Bool','Bool']);
+    checkTypes(library,'def bounded x = if x >= 0 then x + 1 else x ; bounded 2 ;',['Int']);
+    rejectNumeric(library,'1 < 1.5 ;','No numeric relation instance');
+    rejectNumeric(library,'true > false ;','No numeric relation instance');
+    rejectNumeric(library,'def less a b = a < b ; less 1 2.5 ;','No numeric relation instance');
+    rejectNumeric(library,'def small x = x < 2 ; small true ;','No numeric relation instance');
     trace('Self syntax experiment: '+passed+' differential checks passed');
   }
 }
