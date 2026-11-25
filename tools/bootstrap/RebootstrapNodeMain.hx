@@ -7,13 +7,8 @@ class RebootstrapNodeMain {
   public static function main():Void {
     #if js
     var fs:Dynamic=js.Syntax.code("require('node:fs')");
-    #if nail_syntax_candidate
-    var input='build/tests/stdlib-experimental.nail';
-    var output='build/bootstrap-candidate';
-    #else
     var input='stdlib.nail';
     var output='build/bootstrap';
-    #end
     var seed:String=cast fs.readFileSync(
       output+'/stdlib-image.json','utf8');
     var source:String='nail ' + numeric.LanguageVersion.CURRENT + ' ;\n'
