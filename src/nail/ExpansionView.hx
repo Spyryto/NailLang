@@ -39,6 +39,9 @@ class ExpansionView {
         switch (value) {
           case Var(label): output.add(name(label));
           case Literal(Number(n)): output.add(Std.string(n));
+          case Literal(IntNumber(n)): output.add(numeric.FastNumber.encodeExact(n).substr(2).split('/')[0]);
+          case Literal(RatioNumber(n)): output.add(numeric.FastNumber.encodeExact(n).substr(2));
+          case Literal(ExactNumber(n)): output.add(numeric.FastNumber.encodeExact(n).substr(2));
           case Literal(Boolean(b)): output.add(Std.string(b));
           case Literal(Text(s)): output.add(Json.stringify(s));
           case Literal(Nil): output.add('[]');
