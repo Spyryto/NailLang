@@ -174,28 +174,25 @@
 @@ -461,1 +504,1 @@
 -def namedFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def namedFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -587,2 +630,18 @@
+@@ -587,2 +630,15 @@
 -# Pratt suffix step handles application at 70 and left-associative operators.
 -def parseSuffix recur minimum parsed =
 +# Temporary surface call marker. Consume the same atomic arguments as
 +# ordinary application; final slot assignment occurs after lexical parsing.
 +def expParseArgs recur tokens reversed =
 +  let label = expLabel tokens in
-+  if label != " " then
-+    let arg = recur 71 ( tail tokens ) in
++  let named = label != " " in
++  let hasArg = if named then true else isPrefixSyntaxToken tokens in
++  if hasArg then
++    let arg = recur 71 ( if named then tail tokens else tokens ) in
 +    if parseFailed arg then arg
 +    else expParseArgs recur ( parseRest arg )
-+      ( cons ( syntaxNode " ExpArg " [ syntaxName label , parseTree arg ] ) reversed )
-+  else if isPrefixSyntaxToken tokens then
-+    let arg = recur 71 tokens in
-+    if parseFailed arg then arg
-+    else expParseArgs recur ( parseRest arg )
-+      ( cons ( syntaxNode " ExpArg " [ syntaxName " " , parseTree arg ] ) reversed )
++      ( cons ( expArg label ( parseTree arg ) ) reversed )
 +  else parsePair ( syntaxNode " ExpArgs " ( reverse reversed ) ) tokens ;
 +
 +# Pratt suffix step handles application at 70 and left-associative operators.
 +def parseSuffix recur minimum parsed =
-@@ -605,1 +664,7 @@
+@@ -605,1 +661,7 @@
 -    else if isPrefixSyntaxToken rest then
 +    else if expLabel rest != " " then
 +      if minimum > 70 then parsed
@@ -204,12 +201,12 @@
 +        else parseSuffix recur minimum
 +          ( parsePair ( syntaxNode " ExpCall " [ parseTree parsed , parseTree args ] ) ( parseRest args ) )
 +    else if isPrefixSyntaxToken rest then
-@@ -616,1 +681,3 @@
+@@ -616,1 +678,3 @@
 -        else parseSuffix recur minimum ( parsePair ( syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) ) ( parseRest rhs ) ) ;
 +        else let tree = if next == " >> " then syntaxApply ( parseTree rhs ) ( parseTree parsed )
 +          else syntaxBinary next ( parseTree parsed ) ( parseTree rhs ) in
 +          parseSuffix recur minimum ( parsePair tree ( parseRest rhs ) ) ;
-@@ -630,57 +697,59 @@
+@@ -630,57 +694,59 @@
 -def parseNamedBody prefix name params annotations valueType relationType tokens =
 -  let body = parseAt 0 tokens in
 -    if parseFailed body then body
@@ -326,10 +323,10 @@
 +            ( parsePeek ( tail afterParams ) ) startBody
 +        else parseNamedBody prefix name params annotations labels " _ " " _ " startBody
 +    else parseError " Expected definition name " ;
-@@ -693,1 +762,1 @@
+@@ -693,1 +759,1 @@
 -def recordFieldName field = syntaxText ( head ( syntaxChildren field ) ) ;
 +def recordFieldName field = field >> syntaxChildren >> head >> syntaxText ;
-@@ -1035,55 +1104,188 @@
+@@ -1035,55 +1101,182 @@
 -def parseFormsScoped tokens reversed aliases globals typed =
 -  if isEmpty tokens then syntaxNode " Program " ( reverse reversed )
 -  else let parsed = parseForm tokens in
@@ -415,14 +412,12 @@
 +def expCaptureName label = textConcat " #exp_arg_ " label ;
 +def expMissingName label = textConcat " #exp_missing_ " label ;
 +def expApplySlots fn labels slots direct =
-+  match labels with
-+  | [] -> fn
-+  | item :: rest ->
++  labels >> fold ( fun acc item ->
 +    let label = syntaxText item in
 +    let arg = match mapFind slots label with
 +      | MapMissing -> syntaxVar ( expMissingName label )
 +      | MapFound value -> if direct then value else syntaxVar ( expCaptureName label ) in
-+    expApplySlots ( syntaxApply fn arg ) rest slots direct ;
++    syntaxApply acc arg ) fn ;
 +def expWrapMissing labels slots body =
 +  match labels with
 +  | [] -> body
@@ -432,12 +427,9 @@
 +    if mapContains slots label then inner
 +    else syntaxLambda ( expMissingName label ) inner ;
 +def expWrapCaptures reversed body =
-+  match reversed with
-+  | [] -> body
-+  | arg :: rest ->
-+    expWrapCaptures rest
-+      ( syntaxApply ( syntaxLambda ( expCaptureName ( syntaxText ( expFirst arg ) ) ) body )
-+        ( expSecond arg ) ) ;
++  reversed >> fold ( fun acc arg ->
++    syntaxApply ( syntaxLambda ( expCaptureName ( syntaxText ( expFirst arg ) ) ) acc )
++      ( expSecond arg ) ) body ;
 +def expFinishCall fn labels slots captures ordered extra =
 +  let full = length slots == length labels in
 +  let direct = if full then ordered else false in
@@ -461,10 +453,9 @@
 +        ( cons ( expArg label value ) captures )
 +        ( if ordered then first == label else false ) ;
 +def expLowerArgs args labels scope =
-+  match args with
-+  | [] -> []
-+  | arg :: rest -> cons ( expArg ( syntaxText ( expFirst arg ) )
-+      ( expLower ( expSecond arg ) labels scope ) ) ( expLowerArgs rest labels scope ) ;
++  args >> map ( fun arg ->
++    expArg ( syntaxText ( expFirst arg ) )
++      ( expLower ( expSecond arg ) labels scope ) ) ;
 +def expLowerCall tree labels scope =
 +  let spine = expSpine ( expFirst tree ) ( syntaxChildren ( expSecond tree ) ) in
 +  let fn = expFirst spine in
@@ -573,69 +564,69 @@
 +def parseFormsScoped tokens reversed aliases globals typed = expFormsScoped tokens reversed aliases globals typed [] ;
 +def parseForms tokens reversed = expFormsScoped tokens reversed [] [] false [] ;
 +def parseTypedForms tokens = expFormsScoped tokens [] [] [] true [] ;
-@@ -1191,1 +1393,2 @@
+@@ -1191,1 +1384,2 @@
 -def parseSource source = parseForms ( stripNailHeader ( tokenizeCode source ) ) [] ;
 +def parseSource source =
 +  parseForms tokens: ( source >> tokenizeCode >> stripNailHeader ) reversed: [] ;
-@@ -1472,1 +1675,1 @@
+@@ -1472,1 +1666,1 @@
 -def compileSyntax program = compileExpandedSyntax ( macroExpandSyntax program ) ;
 +def compileSyntax program = program >> macroExpandSyntax >> compileExpandedSyntax ;
-@@ -1474,1 +1677,1 @@
+@@ -1474,1 +1668,1 @@
 -def compileSource source = compileSyntax ( parseSource source ) ;
 +def compileSource source = source >> parseSource >> compileSyntax ;
-@@ -1520,2 +1723,2 @@
+@@ -1520,2 +1714,2 @@
 -def compileExactSource source =
 -  compileExpandedSyntax ( exactRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileExactSource source =
 +  source >> parseSource >> macroExpandSyntax >> exactRewrite >> compileExpandedSyntax ;
-@@ -1573,2 +1776,2 @@
+@@ -1573,2 +1767,2 @@
 -def compileModernSource source =
 -  compileExpandedSyntax ( modernRewrite ( macroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSource source =
 +  source >> parseSource >> macroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -1632,1 +1835,1 @@
+@@ -1632,1 +1826,1 @@
 -def tcFirst tree = head ( syntaxChildren tree ) ;
 +def tcFirst tree = tree >> syntaxChildren >> head ;
-@@ -1633,1 +1836,1 @@
+@@ -1633,1 +1827,1 @@
 -def tcSecond tree = head ( tail ( syntaxChildren tree ) ) ;
 +def tcSecond tree = tree >> syntaxChildren >> tail >> head ;
-@@ -1634,1 +1837,1 @@
+@@ -1634,1 +1828,1 @@
 -def tcThird tree = head ( tail ( tail ( syntaxChildren tree ) ) ) ;
 +def tcThird tree = tree >> syntaxChildren >> tail >> tail >> head ;
-@@ -1855,1 +2058,1 @@
+@@ -1855,1 +2049,1 @@
 -def tcSchemeQuantifiers scheme = syntaxChildren ( tcSecond scheme ) ;
 +def tcSchemeQuantifiers scheme = scheme >> tcSecond >> syntaxChildren ;
-@@ -1856,1 +2059,1 @@
+@@ -1856,1 +2050,1 @@
 -def tcSchemeComparable scheme = syntaxChildren ( tcThird scheme ) ;
 +def tcSchemeComparable scheme = scheme >> tcThird >> syntaxChildren ;
-@@ -1857,1 +2060,1 @@
+@@ -1857,1 +2051,1 @@
 -def tcSchemeRowGuards scheme = syntaxChildren ( tcFourth scheme ) ;
 +def tcSchemeRowGuards scheme = scheme >> tcFourth >> syntaxChildren ;
-@@ -2000,1 +2203,1 @@
+@@ -2000,1 +2194,1 @@
 -def tcResultSubs result = syntaxChildren ( tcSecond result ) ;
 +def tcResultSubs result = result >> tcSecond >> syntaxChildren ;
-@@ -2001,1 +2204,1 @@
+@@ -2001,1 +2195,1 @@
 -def tcResultSeed result = syntaxText ( tcThird result ) ;
 +def tcResultSeed result = result >> tcThird >> syntaxText ;
-@@ -2036,2 +2239,3 @@
+@@ -2036,2 +2230,3 @@
 -    else tcInferResult instance ( syntaxChildren rowRequired )
 -      ( tcRenameSeed renaming ) ;
 +    else tcInferResult instance
 +      ( tcInstantiateNumeric ( tcSchemeNumeric scheme ) names ( syntaxChildren rowRequired ) )
 +      ( tcRenameSeed renaming ) ;
-@@ -2172,2 +2376,4 @@
+@@ -2172,2 +2367,4 @@
 -        else let scheme = tcGeneralize
 -          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
 +        else let generalized = tcGeneralizeNumeric
 +          ( tcResultType inferred ) environment ( tcResultSubs inferred ) in
 +        if syntaxTag generalized == " TCFault " then generalized
 +        else let scheme = tcFirst generalized in
-@@ -2187,2 +2393,2 @@
+@@ -2187,2 +2384,2 @@
 -                ( tcResultSubs inferred ) ( tcResultSeed inferred ) )
 -              " 1 " ) " 0 "
 +                ( syntaxChildren ( tcSecond generalized ) ) ( tcResultSeed inferred ) )
 +              " 1 " ) " 0 "
-@@ -2348,5 +2554,2 @@
+@@ -2348,5 +2545,2 @@
 -        else let final = tcResultSubs constrained in
 -          let scheme = tcGeneralize provisional environment final in
 -          tcCheckForms rest
@@ -643,7 +634,7 @@
 -            final ( tcResultSeed constrained ) reversed aliases relations ;
 +        else tcPublishNumericDefinition name provisional rest environment
 +          ( tcResultSubs constrained ) ( tcResultSeed constrained ) reversed aliases relations ;
-@@ -2503,3 +2706,5 @@
+@@ -2503,3 +2697,5 @@
 -      | Ok updated ->
 -        tcValidateRelationRows name source rest relation
 -          updated ( tcNext ( tcResultSeed inferred ) ) environment ;
@@ -652,7 +643,7 @@
 +        | Error message -> tcFault message
 +        | Ok final -> tcValidateRelationRows name source rest relation
 +            final ( tcNext ( tcResultSeed inferred ) ) environment ;
-@@ -2634,5 +2839,3 @@
+@@ -2634,5 +2830,3 @@
 -        | Ok updated ->
 -          let scheme = tcGeneralize provisional environment updated in
 -          tcCheckForms rest
@@ -661,7 +652,7 @@
 +        | Ok updated ->
 +          tcPublishNumericDefinition name provisional rest environment
 +            updated ( tcResultSeed inferred ) reversed aliases relations
-@@ -2643,5 +2846,6 @@
+@@ -2643,5 +2837,6 @@
 -      else tcCheckForms rest environment ( tcResultSubs inferred )
 -        ( tcResultSeed inferred )
 -        ( cons
@@ -673,36 +664,36 @@
 +            ( tcResultSeed inferred )
 +            ( cons ( tcNormalize ( tcResultType inferred ) final ) reversed )
 +            aliases relations
-@@ -2720,2 +2924,1 @@
+@@ -2720,2 +2915,1 @@
 -def tcFourth tree =
 -  head ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ;
 +def tcFourth tree = tree >> syntaxChildren >> tail >> tail >> tail >> head ;
-@@ -2722,2 +2925,1 @@
+@@ -2722,2 +2916,1 @@
 -def tcFifth tree =
 -  head ( tail ( tail ( tail ( tail ( syntaxChildren tree ) ) ) ) ) ;
 +def tcFifth tree = tree >> syntaxChildren >> tail >> tail >> tail >> tail >> head ;
-@@ -2859,4 +3061,2 @@
+@@ -2859,4 +3052,2 @@
 -  else tcCheckSyntax
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntax ;
-@@ -2868,4 +3068,2 @@
+@@ -2868,4 +3059,2 @@
 -  else tcCheckSyntaxTraced
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxTraced ;
-@@ -2880,4 +3078,2 @@
+@@ -2880,4 +3069,2 @@
 -  else tcCheckSyntaxSchemes
 -    ( modernRewrite
 -      ( tcExpandTypedMacros
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3279,1 +3475,126 @@
+@@ -3279,1 +3466,126 @@
 -def tcNumericOperation name =
 +# Pending numeric obligations live alongside existing Eq and row guards.
 +# This first stage resolves constraints within a form only; no predicate
@@ -830,7 +821,7 @@
 +      final seed reversed aliases relations ;
 +
 +def tcNumericOperation name =
-@@ -3322,8 +3643,14 @@
+@@ -3322,8 +3634,14 @@
 -      if syntaxTag left != " TCBase " then
 -        tcFault " Numeric operands require concrete types or an explicit relation "
 -      else if syntaxTag right != " TCBase " then
@@ -853,21 +844,21 @@
 +  tcInferResult output
 +    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
 +    ( tcNext seed ) ;
-@@ -3822,1 +4149,1 @@
+@@ -3822,1 +4140,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4805,2 @@
+@@ -4478,2 +4796,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4812,2 @@
+@@ -4485,3 +4803,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSourceNailMacros source =
 +  source >> parseSource >> nailMacroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -5268,4 +5594,6 @@
+@@ -5268,4 +5585,6 @@
 -def tcCanonicalRowEvidence scheme =
 -  if syntaxTag scheme != " TCScheme " then
 -    Error " Expected a Nail HM type scheme "
