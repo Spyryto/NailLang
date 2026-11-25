@@ -35,9 +35,40 @@ class StdlibSyntaxExperimentTestMain {
     experimental.runExperimental(revised);
     var before=stable.names();
     var after=experimental.names();
-    ok(after.indexOf('tokenize-at')>=0,'hyphenated implementation');
-    after.remove('tokenize-at');
-    same(after,before,'all existing exported runtime names retained');
+    // New parser helpers are ordinary Nail definitions. Check the exact
+    // additions explicitly, and still reject any missing original name.
+    var expectedAdded=[
+      'expApplyArgs',
+      'expApplySlots',
+      'expArg',
+      'expAssign',
+      'expBad',
+      'expCaptureName',
+      'expContains',
+      'expDefParams',
+      'expError',
+      'expFindFree',
+      'expFinishCall',
+      'expFirst',
+      'expFormsScoped',
+      'expLabel',
+      'expLabelAt',
+      'expLower',
+      'expLowerArgs',
+      'expLowerCall',
+      'expMissingName',
+      'expParseArgs',
+      'expResolve',
+      'expSecond',
+      'expSpine',
+      'expWrapCaptures',
+      'expWrapMissing',
+      'tokenize-at'
+    ];
+    same(after.filter(name -> before.indexOf(name)<0),expectedAdded,
+      'only intended experimental helper names added');
+    same(after.filter(name -> before.indexOf(name)>=0),before,
+      'all existing runtime names retained');
 
     // Compare values from the complete libraries, not just test fixtures.
     var samples=[
@@ -60,8 +91,8 @@ class StdlibSyntaxExperimentTestMain {
       same(experimental.runPlain(samples[i]),expected,'whole stdlib AST sample '+i);
     }
 
-    // User programs still use the established grammar when calling the
-    // self-hosted parser; that parser has NOT learned the new surface syntax.
+    // The established grammar must still behave identically after adding
+    // experimental surface forms to the patched self-hosted parser.
     for (program in [
       'def double x = x + x ; double 21 ;',
       'nail 0.61 ; 3 / 2 ;',
