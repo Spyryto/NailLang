@@ -18,7 +18,7 @@ class SelfSyntaxExperimentTestMain {
     if (source==null) throw 'Missing experimental stdlib';
     var library=new Vm(70000000);
     library.runExperimental(source);
-    var samples=[
+    var samples:Array<{code:String,expected:Array<Dynamic>}>=[
       {code:'def add-one x = x + 1 ; 41 >> add-one ;',expected:[42]},
       {code:'def double-it x = x * 2 ; 1 + 2 >> double-it >> double-it ;',expected:[12]},
       {code:'def subtract-from a b = a - b ; 3 >> subtract-from 10 ;',expected:[7]},
