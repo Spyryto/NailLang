@@ -213,9 +213,9 @@ class SyntaxExperimentTestMain {
       'non-prefix partial calls retain captures');
     var session=new Vm();
     session.runExperimental('nail 0.61 ; '+fraction);
-    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; fraction denominator: 2 numerator: 3 ;'))=='["R:3/2"]',
+    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; fraction denominator: 2 numerator: 3 ;'))==Json.stringify(['R:3/2']),
       'runtime remembers declaration labels across source units');
-    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; def half = fraction denominator: 2 ; half 3 ;'))=='["R:3/2"]',
+    assertTrue(Json.stringify(session.runPlainExperimental('nail 0.61 ; def half = fraction denominator: 2 ; half 3 ;'))==Json.stringify(['R:3/2']),
       'partial application across separate source units');
     var sessionTypes=new TypeChecker();
     sessionTypes.checkExperimental('nail 0.61 ; '+fraction);
