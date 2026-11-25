@@ -4,6 +4,9 @@ import nail.BootstrapImage;
 import nail.BytecodeCompiler;
 import nail.Parser;
 import nail.Vm;
+import nail.TypeChecker;
+import nail.ResultValue;
+import nail.Value;
 
 /** Isolated first step of self-parser alignment. Compare the surface lowering with the Haxe oracle. */
 class SelfSyntaxExperimentTestMain {
@@ -11,6 +14,36 @@ class SelfSyntaxExperimentTestMain {
   static function ok(condition:Bool,label:String):Void {
     if (!condition) throw 'SELF SYNTAX: '+label;
     passed++;
+  }
+  static function checkTypes(library:Vm,body:String,expected:Array<String>):Void {
+    var source='nail 0.61 ; '+body;
+    var result=library.invoke('tcCheckSource',Text(source));
+    ok(ResultValue.tag(result)==ResultValue.OK,'deferred numeric checker: '+body+' got '+Std.string(result));
+    var types:Array<String>=[];
+    var rest=switch(ResultValue.get(result,ResultValue.OK)) {
+      case SyntaxNode('TCChecked',items): items;
+      case _: throw 'Expected TCChecked';
+    };
+    while(true) switch(rest) {
+      case Nil: break;
+      case Cons(item,tail):
+        switch(library.invoke('tcPretty',item)) {
+          case Text(label): types.push(label);
+          case _: throw 'Expected type text';
+        }
+        rest=tail;
+      case _: throw 'Invalid TCChecked list';
+    }
+    ok(Json.stringify(types)==Json.stringify(expected),'Nail inferred types '+body);
+    ok(Json.stringify(new TypeChecker().checkExperimental(source))==Json.stringify(expected),'Haxe inferred types '+body);
+  }
+  static function rejectNumeric(library:Vm,body:String,fragment:String):Void {
+    var result=library.invoke('tcCheckSource',Text('nail 0.61 ; '+body));
+    ok(ResultValue.tag(result)==ResultValue.ERR,'expected numeric rejection '+body);
+    switch(ResultValue.get(result,ResultValue.ERR)) {
+      case Text(message): ok(message.indexOf(fragment)>=0,'numeric diagnostic '+message);
+      case _: throw 'Expected error text';
+    }
   }
   static function main():Void {
     var source=Resource.getString('stdlib-experimental');
@@ -98,6 +131,17 @@ class SelfSyntaxExperimentTestMain {
       try stable.runPlainWithNail(code) catch (_:Dynamic) refused=true;
       ok(refused,'official self-parser remains unchanged '+code);
     }
+    checkTypes(library,'( fun x -> x + 1 ) 2 ;',['Int']);
+    checkTypes(library,'( fun x -> x / 2 ) 3 ;',['Ratio']);
+    checkTypes(library,'( fun x -> ( x + 1 ) / 2 ) 3 ;',['Ratio']);
+    checkTypes(library,'def add-one ( x : Int ) = x + 1 ; add-one 41 ;',['Int']);
+    checkTypes(library,'def fraction numerator: ( a : Int ) denominator: ( b : Int ) = a / b ; fraction denominator: 2 numerator: 3 ;',['Ratio']);
+    checkTypes(library,'( fun x -> let y = x + 1 in y + 2 ) 3 ;',['Int']);
+    checkTypes(library,'( fun x -> x + x ) 1.5 ;',['Float']);
+    rejectNumeric(library,'( fun x -> x + 1 ) true ;','No numeric relation instance');
+    rejectNumeric(library,'( fun x -> x + 1 ) 1.5 ;','No numeric relation instance');
+    rejectNumeric(library,'def summ x y = x + y ;','Ambiguous numeric constraint');
+    rejectNumeric(library,'def add-one ( x : Text ) = x + 1 ;','No numeric relation instance');
     trace('Self syntax experiment: '+passed+' differential checks passed');
   }
 }
