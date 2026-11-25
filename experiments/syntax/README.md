@@ -27,9 +27,12 @@ La trasformazione del parser usa solamente `Var`, `Lambda` e `Apply`,
 senza nuovi nodi, opcode, VM o FFI.
 
 Una chiamata con argomenti nominati riconosce i parametri della funzione
-già dichiarata nello stesso file. Gli argomenti forniti vengono catturati
+già dichiarata nello stesso file o in un sorgente precedentemente caricato
+nella stessa sessione sperimentale. Gli argomenti forniti vengono catturati
 una volta nell'ordine in cui sono scritti. I parametri non forniti
 rimangono lambda curried nell'ordine originale di dichiarazione.
+Una chiamata satura i cui argomenti sono forniti nell'ordine originale
+viene invece ridotta alle normali applicazioni, senza lambda di cattura.
 
 `value >> fn` si riduce a `fn value`. È associativo a sinistra e ha
 precedenza inferiore a operatori aritmetici e confronti. Un nome con
@@ -100,9 +103,9 @@ ancora proprietà delle funzioni come valori di prima classe.
 
 - Identificatori composti stile `def set contains: item in: entries`
   **non** sono ancora supportati. Mancano le regole di risoluzione dei nomi.
-- Le label sono disponibili soltanto per definizioni locali già viste
-  nello stesso parsing. La stdlib caricata separatamente, import ed
-  extern non comunicano ancora le label al parser del chiamante.
+- VM e checker conservano le label dei sorgenti caricati esplicitamente
+  in modalità sperimentale. `loadStdlib()` ordinario, import, extern
+  e il browser Lab non predispongono ancora la variante della libreria.
 - Le keyword richiedono il `:`: `item: 2`, non `item 2`.
 - La punteggiatura richiede ancora spazi intorno ai token.
 - Il checker Haxe, `Main.analyzeExperimental` e Nail Lab (modalità
@@ -152,14 +155,25 @@ Scelte di leggibilità, non regole obbligatorie:
 - Label pubbliche `using:`, `items:`, `initial:`, `predicate:` per
   map/filter/fold; sono proposte da valutare, non un'API definitiva.
 - Chiamate nominate per rendere espliciti indici, limiti e accumulatori.
-- Chiamate posizionali nei percorsi ricorsivi: l'attuale lowering di
-  una chiamata nominata introduce catture Lambda/Apply anche quando
-  gli argomenti sono già in ordine. Non si assume overhead zero.
+- Chiamate posizionali nei percorsi ricorsivi per concisione. Dopo
+  il dogfooding, il lowering ordinato e saturo è identico a quello
+  posizionale; riordinamento e currying non prefisso mantengono le catture.
 - Un solo esperimento con il trattino (`tokenize-at`); si conserva
   `tokenizeAt` come alias durante il confronto.
 - Non riscrivere i costruttori o i nomi di funzioni host.
 
-Il dogfooding evidenzia due prerequisiti per un'eventuale adozione:
-il parser Nail deve imparare la superficie sperimentale e le label
-devono essere visibili quando la libreria è caricata prima del sorgente
-utente. Non richiedono necessariamente tipi funzionali con label.
+Il parser Nail deve ancora imparare la superficie sperimentale. Per
+rendere visibili le label della libreria caricata prima del sorgente
+utente, il parser Haxe ora accetta uno snapshot di metadati e VM e
+checker lo aggiornano dopo il successo della rispettiva operazione.
+
+```haxe
+var vm = new nail.Vm(70000000);
+vm.runExperimental(refactoredStdlib);
+var result = vm.runPlainExperimental('map using: ( fun x -> x + 1 ) items: [ 1 , 2 ] ;');
+```
+
+Il checker può verificare separatamente la sezione collezioni e poi
+il chiamante. Non è ancora una ABI pubblica: non si assegnano alla
+libreria legacy tipi numerici moderni e non si finge che tutta la
+stdlib (che contiene riferimenti in avanti) sia già verificata con HM.
