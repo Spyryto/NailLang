@@ -123,7 +123,17 @@ class TypeChecker {
     relationByName = solver.relations;
     generalContracts = solver.generalContracts;
     functionContracts = solver.functionContracts;
-    if (parser.syntaxExperiment) experimentalCallLabels=parser.experimentalLabels();
+    if (parser.syntaxExperiment) {
+      // checkParsed also accepts independently constructed parsers.
+      // Retain metadata from earlier successful units and publish only
+      // declarations that actually belong to this checked program.
+      var labels=parser.experimentalLabels();
+      for (form in forms) switch (form) {
+        case Define(name, _) if (labels.exists(name)):
+          experimentalCallLabels.set(name,labels.get(name).copy());
+        case _:
+      }
+    }
     lastModern = parser.modernMode;
     lastOpenRows = parser.experimentalContexts || parser.languageVersion=='0.61';
     if (parser.modernMode) for (form in forms) switch(form) {
