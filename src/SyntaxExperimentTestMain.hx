@@ -167,6 +167,40 @@ class SyntaxExperimentTestMain {
     var view=Main.expandExperimental(sample);
     assertTrue(view.indexOf('fun a ->')>=0 && view.indexOf('#exp_')>=0,
       'expanded view exposes ordinary lambdas and captures');
+    var summ='def summ x y = x + y ; ';
+    assertTypes(summ+'summ 15 3 ; summ 1.5 2.5 ; summ ( 1 / 2 ) 3 ;',
+      ['Int','Float','Ratio'],'inferred arithmetic constraints specialize independently');
+    assertTypes(summ+'def add-three = summ y: 3 ; add-three 10 ; add-three ( 1 / 2 ) ;',
+      ['Int','Ratio'],'numeric constraints survive named partial application');
+    assertTypes(summ+'def add-three = summ 3 ; add-three 10 ;',
+      ['Int'],'numeric constraints survive positional partial application');
+    assertTypes(summ+'def apply f x = f x ; apply ( summ y: 3 ) 10 ;',
+      ['Int'],'numeric constraints through higher-order application');
+    assertTypes(summ+'def twice x = summ x x ; twice 2 ; twice 1.5 ;',
+      ['Int','Float'],'repeated type variables in relation rows');
+    assertTypes('def f x = let y = x + 1 in y + 2 ; f 3 ;',
+      ['Int'],'local binding preserves constraints on captured parameter');
+    assertTypes('def fraction numerator: a denominator: b = a / b ; '
+      +'def half = fraction denominator: 2 ; half 3 ;',
+      ['Ratio'],'unannotated renamed fraction');
+    assertTypeError(summ+'summ " bad " 3 ;','no Add instance','Text is not numeric');
+    assertTypeError(summ+'summ 1.5 3 ;','no Add instance','mixed Float and Int rejected');
+    assertTypeError(summ+'def add-three = summ y: 3 ; add-three true ;',
+      'no Add instance','partial application cannot erase numeric constraint');
+    var numericChecker=new TypeChecker();
+    numericChecker.checkExperimental('nail 0.61 ; '+summ+'def add-three = summ y: 3 ;');
+    assertTrue(numericChecker.signature('summ')=='Add a b c => a -> b -> c',
+      'qualified inferred signature');
+    assertTrue(numericChecker.signature('add-three').indexOf('Add')>=0,
+      'qualified partial signature');
+    assertTrue(numericChecker.checkExperimental('nail 0.61 ; summ 4 5 ;')[0]=='Int',
+      'predicates survive a new checker session');
+    var exportRejected=false;
+    try numericChecker.publicScheme('summ') catch (_:Dynamic) exportRejected=true;
+    assertTrue(exportRejected,'public ABI cannot silently discard numeric constraints');
+    var oldRejected=false;
+    try new TypeChecker().check('nail 0.61 ; '+summ) catch (_:Dynamic) oldRejected=true;
+    assertTrue(oldRejected,'stable inference is unchanged');
     trace('Syntax experiment: '+count+' Haxe/JS/PHP checks passed');
   }
 }
