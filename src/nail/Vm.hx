@@ -137,7 +137,7 @@ class Vm {
 
   /** Execute core forms through one definition/evaluation path.
       Haxe's declaration lowering remains the independent bootstrap seed. */
-  function executeForms(forms:Array<Form>):Array<Value> {
+  function executeForms(forms:Array<Form>, ?labels:haxe.ds.StringMap<Array<String>>):Array<Value> {
     var output:Array<Value> = [];
     for (form in forms) {
       var lowered:Array<Form> = switch (form) {
@@ -149,6 +149,14 @@ class Vm {
         case Define(name, body):
           if (root.hasHere(name)) throw 'Already defined: ' + name;
           root.bind(name, evaluate(body, root));
+          // Runtime definitions commit individually. Publish metadata at
+          // that same point, never for an unevaluated or rejected form.
+          // Lowered record/sum constructors are not labelled declarations.
+          switch (form) {
+            case Define(_, _) if (labels != null && labels.exists(name)):
+              experimentalCallLabels.set(name,labels.get(name).copy());
+            case _:
+          }
         case Evaluate(body): output.push(evaluate(body, root));
         case _: throw 'Unlowered declaration';
       }
@@ -174,9 +182,8 @@ class Vm {
     #else
     steps = 0;
     var parser=new Parser(source,null,true,experimentalCallLabels);
-    var result=executeForms(parser.parse());
-    experimentalCallLabels=parser.experimentalLabels();
-    return result;
+    var forms=parser.parse();
+    return executeForms(forms,parser.experimentalLabels());
     #end
   }
 
