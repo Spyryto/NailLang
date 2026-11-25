@@ -106,6 +106,19 @@ class StdlibSyntaxExperimentTestMain {
     try new TypeChecker().checkExperimental(newPrefix+'setContains entries: [ fun x -> x ] item: ( fun y -> y ) ;')
     catch (e:Dynamic) invalid=Std.string(e).indexOf('functions cannot be compared')>=0;
     ok(invalid,'Eq requirement survives named call');
+    var demo='def inc-all = map using: ( fun n -> n + 1 ) ;\ninc-all [ 1 , 2 ] ;\nlength xs: [ 1 , 2 ] ;';
+
+    var report=Main.analyzeExperimentalStdlib(demo);
+    ok(report.ok,'Lab analysis on separately loaded library');
+    ok(report.evaluations[1].type=='Number','legacy length result type remains Number');
+    same(Main.runExperimentalStdlib(demo),[[2,3],2],'Lab execution uses patched stdlib');
+    var expansion=Main.expandExperimentalStdlib('map using: ( fun n -> n ) items: [ 1 ] ;');
+    ok(expansion.indexOf('#exp_')<0,'Lab expansion uses direct lowering');
+    var bad=Main.analyzeExperimentalStdlib('map using: true items: [ 1 ] ;');
+    ok(!bad.ok && bad.diagnostics[0].phase=='type' && bad.diagnostics[0].span.line==1,
+      'Lab type error refers to user source, not library prelude');
+    ok(!Main.analyzeExperimentalStdlib('nail 0.61 ; length [ 1 ] ;').ok,
+      'Lab rejects mixing modern numeric semantics with legacy stdlib');
     trace('Stdlib syntax experiment: '+passed+' differential checks passed');
   }
 }
