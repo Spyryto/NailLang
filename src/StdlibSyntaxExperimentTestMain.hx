@@ -66,7 +66,7 @@ class StdlibSyntaxExperimentTestMain {
       'def double x = x + x ; double 21 ;',
       'nail 0.61 ; 3 / 2 ;',
       'nail 0.61 ; type Person { name Text } ; def name data = data . name ; name ( Person " Ada " ) ;',
-      'nail 0.61 ; macro identity x = x ; identity 42 ;'
+      'nail 0.61 ; macro identity x = quote ( unquote x ) ; expand identity 42 ;'
     ]) {
       same(experimental.runPlainWithNail(program),stable.runPlainWithNail(program),'self-parser execution: '+program);
       ok(BootstrapImage.encode(experimental.compileWithNail(program))==
