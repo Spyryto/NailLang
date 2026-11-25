@@ -15,6 +15,7 @@ private enum EvalFrame {
 /** Small, pure Nail evaluator. No JS / PHP target branches. */
 class Vm {
   final root:Env;
+  var experimentalCallLabels=new haxe.ds.StringMap<Array<String>>();
   final maxSteps:Int;
   var steps:Int = 0;
 
@@ -172,7 +173,10 @@ class Vm {
     throw 'Host source parser disabled in bootstrap-only build';
     #else
     steps = 0;
-    return executeForms(new Parser(source,null,true).parse());
+    var parser=new Parser(source,null,true,experimentalCallLabels);
+    var result=executeForms(parser.parse());
+    experimentalCallLabels=parser.experimentalLabels();
+    return result;
     #end
   }
 
