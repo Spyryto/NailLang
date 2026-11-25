@@ -693,7 +693,7 @@
 -        ( parseTypedForms ( stripNailHeader tokens ) ) ) ) ;
 +  else tokens >> stripNailHeader >> parseTypedForms >> tcExpandTypedMacros
 +    >> modernRewrite >> tcCheckSyntaxSchemes ;
-@@ -3279,1 +3466,141 @@
+@@ -3279,1 +3466,148 @@
 -def tcNumericOperation name =
 +# Pending numeric obligations live alongside existing Eq and row guards.
 +# No predicate is silently discarded during generalization or export.
@@ -710,6 +710,13 @@
 +  syntaxNode " TCNumericPredicate " [ syntaxName relation , left , right , result ] ;
 +def tcNumericTerms predicate =
 +  [ tcSecond predicate , tcThird predicate , tcFourth predicate ] ;
++# Comparisons share the arithmetic domain but always return Bool.
++# Keep this internal: Compare is not a new public relation declaration.
++def tcNumericRows relation =
++  if relation == " Compare " then
++    syntaxChildren ( tcDefaultRelation " Add " ) >> map ( fun row ->
++      tcRelationRow ( append ( tcRelationInputs row ) [ tcBase " Bool " ] ) )
++  else syntaxChildren ( tcDefaultRelation relation ) ;
 +def tcTryNumericRow predicate row substitutions =
 +  match tcUnifyTypes ( tcNumericTerms predicate )
 +    ( append ( tcRelationInputs row ) [ tcRelationOutput row ] ) substitutions with
@@ -746,7 +753,7 @@
 +    else Ok ( append ( map ( fun p -> tcBinding " #tc_numeric_pending " p ) remaining ) substitutions )
 +  | predicate :: rest ->
 +    let relation = syntaxText ( tcFirst predicate ) in
-+    let rows = syntaxChildren ( tcDefaultRelation relation ) in
++    let rows = tcNumericRows relation in
 +    match tcNumericCandidates predicate rows substitutions with
 +    | [] -> Error ( textConcat " No numeric relation instance: " relation )
 +    | candidate :: others ->
@@ -836,7 +843,39 @@
 +      final seed reversed aliases relations ;
 +
 +def tcNumericOperation name =
-@@ -3322,8 +3649,14 @@
+@@ -3284,2 +3618,6 @@
+-  else if op == " #modern/ " then " Div "
+-  else " _ " ;
++  else if op == " #modern/ " then " Div "
++  else if op == " #modern< " then " Compare "
++  else if op == " #modern<= " then " Compare "
++  else if op == " #modern> " then " Compare "
++  else if op == " #modern>= " then " Compare "
++  else " _ " ;
+@@ -3294,16 +3632,6 @@
+-def tcNumericResult relation left right =
+-  if left == " Int " then
+-    if right == " Int " then
+-      if relation == " Div " then tcBase " Ratio "
+-      else tcBase " Int "
+-    else if right == " Ratio " then tcBase " Ratio "
+-    else tcFault " No numeric relation instance "
+-  else if left == " Ratio " then
+-    if right == " Int " then tcBase " Ratio "
+-    else if right == " Ratio " then tcBase " Ratio "
+-    else tcFault " No numeric relation instance "
+-  else if left == " Float " then
+-    if right == " Float " then tcBase " Float "
+-    else tcFault " No numeric relation instance "
+-  else tcFault " No numeric relation instance " ;
+-
++# Reuse the finite relation instead of duplicating the numeric rules.
++def tcNumericResult relation left right =
++  let output = tcFindRelationResult [ tcBase left , tcBase right ] ( tcNumericRows relation ) in
++  if syntaxTag output == " TCMissing " then tcFault " No numeric relation instance "
++  else output ;
++
+@@ -3322,8 +3650,14 @@
 -      if syntaxTag left != " TCBase " then
 -        tcFault " Numeric operands require concrete types or an explicit relation "
 -      else if syntaxTag right != " TCBase " then
@@ -859,21 +898,21 @@
 +  tcInferResult output
 +    ( cons ( tcBinding " #tc_numeric_pending " predicate ) ( tcResultSubs inferred ) )
 +    ( tcNext seed ) ;
-@@ -3822,1 +4155,1 @@
+@@ -3822,1 +4156,1 @@
 -def nmBad step = nmIsError ( nmValue step ) ;
 +def nmBad step = step >> nmValue >> nmIsError ;
-@@ -4478,2 +4811,2 @@
+@@ -4478,2 +4812,2 @@
 -def nailMacroExpandSyntax program =
 -  nailMacroExpandSyntaxBudgeted program nmDefaultFuel ;
 +def nailMacroExpandSyntax program =
 +  nailMacroExpandSyntaxBudgeted program fuel: nmDefaultFuel ;
-@@ -4485,3 +4818,2 @@
+@@ -4485,3 +4819,2 @@
 -def compileModernSourceNailMacros source =
 -  compileExpandedSyntax
 -    ( modernRewrite ( nailMacroExpandSyntax ( parseSource source ) ) ) ;
 +def compileModernSourceNailMacros source =
 +  source >> parseSource >> nailMacroExpandSyntax >> modernRewrite >> compileExpandedSyntax ;
-@@ -5268,4 +5600,6 @@
+@@ -5268,4 +5601,6 @@
 -def tcCanonicalRowEvidence scheme =
 -  if syntaxTag scheme != " TCScheme " then
 -    Error " Expected a Nail HM type scheme "
